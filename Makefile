@@ -1,4 +1,4 @@
-# miniSMP — AArch64 bare-metal SMP playground for QEMU virt
+# mini-os — AArch64 bare-metal SMP playground for QEMU virt
 
 CROSS   ?= aarch64-linux-gnu-
 CC      := $(CROSS)gcc
@@ -11,7 +11,7 @@ CFLAGS  := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
 ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib
 
-SRCS    := boot.S kernel.c uart.c
+SRCS    := boot.S kernel.c smp.c uart.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 

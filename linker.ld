@@ -34,4 +34,10 @@ SECTIONS
     . = ALIGN(16);
     . += 0x10000;
     _stack_top = .;
+
+    /* Per-CPU stacks for secondaries (indexed by Aff0) */
+    . = ALIGN(16);
+    __per_cpu_stack_size = 0x4000;
+    __per_cpu_stacks = .;
+    . += __per_cpu_stack_size * 4;
 }

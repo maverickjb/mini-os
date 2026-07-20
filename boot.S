@@ -1,7 +1,8 @@
 /*
  * miniSMP — AArch64 bare-metal entry for QEMU virt
  *
- * All secondary CPUs park in WFI; CPU0 sets up the stack and enters C.
+ * CPU0 sets up the stack and enters C. Secondaries park until cpu_release[]
+ * is written, then jump to the release address (see smp.c / cpu_up).
  */
 
 .section .text.boot, "ax"
@@ -34,5 +35,27 @@ hang:
     b       hang
 
 secondary_park:
+    adr     x1, cpu_release
+    ldr     x2, [x1, x0, lsl #3]
+    cbz     x2, 1f
+    br      x2
+1:
     wfe
     b       secondary_park
+
+.global secondary_startup
+secondary_startup:
+    mrs     x0, mpidr_el1
+    and     x0, x0, #0xff
+
+    ldr     x1, =__per_cpu_stacks
+    ldr     x2, =__per_cpu_stack_size
+    mul     x3, x0, x2
+    add     x1, x1, x3
+    add     sp, x1, x2
+
+    bl      secondary_main
+
+secondary_hang:
+    wfe
+    b       secondary_hang

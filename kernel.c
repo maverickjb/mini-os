@@ -2,6 +2,7 @@
  * miniSMP kernel — AArch64 bare-metal on QEMU virt
  */
 
+#include "smp.h"
 #include "uart.h"
 
 static unsigned int cpu_id(void)
@@ -15,8 +16,17 @@ void kernel_main(void)
 {
     unsigned int id = cpu_id();
 
-    if (id == 0)
+    if (id == 0) {
         uart_puts("Hello from CPU0\n");
+        smp_init();
+        bringup_nonboot_cpus();
+
+        for (unsigned int i = 1; i < NR_CPUS; i++) {
+            uart_puts("Hello from CPU");
+            uart_putc('0' + (char)i);
+            uart_puts("\n");
+        }
+    }
 
     for (;;)
         __asm__ volatile("wfe");
