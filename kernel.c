@@ -3,6 +3,7 @@
  */
 
 #include "smp.h"
+#include "time.h"
 #include "uart.h"
 
 static unsigned int cpu_id(void)
@@ -26,8 +27,11 @@ void kernel_main(void)
             uart_putc('0' + (char)i);
             uart_puts("\n");
         }
+
+        time_init();
+        uart_puts("Tick timer started\n");
     }
 
     for (;;)
-        __asm__ volatile("wfe");
+        __asm__ volatile("wfi");
 }

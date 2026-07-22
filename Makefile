@@ -11,11 +11,11 @@ CFLAGS  := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
 ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib
 
-SRCS    := boot.S kernel.c smp.c uart.c
+SRCS    := boot.S vectors.S kernel.c smp.c irq.c time.c uart.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 
-.PHONY: all clean
+.PHONY: all clean run
 
 all: mini-os.elf mini-os.bin
 
@@ -33,3 +33,9 @@ mini-os.bin: mini-os.elf
 
 clean:
 	rm -f $(OBJS) mini-os.elf mini-os.bin
+
+QEMU    ?= qemu-system-aarch64
+QFLAGS  ?= -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic
+
+run: mini-os.elf
+	$(QEMU) $(QFLAGS) -kernel mini-os.elf
