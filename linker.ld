@@ -40,4 +40,7 @@ SECTIONS
     __per_cpu_stack_size = 0x4000;
     __per_cpu_stacks = .;
     . += __per_cpu_stack_size * 4;
+
+    . = ALIGN(4096);
+    __alloc_start = .;
 }

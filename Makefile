@@ -7,11 +7,11 @@ LD      := $(CROSS)ld
 OBJCOPY := $(CROSS)objcopy
 
 CFLAGS  := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
-           -Wall -Wextra -O2 -g
+           -Wall -Wextra -O0 -g
 ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib
 
-SRCS    := boot.S vectors.S kernel.c smp.c irq.c time.c uart.c
+SRCS    := boot.S vectors.S context.S kernel.c smp.c sched.c task.c irq.c time.c uart.c page_alloc.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 

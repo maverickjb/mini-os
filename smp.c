@@ -5,6 +5,7 @@
  * until cpu_up() writes cpu_release[] and sends SEV.
  */
 
+#include "sched.h"
 #include "smp.h"
 
 extern void secondary_startup(void);
@@ -12,11 +13,17 @@ extern void secondary_startup(void);
 volatile unsigned long cpu_release[NR_CPUS];
 static volatile unsigned char cpu_online[NR_CPUS];
 
-static unsigned int cpu_id(void)
+unsigned int smp_processor_id(void)
 {
     unsigned long mpidr;
+
     __asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
     return (unsigned int)(mpidr & 0xff);
+}
+
+static unsigned int cpu_id(void)
+{
+    return smp_processor_id();
 }
 
 void smp_init(void)
@@ -61,7 +68,6 @@ void secondary_main(void)
     unsigned int id = cpu_id();
 
     cpu_online[id] = 1;
-
-    for (;;)
-        __asm__ volatile("wfe");
+    sched_init_idle(id);
+    cpu_idle();
 }

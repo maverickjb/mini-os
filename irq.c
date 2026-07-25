@@ -27,7 +27,7 @@ static unsigned char *gicr_rd_base(unsigned int cpu)
     return (unsigned char *)(GICR_BASE + cpu * GICR_STRIDE);
 }
 
-static void gicr_wait_ready(unsigned int cpu)
+static int gicr_wait_ready(unsigned int cpu)
 {
     volatile unsigned int *waker = (volatile unsigned int *)(gicr_rd_base(cpu) + 0x0014);
     unsigned int timeout = 1000000U;
@@ -35,30 +35,40 @@ static void gicr_wait_ready(unsigned int cpu)
     *waker &= ~0x2U;
     while ((*waker & 0x4U) && --timeout)
         ;
+    return timeout ? 0 : -1;
 }
 
-static void gic_v3_dist_init(void)
-{
-    GICD_CTLR = 0x00000000U;
-    while (GICD_CTLR & (1U << 31))
-        ;
-
-    GICD_CTLR = (1U << 4) | (1U << 5) | (1U << 1);
-    while (GICD_CTLR & (1U << 31))
-        ;
-}
-
-static void gic_v3_redist_init(unsigned int cpu, unsigned int irq)
+static int gic_v3_redist_init(unsigned int cpu, unsigned int irq)
 {
     unsigned char *sgi = gicr_rd_base(cpu) + 0x10000;
     volatile unsigned int *igroupr0 = (volatile unsigned int *)(sgi + 0x0080);
     volatile unsigned int *isenabler0 = (volatile unsigned int *)(sgi + 0x0100);
     volatile unsigned char *pri = (volatile unsigned char *)(sgi + 0x0400);
 
-    gicr_wait_ready(cpu);
+    if (gicr_wait_ready(cpu) < 0)
+        return -1;
+
     *igroupr0 = 0xffffffffU;
     *isenabler0 = 1U << irq;
     pri[irq] = 0x80;
+    return 0;
+}
+
+static int gic_v3_dist_init(void)
+{
+    unsigned int timeout = 1000000U;
+
+    GICD_CTLR = 0x00000000U;
+    while ((GICD_CTLR & (1U << 31)) && --timeout)
+        ;
+    if (timeout == 0)
+        return -1;
+
+    GICD_CTLR = (1U << 4) | (1U << 5) | (1U << 1);
+    timeout = 1000000U;
+    while ((GICD_CTLR & (1U << 31)) && --timeout)
+        ;
+    return timeout ? 0 : -1;
 }
 
 static void gic_v3_cpu_init(void)
@@ -76,11 +86,16 @@ static void gic_v3_cpu_init(void)
     __asm__ volatile("isb");
 }
 
-static void gic_v3_init(void)
+static int gic_v3_init(void)
 {
-    gic_v3_dist_init();
-    gic_v3_redist_init(0, IRQ_TIMER);
+    if (gic_v3_dist_init() < 0)
+        return -1;
+
+    if (gic_v3_redist_init(0, IRQ_TIMER) < 0)
+        return -1;
+
     gic_v3_cpu_init();
+    return 0;
 }
 
 static void gic_v2_init(void)
@@ -110,9 +125,10 @@ void init_IRQ(void)
 
     gic_is_v3 = (archrev >= 3);
 
-    if (gic_is_v3)
-        gic_v3_init();
-    else
+    if (gic_is_v3 && gic_v3_init() < 0)
+        gic_is_v3 = 0;
+
+    if (!gic_is_v3)
         gic_v2_init();
 }
 
