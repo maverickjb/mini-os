@@ -5,10 +5,8 @@
  */
 
 #include "page_alloc.h"
+#include "mem.h"
 
-#define PHYS_MEM_BASE   0x40000000UL
-#define PHYS_MEM_SIZE   (128UL * 1024 * 1024)
-#define PHYS_MEM_END    (PHYS_MEM_BASE + PHYS_MEM_SIZE)
 #define MAX_PAGES       (PHYS_MEM_SIZE / PAGE_SIZE)
 
 extern char __alloc_start[];
@@ -118,10 +116,10 @@ void page_alloc_init(void)
         block_order[i] = -1;
 
     mem_start = (start + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    if (mem_start >= PHYS_MEM_END)
+    if (mem_start >= VIRT_MEM_END)
         return;
 
-    size = PHYS_MEM_END - mem_start;
+    size = VIRT_MEM_END - mem_start;
     npages = size / PAGE_SIZE;
     if (npages == 0)
         return;

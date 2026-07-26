@@ -3,28 +3,29 @@
  */
 
 #include "irq.h"
+#include "mem.h"
 #include "time.h"
 
-#define GICD_BASE       0x08000000UL
-#define GICC_BASE       0x08010000UL
-#define GICR_BASE       0x080A0000UL
+#define GICD_VIRT       ((unsigned long)__phys_to_virt(0x08000000UL))
+#define GICC_VIRT       ((unsigned long)__phys_to_virt(0x08010000UL))
+#define GICR_VIRT       ((unsigned long)__phys_to_virt(0x080A0000UL))
 #define GICR_STRIDE     0x20000UL
 
-#define GICD_CTLR       (*(volatile unsigned int *)(GICD_BASE + 0x0000))
-#define GICD_ISENABLER  ((volatile unsigned int *)(GICD_BASE + 0x0100))
-#define GICD_IPRIORITYR ((volatile unsigned char *)(GICD_BASE + 0x0400))
-#define GICD_PIDR2      (*(volatile unsigned int *)(GICD_BASE + 0xFFE8))
+#define GICD_CTLR       (*(volatile unsigned int *)(GICD_VIRT + 0x0000))
+#define GICD_ISENABLER  ((volatile unsigned int *)(GICD_VIRT + 0x0100))
+#define GICD_IPRIORITYR ((volatile unsigned char *)(GICD_VIRT + 0x0400))
+#define GICD_PIDR2      (*(volatile unsigned int *)(GICD_VIRT + 0xFFE8))
 
-#define GICC_CTLR       (*(volatile unsigned int *)(GICC_BASE + 0x0000))
-#define GICC_PMR        (*(volatile unsigned int *)(GICC_BASE + 0x0004))
-#define GICC_IAR        (*(volatile unsigned int *)(GICC_BASE + 0x000C))
-#define GICC_EOIR       (*(volatile unsigned int *)(GICC_BASE + 0x0010))
+#define GICC_CTLR       (*(volatile unsigned int *)(GICC_VIRT + 0x0000))
+#define GICC_PMR        (*(volatile unsigned int *)(GICC_VIRT + 0x0004))
+#define GICC_IAR        (*(volatile unsigned int *)(GICC_VIRT + 0x000C))
+#define GICC_EOIR       (*(volatile unsigned int *)(GICC_VIRT + 0x0010))
 
 static int gic_is_v3;
 
 static unsigned char *gicr_rd_base(unsigned int cpu)
 {
-    return (unsigned char *)(GICR_BASE + cpu * GICR_STRIDE);
+    return (unsigned char *)(GICR_VIRT + cpu * GICR_STRIDE);
 }
 
 static int gicr_wait_ready(unsigned int cpu)

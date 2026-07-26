@@ -5,10 +5,12 @@
  * until cpu_up() writes cpu_release[] and sends SEV.
  */
 
+#include "mem.h"
 #include "sched.h"
 #include "smp.h"
 
 extern void secondary_startup(void);
+extern void mmu_enable_secondary(void);
 
 volatile unsigned long cpu_release[NR_CPUS];
 static volatile unsigned char cpu_online[NR_CPUS];
@@ -44,7 +46,7 @@ int cpu_up(unsigned int cpu)
     if (cpu_online[cpu])
         return 0;
 
-    cpu_release[cpu] = (unsigned long)secondary_startup;
+    cpu_release[cpu] = __virt_to_phys(secondary_startup);
     __asm__ volatile("dsb sy");
     __asm__ volatile("sev");
 

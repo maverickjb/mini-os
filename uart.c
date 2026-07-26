@@ -2,12 +2,13 @@
  * PL011 UART driver for QEMU virt (base 0x09000000)
  */
 
+#include "mem.h"
 #include "uart.h"
 
-#define UART0_BASE  0x09000000UL
+#define UART0_VIRT      ((unsigned long)__phys_to_virt(0x09000000UL))
 
-#define UART_DR     (*(volatile unsigned int *)(UART0_BASE + 0x00))
-#define UART_FR     (*(volatile unsigned int *)(UART0_BASE + 0x18))
+#define UART_DR     (*(volatile unsigned int *)(UART0_VIRT + 0x00))
+#define UART_FR     (*(volatile unsigned int *)(UART0_VIRT + 0x18))
 
 /* FR bit 5: TX FIFO full */
 #define UART_FR_TXFF  (1u << 5)
