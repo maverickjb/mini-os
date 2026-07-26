@@ -12,13 +12,31 @@ ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
            -Wl,--entry=0x40000000
 
-SRCS    := boot.S vectors.S context.S mmu_enable.S kernel.c smp.c sched.c task.c irq.c time.c uart.c page_alloc.c mmu.c fs/ramfs.c
+SRCS    := boot.S vectors.S context.S mmu_enable.S kernel.c smp.c sched.c task.c irq.c time.c uart.c page_alloc.c mmu.c fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 
-.PHONY: all clean run
+.PHONY: all clean run initramfs
 
-all: mini-os.elf mini-os.bin
+INITRAMFS_CPIO := initramfs/initramfs.cpio
+
+all: initramfs mini-os.elf mini-os.bin
+
+initramfs: $(INITRAMFS_CPIO)
+
+INIT_BIN := initramfs/root/init
+
+$(INITRAMFS_CPIO): $(INIT_BIN)
+	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
+
+INIT_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
+               -static -Wl,-e,_start
+
+$(INIT_BIN): initramfs/src/init.c
+	mkdir -p initramfs/root
+	$(CC) $(INIT_CFLAGS) -o $@ $<
+
+fs/initramfs_blob.o: $(INITRAMFS_CPIO)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -33,7 +51,8 @@ mini-os.bin: mini-os.elf
 	$(OBJCOPY) -O binary $< $@
 
 clean:
-	rm -f $(OBJS) mini-os.elf mini-os.bin
+	rm -f $(OBJS) mini-os.elf mini-os.bin initramfs/initramfs.cpio
+	rm -rf initramfs/root
 
 QEMU    ?= qemu-system-aarch64
 QFLAGS  ?= -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic

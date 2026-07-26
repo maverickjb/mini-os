@@ -4,9 +4,13 @@
 
 #include "page_alloc.h"
 #include "ramfs.h"
+#include "initramfs.h"
 #include "smp.h"
 #include "sched.h"
 #include "uart.h"
+
+extern char __initramfs_start[];
+extern char __initramfs_end[];
 
 static unsigned int cpu_id(void)
 {
@@ -34,6 +38,17 @@ void kernel_main(void)
         page_alloc_init();
 
         ramfs_init();
+
+        if ((unsigned long)__initramfs_end > (unsigned long)__initramfs_start) {
+            unsigned long size = (unsigned long)(__initramfs_end -
+                                                   __initramfs_start);
+            int err = unpack_to_rootfs(__initramfs_start, size);
+
+            if (err)
+                uart_puts("unpack_to_rootfs failed\n");
+            else
+                uart_puts("unpack_to_rootfs: ok\n");
+        }
 
         sched_init();
         rest_init();

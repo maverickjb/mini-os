@@ -10,6 +10,12 @@ ENTRY(_start)
 KERNEL_VIRT_BASE = 0xffff800080000000;
 KERNEL_PHYS_BASE = 0x40000000;
 
+PHDRS
+{
+    text PT_LOAD FLAGS(5); /* PF_R | PF_X */
+    data PT_LOAD FLAGS(6); /* PF_R | PF_W */
+}
+
 SECTIONS
 {
     . = KERNEL_VIRT_BASE;
@@ -19,38 +25,48 @@ SECTIONS
         KEEP(*(.text.boot))
         *(.text .text.*)
         _etext = .;
-    }
-
-    .databoot : AT(KERNEL_PHYS_BASE + (ADDR(.databoot) - KERNEL_VIRT_BASE)) {
-        *(.data.boot)
-    }
+    } :text
 
     .rodata : AT(KERNEL_PHYS_BASE + (ADDR(.rodata) - KERNEL_VIRT_BASE)) {
         *(.rodata .rodata.*)
-    }
+    } :text
+
+    .init.ramfs : AT(KERNEL_PHYS_BASE + (ADDR(.init.ramfs) - KERNEL_VIRT_BASE)) {
+        __initramfs_start = .;
+        KEEP(*(.init.ramfs))
+        __initramfs_end = .;
+    } :text
+
+    .databoot : AT(KERNEL_PHYS_BASE + (ADDR(.databoot) - KERNEL_VIRT_BASE)) {
+        *(.data.boot)
+    } :data
 
     .data : AT(KERNEL_PHYS_BASE + (ADDR(.data) - KERNEL_VIRT_BASE)) {
         *(.data .data.*)
-    }
+    } :data
 
     .bss : AT(KERNEL_PHYS_BASE + (ADDR(.bss) - KERNEL_VIRT_BASE)) {
         __bss_start = .;
         *(.bss .bss.*)
         *(COMMON)
         __bss_end = .;
+    } :data
+
+    .stack (NOLOAD) : {
+        . = ALIGN(16);
+        . += 0x10000;
+        _stack_top = .;
+
+        . = ALIGN(16);
+        __per_cpu_stack_size = 0x4000;
+        __per_cpu_stacks = .;
+        . += __per_cpu_stack_size * 4;
     }
 
-    . = ALIGN(16);
-    . += 0x10000;
-    _stack_top = .;
-
-    . = ALIGN(16);
-    __per_cpu_stack_size = 0x4000;
-    __per_cpu_stacks = .;
-    . += __per_cpu_stack_size * 4;
-
-    . = ALIGN(4096);
-    __alloc_start = .;
+    .heap (NOLOAD) : {
+        . = ALIGN(4096);
+        __alloc_start = .;
+    }
 
     /DISCARD/ : {
         *(.note.*)
