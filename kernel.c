@@ -3,6 +3,7 @@
  */
 
 #include "page_alloc.h"
+#include "ramfs.h"
 #include "smp.h"
 #include "sched.h"
 #include "uart.h"
@@ -31,6 +32,8 @@ void kernel_main(void)
         }
 
         page_alloc_init();
+
+        ramfs_init();
 
         sched_init();
         rest_init();
