@@ -1,4 +1,6 @@
 *.o
 *.bin
 *.elf
+initramfs/initramfs.cpio
+initramfs/root/
 .vscode/
