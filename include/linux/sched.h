@@ -1,5 +1,5 @@
-#ifndef SCHED_H
-#define SCHED_H
+#ifndef __LINUX_SCHED_H
+#define __LINUX_SCHED_H
 
 #include "linux/mm_types.h"
 

@@ -50,6 +50,7 @@ task_trampoline:
 start_user_mode:
     msr     sp_el0, x1
     msr     elr_el1, x0
-    mov     x2, #0
+    mov     x2, xzr
     msr     spsr_el1, x2
+    isb
     eret

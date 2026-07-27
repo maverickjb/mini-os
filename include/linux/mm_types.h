@@ -1,5 +1,5 @@
-#ifndef MM_TYPES_H
-#define MM_TYPES_H
+#ifndef __LINUX_MM_TYPES_H
+#define __LINUX_MM_TYPES_H
 
 struct mm_struct {
     unsigned long *pgd;
@@ -7,4 +7,4 @@ struct mm_struct {
     unsigned long stack_top;
 };
 
-#endif
+#endif	/* __MM_TYPES_H */
