@@ -36,5 +36,6 @@ int ramfs_readdir(struct ramfs_inode *dir, ramfs_readdir_fn fn, void *arg);
 int ramfs_is_dir(const struct ramfs_inode *inode);
 int ramfs_is_reg(const struct ramfs_inode *inode);
 unsigned long ramfs_size(const struct ramfs_inode *inode);
+const void *ramfs_data(const struct ramfs_inode *inode);
 
 #endif

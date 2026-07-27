@@ -570,3 +570,11 @@ unsigned long ramfs_size(const struct ramfs_inode *inode)
 {
     return inode ? inode->size : 0;
 }
+
+const void *ramfs_data(const struct ramfs_inode *inode)
+{
+    if (!inode || !(inode->mode & RAMFS_S_IFREG))
+        return 0;
+
+    return inode->data;
+}

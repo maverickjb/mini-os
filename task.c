@@ -57,7 +57,7 @@ static void ramfs_list_entry(const char *name, struct ramfs_inode *inode, void *
     uart_puts(ramfs_is_dir(inode) ? "/\n" : "\n");
 }
 
-static void initramfs_show(void)
+void initramfs_show(void)
 {
     struct ramfs_inode *motd;
     char buf[64];
@@ -79,24 +79,3 @@ static void initramfs_show(void)
     uart_puts(buf);
 }
 
-void kernel_init(void *arg)
-{
-    (void)arg;
-
-    uart_puts("Init (PID 1) running\n");
-
-    initramfs_show();
-
-    time_init();
-    uart_puts("Tick timer started\n");
-
-    for (;;) {
-        static unsigned int beats;
-
-        if ((beats++ % 20) == 0)
-            uart_puts("init: heartbeat\n");
-        for (volatile unsigned int i = 0; i < 10000000U; i++)
-            ;
-        schedule();
-    }
-}

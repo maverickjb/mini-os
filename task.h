@@ -27,5 +27,6 @@ void set_current(struct task_struct *task);
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
 void wake_up_process(struct task_struct *task);
 void kernel_init(void *arg);
+void initramfs_show(void);
 
 #endif

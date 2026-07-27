@@ -8,6 +8,8 @@
 #include "smp.h"
 #include "sched.h"
 #include "uart.h"
+#include "exec.h"
+#include "task.h"
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];
@@ -62,3 +64,24 @@ void kernel_main(void)
 
     cpu_idle();
 }
+
+void kernel_init(void *arg)
+{
+    int ret;
+
+    (void)arg;
+
+    uart_puts("Init (PID 1) running\n");
+
+    initramfs_show();
+
+    ret = kernel_execve("/init");
+    if (ret == 0)
+        return;
+
+    uart_puts("Failed to execute /init\n");
+
+    for (;;)
+        __asm__ volatile("wfi");
+}
+

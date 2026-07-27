@@ -41,3 +41,15 @@ task_trampoline:
     mov     x0, x19
     blr     x20
     b       schedule
+
+/*
+ * void start_user_mode(unsigned long entry, unsigned long stack)
+ * Drop to EL0 and run the loaded program.
+ */
+.global start_user_mode
+start_user_mode:
+    msr     sp_el0, x1
+    msr     elr_el1, x0
+    mov     x2, #0
+    msr     spsr_el1, x2
+    eret
