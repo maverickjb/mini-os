@@ -6,6 +6,8 @@
 #include "mmap.h"
 #include "page_alloc.h"
 #include "mem.h"
+#include "linux/mm_types.h"
+#include "linux/sched.h"
 
 #define EI_MAG0         0
 #define EI_MAG1         1
@@ -101,7 +103,7 @@ static unsigned long elf_prot(unsigned long p_flags)
     return prot;
 }
 
-static int setup_stack(unsigned long *stack_top_out)
+static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out)
 {
     unsigned long npages = USER_STACK_SIZE / PAGE_SIZE;
     int order = pages_to_order(npages);
@@ -116,7 +118,7 @@ static int setup_stack(unsigned long *stack_top_out)
     stack_phys = __virt_to_phys((unsigned long)stack);
     map_base = USER_STACK_TOP - USER_STACK_SIZE;
 
-    err = do_map(map_base, stack_phys, USER_STACK_SIZE,
+    err = do_map(mm, map_base, stack_phys, USER_STACK_SIZE,
                  MAP_PROT_READ | MAP_PROT_WRITE);
     if (err)
         return err;
@@ -125,8 +127,8 @@ static int setup_stack(unsigned long *stack_top_out)
     return 0;
 }
 
-static int load_segment(const unsigned char *buf, unsigned long len,
-                        const Elf64_Phdr *ph)
+static int load_segment(struct mm_struct *mm, const unsigned char *buf,
+                        unsigned long len, const Elf64_Phdr *ph)
 {
     unsigned long vaddr = ph->p_vaddr;
     unsigned long memsz = ph->p_memsz;
@@ -151,7 +153,7 @@ static int load_segment(const unsigned char *buf, unsigned long len,
 
     phys = __virt_to_phys((unsigned long)mem);
 
-    err = do_map(map_start, phys, map_size, elf_prot(ph->p_flags));
+    err = do_map(mm, map_start, phys, map_size, elf_prot(ph->p_flags));
     if (err)
         return err;
 
@@ -168,11 +170,21 @@ int load_elf_binary(struct linux_binprm *bprm)
 {
     const Elf64_Ehdr *ehdr;
     const Elf64_Phdr *phdrs;
+    struct mm_struct *mm;
     unsigned int i;
     int err;
 
     if (!bprm || !bprm->buf || bprm->len < sizeof(Elf64_Ehdr))
         return -8;
+
+    if (!bprm->task)
+        return -22;
+
+    mm = mm_alloc();
+    if (!mm)
+        return -12;
+
+    bprm->task->mm = mm;
 
     ehdr = (const Elf64_Ehdr *)bprm->buf;
 
@@ -199,18 +211,21 @@ int load_elf_binary(struct linux_binprm *bprm)
         if (ph->p_type != PT_LOAD)
             continue;
 
-        err = load_segment(bprm->buf, bprm->len, ph);
+        err = load_segment(mm, bprm->buf, bprm->len, ph);
         if (err)
             return err;
     }
 
-    err = setup_stack(&bprm->stack_top);
+    err = setup_stack(mm, &bprm->stack_top);
     if (err)
         return err;
 
-    bprm->entry = ehdr->e_entry;
+    mm->entry = ehdr->e_entry;
+    mm->stack_top = bprm->stack_top;
+    bprm->entry = mm->entry;
 
-    start_user_mode(bprm->entry, bprm->stack_top);
+    mm_install(mm);
+    start_user_mode(mm->entry, mm->stack_top);
 
     return 0;
 }

@@ -46,6 +46,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     tsk->next = 0;
     tsk->stack = stack;
     tsk->saved_sp = 0;
+    tsk->mm = NULL;
 
     task_frame_init(tsk, fn, arg);
     return tsk;

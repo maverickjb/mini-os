@@ -3,6 +3,7 @@
  */
 
 #include "sched.h"
+#include "fork.h"
 #include "smp.h"
 #include "uart.h"
 

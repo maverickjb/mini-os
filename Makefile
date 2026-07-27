@@ -7,7 +7,7 @@ LD      := $(CROSS)ld
 OBJCOPY := $(CROSS)objcopy
 
 CFLAGS  := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
-           -Wall -Wextra -O0 -g -fno-pie -fno-PIE -I. -I fs -I mm -I kernel
+           -Wall -Wextra -O0 -g -fno-pie -fno-PIE -I. -I include -I fs -I mm -I kernel
 ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
            -Wl,--entry=0x40000000

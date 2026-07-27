@@ -16,8 +16,6 @@
 
 #define PTE_ENTRIES     512
 
-static unsigned long *user_l1;
-
 static void page_zero(unsigned long *page)
 {
     unsigned int i;
@@ -61,22 +59,36 @@ static unsigned long *get_or_create_table(unsigned long *parent, unsigned long i
     return table;
 }
 
-static int ensure_user_pgtable(void)
+struct mm_struct *mm_alloc(void)
 {
-    if (user_l1)
+    struct mm_struct *mm;
+    unsigned long *pgd;
+
+    mm = alloc_pages(0);
+    if (!mm)
         return 0;
 
-    user_l1 = alloc_pages(0);
-    if (!user_l1)
-        return -12;
+    pgd = alloc_pages(0);
+    if (!pgd) {
+        free_pages(mm, 0);
+        return 0;
+    }
 
-    page_zero(user_l1);
-    return 0;
+    page_zero(pgd);
+    mm->pgd = pgd;
+    mm->entry = 0;
+    mm->stack_top = 0;
+    return mm;
 }
 
-static void install_user_pgtable(void)
+void mm_install(struct mm_struct *mm)
 {
-    unsigned long ttbr0 = __virt_to_phys((unsigned long)user_l1);
+    unsigned long ttbr0;
+
+    if (!mm || !mm->pgd)
+        return;
+
+    ttbr0 = __virt_to_phys((unsigned long)mm->pgd);
 
     __asm__ volatile(
         "msr ttbr0_el1, %0\n"
@@ -87,7 +99,8 @@ static void install_user_pgtable(void)
         : "r"(ttbr0));
 }
 
-static int map_page(unsigned long va, unsigned long pa, unsigned long prot)
+static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
+                    unsigned long prot)
 {
     unsigned long *l2;
     unsigned long *l3;
@@ -95,7 +108,7 @@ static int map_page(unsigned long va, unsigned long pa, unsigned long prot)
     unsigned long l2_idx = (va >> 21) & 0x1ffUL;
     unsigned long l3_idx = (va >> 12) & 0x1ffUL;
 
-    l2 = get_or_create_table(user_l1, l1_idx);
+    l2 = get_or_create_table(mm->pgd, l1_idx);
     if (!l2)
         return -12;
 
@@ -107,30 +120,27 @@ static int map_page(unsigned long va, unsigned long pa, unsigned long prot)
     return 0;
 }
 
-int do_map(unsigned long virt, unsigned long phys, unsigned long size,
-           unsigned long prot)
+int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
+           unsigned long size, unsigned long prot)
 {
     unsigned long va;
     unsigned long end;
-    unsigned long pte_prot = prot;
     int err;
+
+    if (!mm || !mm->pgd)
+        return -22;
 
     if (size == 0)
         return 0;
-
-    err = ensure_user_pgtable();
-    if (err)
-        return err;
 
     va = virt & ~(PAGE_SIZE - 1UL);
     end = (virt + size + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
 
     for (; va < end; va += PAGE_SIZE, phys += PAGE_SIZE) {
-        err = map_page(va, phys, pte_prot);
+        err = map_page(mm, va, phys, prot);
         if (err)
             return err;
     }
 
-    install_user_pgtable();
     return 0;
 }
