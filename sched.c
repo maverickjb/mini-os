@@ -42,6 +42,11 @@ void rest_init(void)
     struct task_struct *init;
 
     init = kernel_thread(kernel_init, 0);
+    if (!init) {
+        uart_puts("kernel_thread failed\n");
+        return;
+    }
+
     wake_up_process(init);
     runqueue = init;
 

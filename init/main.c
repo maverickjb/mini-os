@@ -9,7 +9,7 @@
 #include "sched.h"
 #include "uart.h"
 #include "exec.h"
-#include "task.h"
+#include "fork.h"
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];
@@ -63,6 +63,21 @@ void kernel_main(void)
     }
 
     cpu_idle();
+}
+
+static void ramfs_list_entry(const char *name, struct ramfs_inode *inode, void *arg)
+{
+    (void)arg;
+
+    uart_puts("  ");
+    uart_puts(name);
+    uart_puts(ramfs_is_dir(inode) ? "/\n" : "\n");
+}
+
+void initramfs_show(void)
+{
+    uart_puts("rootfs listing:\n");
+    ramfs_readdir(ramfs_root(), ramfs_list_entry, 0);
 }
 
 void kernel_init(void *arg)
