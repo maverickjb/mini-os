@@ -2,7 +2,8 @@
  * Scheduler — idle tasks (PID 0) and minimal run queue.
  */
 
-#include "sched.h"
+#include <linux/sched.h>
+
 #include "fork.h"
 #include "smp.h"
 #include "uart.h"
@@ -110,3 +111,4 @@ void cpu_idle(void)
             __asm__ volatile("wfi");
     }
 }
+

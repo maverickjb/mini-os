@@ -2,11 +2,12 @@
  * miniSMP kernel — AArch64 bare-metal on QEMU virt
  */
 
+#include <linux/sched.h>
+ 
 #include "page_alloc.h"
 #include "ramfs.h"
 #include "initramfs.h"
 #include "smp.h"
-#include "sched.h"
 #include "uart.h"
 #include "exec.h"
 #include "fork.h"

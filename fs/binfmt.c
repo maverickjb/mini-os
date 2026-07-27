@@ -2,12 +2,13 @@
  * ELF64 loader for AArch64 executables in ramfs.
  */
 
+#include <linux/mm_types.h>
+#include <linux/sched.h>
+
 #include "binfmt.h"
 #include "mmap.h"
 #include "page_alloc.h"
 #include "mem.h"
-#include "linux/mm_types.h"
-#include "linux/sched.h"
 
 #define EI_MAG0         0
 #define EI_MAG1         1

@@ -2,8 +2,9 @@
  * Task management — init (PID 1) and kernel threads.
  */
 
+#include <linux/sched.h>
+ 
 #include "fork.h"
-#include "sched.h"
 #include "page_alloc.h"
 #include "uart.h"
 
@@ -46,7 +47,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     tsk->next = 0;
     tsk->stack = stack;
     tsk->saved_sp = 0;
-    tsk->mm = NULL;
+    tsk->mm = 0;
 
     task_frame_init(tsk, fn, arg);
     return tsk;

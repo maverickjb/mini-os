@@ -5,8 +5,9 @@
  * until cpu_up() writes cpu_release[] and sends SEV.
  */
 
+#include <linux/sched.h>
+ 
 #include "mem.h"
-#include "sched.h"
 #include "smp.h"
 
 extern void secondary_startup(void);
