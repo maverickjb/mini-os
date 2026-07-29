@@ -3,6 +3,8 @@
 
 #include "linux/sched.h"
 
+#define current get_current()
+
 struct task_struct *get_current(void);
 void set_current(struct task_struct *task);
 

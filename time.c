@@ -4,7 +4,7 @@
 
 #include "time.h"
 #include "irq.h"
-#include "uart.h"
+#include <linux/serial.h>
 
 static unsigned long jiffies;
 static unsigned long timer_freq;

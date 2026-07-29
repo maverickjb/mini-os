@@ -3,12 +3,13 @@
  */
 
 #include <linux/sched.h>
- 
+#include <linux/serial.h>
+
 #include "page_alloc.h"
 #include "ramfs.h"
 #include "initramfs.h"
 #include "smp.h"
-#include "uart.h"
+#include "sched.h"
 #include "exec.h"
 #include "fork.h"
 
@@ -28,6 +29,8 @@ void kernel_main(void)
     unsigned int id = cpu_id();
 
     if (id == 0) {
+        serial_init();
+
         uart_puts("Hello from CPU0\n");
         smp_init();
         bringup_nonboot_cpus();
@@ -81,6 +84,12 @@ void initramfs_show(void)
     ramfs_readdir(ramfs_root(), ramfs_list_entry, 0);
 }
 
+static void init_stdio(struct task_struct *task)
+{
+    task->files[1] = &uart_file;
+    task->files[2] = &uart_file;
+}
+
 void kernel_init(void *arg)
 {
     int ret;
@@ -88,6 +97,8 @@ void kernel_init(void *arg)
     (void)arg;
 
     uart_puts("Init (PID 1) running\n");
+
+    init_stdio(current);
 
     initramfs_show();
 
@@ -100,4 +111,3 @@ void kernel_init(void *arg)
     for (;;)
         __asm__ volatile("wfi");
 }
-

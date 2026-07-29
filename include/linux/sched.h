@@ -1,9 +1,11 @@
 #ifndef __LINUX_SCHED_H
 #define __LINUX_SCHED_H
 
-#include "linux/mm_types.h"
+#include <linux/mm_types.h>
+#include <linux/fs.h>
 
 #define INIT_STACK_SIZE 4096
+#define NR_OPEN         8
 
 struct task_struct {
     unsigned long pid;
@@ -13,6 +15,7 @@ struct task_struct {
     void *thread_arg;
     unsigned long *stack;
     struct mm_struct *mm;
+    struct file *files[NR_OPEN];
     struct task_struct *next;
 };
 

@@ -6,7 +6,7 @@
 
 #include "fork.h"
 #include "smp.h"
-#include "uart.h"
+#include <linux/serial.h>
 
 extern void cpu_switch_to(struct task_struct *prev, struct task_struct *next);
 

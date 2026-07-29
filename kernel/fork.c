@@ -6,7 +6,6 @@
  
 #include "fork.h"
 #include "page_alloc.h"
-#include "uart.h"
 
 extern void task_trampoline(void);
 
@@ -48,6 +47,9 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     tsk->stack = stack;
     tsk->saved_sp = 0;
     tsk->mm = 0;
+
+    for (unsigned int i = 0; i < NR_OPEN; i++)
+        tsk->files[i] = 0;
 
     task_frame_init(tsk, fn, arg);
     return tsk;
