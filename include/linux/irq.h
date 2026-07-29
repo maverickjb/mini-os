@@ -1,5 +1,5 @@
-#ifndef IRQ_H
-#define IRQ_H
+#ifndef __LINUX_IRQ_H
+#define __LINUX_IRQ_H
 
 #define IRQ_TIMER   30  /* CNTPNS IRQ: EL1 physical timer (PPI) */
 

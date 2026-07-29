@@ -3,7 +3,7 @@
  */
 
 #include "time.h"
-#include "irq.h"
+#include <linux/irq.h>
 #include <linux/serial.h>
 
 static unsigned long jiffies;

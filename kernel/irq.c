@@ -2,7 +2,8 @@
  * GICv2 / GICv3 (QEMU virt) — init_IRQ() and IRQ dispatch.
  */
 
-#include "irq.h"
+#include <linux/irq.h>
+
 #include "mem.h"
 #include "time.h"
 
