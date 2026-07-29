@@ -5,25 +5,25 @@
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/syscalls.h>
+#include <linux/uaccess.h>
+
 #include "fork.h"
-
-static void enable_el1_user_access(void)
-{
-    unsigned long sctlr;
-
-    __asm__ volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
-    sctlr |= (1UL << 22); /* UAO */
-    __asm__ volatile("msr sctlr_el1, %0" : : "r"(sctlr));
-    __asm__ volatile("isb");
-}
 
 long vfs_write(struct file *file, const char *buf, unsigned long count)
 {
+    char kbuf[128];
+    unsigned long n = count;
+
     if (!file || !file->f_op || !file->f_op->write)
         return -22;
 
-    enable_el1_user_access();
-    return file->f_op->write(file, buf, count, &file->f_pos);
+    if (n > sizeof(kbuf))
+        n = sizeof(kbuf);
+
+    if (copy_from_user(kbuf, buf, n))
+        return -14;
+
+    return file->f_op->write(file, kbuf, n, &file->f_pos);
 }
 
 long ksys_write(unsigned long fd, const char *buf, unsigned long count)
