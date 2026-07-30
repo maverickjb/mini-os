@@ -4,6 +4,7 @@
 
 #include "initramfs.h"
 #include "ramfs.h"
+#include <linux/errno.h>
 
 #define CPIO_MAGIC      "070701"
 #define CPIO_TRAILER    "TRAILER!!!"
@@ -56,7 +57,7 @@ static int path_normalize(const char *name, char *out, unsigned long out_len)
     unsigned long j = 0;
 
     if (!name || !out || out_len < 2)
-        return -1;
+        return -EINVAL;
 
     if (name[0] == '.' && name[1] == '/')
         name += 2;
@@ -66,7 +67,7 @@ static int path_normalize(const char *name, char *out, unsigned long out_len)
     out[j++] = '/';
     while (name[i]) {
         if (j + 1 >= out_len)
-            return -1;
+            return -EINVAL;
         out[j++] = name[i++];
     }
     out[j] = '\0';
@@ -80,7 +81,7 @@ static int ramfs_mkdir_p(const char *path)
     int err;
 
     if (!path || path[0] != '/')
-        return -22;
+        return -EINVAL;
 
     if (path[1] == '\0')
         return 0;
@@ -102,7 +103,7 @@ static int ramfs_mkdir_p(const char *path)
             continue;
 
         err = ramfs_mkdir(partial);
-        if (err && err != -17)
+        if (err && err != -EEXIST)
             return err;
     }
 
@@ -115,7 +116,7 @@ static int parent_dir(const char *path, char *dir)
     unsigned long i;
 
     if (!path || path[0] != '/')
-        return -1;
+        return -EINVAL;
 
     len = 0;
     while (path[len])
@@ -132,7 +133,7 @@ static int parent_dir(const char *path, char *dir)
     }
 
     if (i >= RAMFS_NAME_MAX + 1)
-        return -1;
+        return -EINVAL;
 
     {
         unsigned long j;
@@ -154,7 +155,7 @@ int unpack_to_rootfs(const void *data, unsigned long size)
     int err;
 
     if (!data)
-        return -22;
+        return -EINVAL;
 
     while (p + CPIO_HDR_SIZE <= end) {
         const char *hdr = (const char *)p;
@@ -167,7 +168,7 @@ int unpack_to_rootfs(const void *data, unsigned long size)
         if (hdr[0] != '0' || hdr[1] != '7' || hdr[2] != '0' ||
             hdr[3] != '7' || hdr[4] != '0' ||
             (hdr[5] != '1' && hdr[5] != '2'))
-            return -22;
+            return -EINVAL;
 
         namesize = cpio_hex(hdr + 94, 8);
         filesize = cpio_hex(hdr + 54, 8);
@@ -175,22 +176,22 @@ int unpack_to_rootfs(const void *data, unsigned long size)
 
         p += CPIO_HDR_SIZE;
         if (p + namesize > end)
-            return -22;
+            return -EINVAL;
 
         name = (const char *)p;
         if (namesize == 0)
-            return -22;
+            return -EINVAL;
 
         p += namesize;
         p = cpio_align_up_ptr(p);
         if (p > end)
-            return -22;
+            return -EINVAL;
 
         payload = p;
         p += filesize;
         p = cpio_align_up_ptr(p);
         if (p > end)
-            return -22;
+            return -EINVAL;
 
         if (cpio_streq(name, CPIO_TRAILER))
             break;
@@ -199,11 +200,11 @@ int unpack_to_rootfs(const void *data, unsigned long size)
             continue;
 
         if (path_normalize(name, path, sizeof(path)) < 0)
-            return -22;
+            return -EINVAL;
 
         if ((mode & S_IFMT) == S_IFDIR) {
             err = ramfs_mkdir(path);
-            if (err && err != -17)
+            if (err && err != -EEXIST)
                 return err;
             continue;
         }
@@ -212,19 +213,19 @@ int unpack_to_rootfs(const void *data, unsigned long size)
             struct ramfs_inode *inode;
 
             if (parent_dir(path, pdir) < 0)
-                return -22;
+                return -EINVAL;
 
             err = ramfs_mkdir_p(pdir);
             if (err)
                 return err;
 
             err = ramfs_create(path);
-            if (err && err != -17)
+            if (err && err != -EEXIST)
                 return err;
 
             inode = ramfs_lookup(path);
             if (!inode)
-                return -2;
+                return -ENOENT;
 
             if (filesize) {
                 long w = ramfs_write(inode, payload, filesize, 0);

@@ -4,6 +4,7 @@
 
 #include <linux/fs.h>
 #include <linux/serial.h>
+#include <linux/errno.h>
 #include "mem.h"
 
 #define UART0_VIRT      ((unsigned long)__phys_to_virt(0x09000000UL))
@@ -42,7 +43,7 @@ static long serial_write(struct file *file, const char *buf,
     (void)pos;
 
     if (!buf)
-        return -14;
+        return -EFAULT;
 
     for (i = 0; i < count; i++)
         serial_putc(buf[i]);

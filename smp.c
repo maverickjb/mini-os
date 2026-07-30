@@ -6,6 +6,7 @@
  */
 
 #include <linux/sched.h>
+#include <linux/errno.h>
  
 #include "mem.h"
 #include "smp.h"
@@ -42,7 +43,7 @@ void smp_init(void)
 int cpu_up(unsigned int cpu)
 {
     if (cpu == 0 || cpu >= NR_CPUS)
-        return -1;
+        return -EINVAL;
 
     if (cpu_online[cpu])
         return 0;
@@ -53,7 +54,7 @@ int cpu_up(unsigned int cpu)
 
     for (unsigned int spins = 0; !cpu_online[cpu]; spins++) {
         if (spins == 100000000U)
-            return -2;
+            return -ETIMEDOUT;
         __asm__ volatile("yield");
     }
 

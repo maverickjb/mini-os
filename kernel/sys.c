@@ -4,6 +4,7 @@
 
 #include <linux/unistd.h>
 #include <linux/syscalls.h>
+#include <linux/errno.h>
 #include <asm/ptrace.h>
 
 void syscall_handler(struct pt_regs *regs)
@@ -22,7 +23,7 @@ void syscall_handler(struct pt_regs *regs)
         ret = 0;
         break;
     default:
-        ret = -38; /* ENOSYS */
+        ret = -ENOSYS;
         break;
     }
 

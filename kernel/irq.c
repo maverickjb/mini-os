@@ -3,6 +3,7 @@
  */
 
 #include <linux/irq.h>
+#include <linux/errno.h>
 
 #include "mem.h"
 #include "time.h"
@@ -37,7 +38,7 @@ static int gicr_wait_ready(unsigned int cpu)
     *waker &= ~0x2U;
     while ((*waker & 0x4U) && --timeout)
         ;
-    return timeout ? 0 : -1;
+    return timeout ? 0 : -ETIMEDOUT;
 }
 
 static int gic_v3_redist_init(unsigned int cpu, unsigned int irq)
@@ -48,7 +49,7 @@ static int gic_v3_redist_init(unsigned int cpu, unsigned int irq)
     volatile unsigned char *pri = (volatile unsigned char *)(sgi + 0x0400);
 
     if (gicr_wait_ready(cpu) < 0)
-        return -1;
+        return -ETIMEDOUT;
 
     *igroupr0 = 0xffffffffU;
     *isenabler0 = 1U << irq;
@@ -64,13 +65,13 @@ static int gic_v3_dist_init(void)
     while ((GICD_CTLR & (1U << 31)) && --timeout)
         ;
     if (timeout == 0)
-        return -1;
+        return -ETIMEDOUT;
 
     GICD_CTLR = (1U << 4) | (1U << 5) | (1U << 1);
     timeout = 1000000U;
     while ((GICD_CTLR & (1U << 31)) && --timeout)
         ;
-    return timeout ? 0 : -1;
+    return timeout ? 0 : -ETIMEDOUT;
 }
 
 static void gic_v3_cpu_init(void)
@@ -91,10 +92,10 @@ static void gic_v3_cpu_init(void)
 static int gic_v3_init(void)
 {
     if (gic_v3_dist_init() < 0)
-        return -1;
+        return -ETIMEDOUT;
 
     if (gic_v3_redist_init(0, IRQ_TIMER) < 0)
-        return -1;
+        return -ETIMEDOUT;
 
     gic_v3_cpu_init();
     return 0;

@@ -3,6 +3,7 @@
  */
 
 #include <linux/sched/task.h>
+#include <linux/errno.h>
 
 #include "page_alloc.h"
 #include "mmap.h"
@@ -113,11 +114,11 @@ long ksys_fork(struct pt_regs *regs)
     struct task_struct *child;
 
     if (!parent || !parent->is_user)
-        return -1;
+        return -EINVAL;
 
     child = alloc_pages(0);
     if (!child)
-        return -12;
+        return -ENOMEM;
 
     task_zero(child);
     save_user_regs(parent, regs);

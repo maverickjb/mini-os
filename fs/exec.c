@@ -3,6 +3,7 @@
  */
 
 #include <linux/sched/task.h>
+#include <linux/errno.h>
 
 #include "exec.h"
 #include "binfmt.h"
@@ -14,14 +15,14 @@ int kernel_execve(const char *kernel_filename)
     struct linux_binprm bprm;
 
     if (!kernel_filename)
-        return -22;
+        return -EINVAL;
 
     inode = ramfs_lookup(kernel_filename);
     if (!inode)
-        return -2;
+        return -ENOENT;
 
     if (!ramfs_is_reg(inode))
-        return -8;
+        return -ENOEXEC;
 
     bprm.buf = (const unsigned char *)ramfs_data(inode);
     bprm.len = ramfs_size(inode);
@@ -30,7 +31,7 @@ int kernel_execve(const char *kernel_filename)
     bprm.task = get_current();
 
     if (!bprm.buf || bprm.len == 0)
-        return -8;
+        return -ENOEXEC;
 
     return load_elf_binary(&bprm);
 }

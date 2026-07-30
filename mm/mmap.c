@@ -5,6 +5,7 @@
 #include "mmap.h"
 #include "mem.h"
 #include "page_alloc.h"
+#include <linux/errno.h>
 
 #define PTE_VALID       3UL
 #define PTE_TABLE       3UL
@@ -110,11 +111,11 @@ static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
 
     l2 = get_or_create_table(mm->pgd, l1_idx);
     if (!l2)
-        return -12;
+        return -ENOMEM;
 
     l3 = get_or_create_table(l2, l2_idx);
     if (!l3)
-        return -12;
+        return -ENOMEM;
 
     l3[l3_idx] = (pa & PTE_ADDR_MASK) | prot_to_pte(prot);
     return 0;
@@ -128,7 +129,7 @@ int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
     int err;
 
     if (!mm || !mm->pgd)
-        return -22;
+        return -EINVAL;
 
     if (size == 0)
         return 0;

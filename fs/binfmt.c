@@ -4,6 +4,7 @@
 
 #include <linux/mm_types.h>
 #include <linux/sched.h>
+#include <linux/errno.h>
 
 #include "binfmt.h"
 #include "mmap.h"
@@ -114,7 +115,7 @@ static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out)
     int err;
 
     if (!stack)
-        return -12;
+        return -ENOMEM;
 
     stack_phys = __virt_to_phys((unsigned long)stack);
     map_base = USER_STACK_TOP - USER_STACK_SIZE;
@@ -146,11 +147,11 @@ static int load_segment(struct mm_struct *mm, const unsigned char *buf,
     int err;
 
     if (offset + filesz > len)
-        return -8;
+        return -ENOEXEC;
 
     mem = alloc_pages(pages_to_order(npages));
     if (!mem)
-        return -12;
+        return -ENOMEM;
 
     phys = __virt_to_phys((unsigned long)mem);
 
@@ -176,14 +177,14 @@ int load_elf_binary(struct linux_binprm *bprm)
     int err;
 
     if (!bprm || !bprm->buf || bprm->len < sizeof(Elf64_Ehdr))
-        return -8;
+        return -ENOEXEC;
 
     if (!bprm->task)
-        return -22;
+        return -EINVAL;
 
     mm = mm_alloc();
     if (!mm)
-        return -12;
+        return -ENOMEM;
 
     bprm->task->mm = mm;
 
@@ -191,18 +192,18 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     if (ehdr->e_ident[EI_MAG0] != 0x7f || ehdr->e_ident[EI_MAG1] != 'E' ||
         ehdr->e_ident[EI_MAG2] != 'L' || ehdr->e_ident[EI_MAG3] != 'F')
-        return -8;
+        return -ENOEXEC;
 
     if (ehdr->e_ident[EI_CLASS] != ELFCLASS64 ||
         ehdr->e_ident[EI_DATA] != ELFDATA2LSB)
-        return -8;
+        return -ENOEXEC;
 
     if (ehdr->e_type != ET_EXEC || ehdr->e_machine != EM_AARCH64)
-        return -8;
+        return -ENOEXEC;
 
     if (ehdr->e_phoff + (unsigned long)ehdr->e_phnum * sizeof(Elf64_Phdr) >
         bprm->len)
-        return -8;
+        return -ENOEXEC;
 
     phdrs = (const Elf64_Phdr *)(bprm->buf + ehdr->e_phoff);
 
