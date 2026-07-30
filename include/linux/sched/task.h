@@ -9,6 +9,7 @@ struct task_struct *get_current(void);
 void set_current(struct task_struct *task);
 
 extern struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
+void wake_up_process(struct task_struct *task);
 void kernel_init(void *arg);
 
 #endif /* _LINUX_SCHED_TASK_H */

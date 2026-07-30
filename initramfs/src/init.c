@@ -57,6 +57,5 @@ void _start(void)
     else
         sys_write(1, "parent\n", 7);
 
-    for (;;)
-        sys_sched_yield();
+    for (;;);
 }

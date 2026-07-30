@@ -16,7 +16,7 @@ struct task_struct idle_tasks[NR_CPUS] = {
     [3] = { .pid = 0, .state = TASK_IDLE },
 };
 static struct task_struct *cpu_current[NR_CPUS];
-static struct task_struct *runqueue;
+struct task_struct *runqueue;
 
 struct task_struct *get_current(void)
 {
@@ -128,26 +128,4 @@ void schedule(void)
 
     set_current(next);
     cpu_switch_to(prev, next);
-}
-
-void cpu_idle(void)
-{
-    unsigned int cpu = smp_processor_id();
-    struct task_struct *idle = &idle_tasks[cpu];
-
-    set_current(idle);
-    idle->state = TASK_IDLE;
-
-    if (cpu == 0) {
-        uart_puts("CPU");
-        uart_putc('0' + (char)cpu);
-        uart_puts(" idle task (PID 0) running\n");
-    }
-
-    for (;;) {
-        if (cpu == 0 && runqueue && runqueue->state == TASK_RUNNING)
-            schedule();
-        else
-            __asm__ volatile("wfi");
-    }
 }
