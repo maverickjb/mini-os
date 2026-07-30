@@ -4,7 +4,9 @@
 
 #include <linux/tick.h>
 #include <linux/irq.h>
+#include <linux/sched/task.h>
 #include <linux/serial.h>
+#include <asm/ptrace.h>
 
 static unsigned long jiffies;
 static unsigned long timer_freq;
@@ -71,7 +73,12 @@ unsigned long get_jiffies(void)
     return jiffies;
 }
 
-void handle_arch_tick(void)
+static int interrupted_el0(struct pt_regs *regs)
+{
+    return regs && (regs->spsr_el1 & 0xf) == 0;
+}
+
+void handle_arch_tick(struct pt_regs *regs)
 {
     do_timer();
 
@@ -83,6 +90,15 @@ void handle_arch_tick(void)
             uart_putc('0' + (char)((sec / 10) % 10));
         uart_putc('0' + (char)(sec % 10));
         uart_puts("s]\n");
+    }
+
+    if (current && current->pid != 0 && current->state == TASK_RUNNING) {
+        current->time_slice--;
+        if (current->time_slice <= 0) {
+            current->time_slice = SCHED_TIME_SLICE;
+            if (current->is_user && interrupted_el0(regs))
+                schedule(regs);
+        }
     }
 
     tick_setup();

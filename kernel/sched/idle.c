@@ -8,7 +8,6 @@
 
 #include "smp.h"
 
-extern struct task_struct idle_tasks[];
 extern struct task_struct *runqueue;
 
 void cpu_idle(void)
@@ -27,7 +26,7 @@ void cpu_idle(void)
 
     for (;;) {
         if (cpu == 0 && runqueue && runqueue->state == TASK_RUNNING)
-            schedule();
+            schedule(0);
         else
             __asm__ volatile("wfi");
     }

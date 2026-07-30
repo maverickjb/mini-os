@@ -109,7 +109,7 @@ sync_el0_entry:
     eret
 
 irq_entry:
-    sub     sp, sp, #256
+    sub     sp, sp, #272
     stp     x0, x1, [sp, #0]
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -127,7 +127,16 @@ irq_entry:
     stp     x28, x29, [sp, #224]
     str     x30, [sp, #240]
 
+    mrs     x21, elr_el1
+    mrs     x22, spsr_el1
+    stp     x21, x22, [sp, #248]
+
+    mov     x0, sp
     bl      handle_arch_irq
+
+    ldp     x21, x22, [sp, #248]
+    msr     elr_el1, x21
+    msr     spsr_el1, x22
 
     ldr     x30, [sp, #240]
     ldp     x28, x29, [sp, #224]
@@ -145,7 +154,7 @@ irq_entry:
     ldp     x4, x5, [sp, #32]
     ldp     x2, x3, [sp, #16]
     ldp     x0, x1, [sp, #0]
-    add     sp, sp, #256
+    add     sp, sp, #272
     eret
 
 .global vectors_init

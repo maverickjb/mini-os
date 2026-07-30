@@ -35,6 +35,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->stack = 0;
     tsk->mm = 0;
     tsk->next = 0;
+    tsk->time_slice = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
 
@@ -106,6 +107,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 void wake_up_process(struct task_struct *task)
 {
     task->state = TASK_RUNNING;
+    task->time_slice = SCHED_TIME_SLICE;
 }
 
 long ksys_fork(struct pt_regs *regs)
@@ -125,6 +127,7 @@ long ksys_fork(struct pt_regs *regs)
 
     child->pid = next_pid++;
     child->state = TASK_RUNNING;
+    child->time_slice = SCHED_TIME_SLICE;
     child->is_user = 1;
     child->mm = parent->mm;
     child->user_sp = parent->user_sp;
@@ -138,17 +141,8 @@ long ksys_fork(struct pt_regs *regs)
 
 void ksys_sched_yield(struct pt_regs *regs)
 {
-    struct task_struct *prev = current;
-    struct task_struct *next;
-
-    if (!prev || !prev->is_user)
+    if (!current || !current->is_user)
         return;
 
-    save_user_regs(prev, regs);
-    next = pick_next_task(prev);
-    if (!next || next == prev)
-        return;
-
-    set_current(next);
-    restore_user_regs(next, regs);
+    schedule(regs);
 }

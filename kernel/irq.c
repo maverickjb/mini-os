@@ -5,6 +5,7 @@
 #include <linux/irq.h>
 #include <linux/errno.h>
 #include <linux/tick.h>
+#include <asm/ptrace.h>
 
 #include "mem.h"
 
@@ -136,7 +137,7 @@ void init_IRQ(void)
         gic_v2_init();
 }
 
-void handle_arch_irq(void)
+void handle_arch_irq(struct pt_regs *regs)
 {
     unsigned int irq;
 
@@ -150,7 +151,7 @@ void handle_arch_irq(void)
         return;
 
     if (irq == (unsigned int)IRQ_TIMER)
-        handle_arch_tick();
+        handle_arch_tick(regs);
 
     if (gic_is_v3) {
         __asm__ volatile("msr ICC_EOIR1_EL1, %0" : : "r"((unsigned long)irq));
