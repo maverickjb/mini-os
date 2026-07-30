@@ -2,7 +2,7 @@
  * Timekeeping — Linux-inspired names on the ARM Generic Timer.
  */
 
-#include "time.h"
+#include <linux/tick.h>
 #include <linux/irq.h>
 #include <linux/serial.h>
 

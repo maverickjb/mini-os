@@ -1,5 +1,5 @@
-#ifndef TIME_H
-#define TIME_H
+#ifndef _LINUX_TICK_H
+#define _LINUX_TICK_H
 
 #define HZ          100
 
@@ -11,4 +11,4 @@ void do_timer(void);
 
 unsigned long get_jiffies(void);
 
-#endif
+#endif /* _LINUX_TICK_H */

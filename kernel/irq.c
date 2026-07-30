@@ -4,9 +4,9 @@
 
 #include <linux/irq.h>
 #include <linux/errno.h>
+#include <linux/tick.h>
 
 #include "mem.h"
-#include "time.h"
 
 #define GICD_VIRT       ((unsigned long)__phys_to_virt(0x08000000UL))
 #define GICC_VIRT       ((unsigned long)__phys_to_virt(0x08010000UL))
