@@ -67,7 +67,7 @@ static int gic_v3_dist_init(void)
     if (timeout == 0)
         return -ETIMEDOUT;
 
-    GICD_CTLR = (1U << 4) | (1U << 5) | (1U << 1);
+    GICD_CTLR = (1U << 4) | (1U << 5) | (1U << 1) | 1U;
     timeout = 1000000U;
     while ((GICD_CTLR & (1U << 31)) && --timeout)
         ;
@@ -86,6 +86,7 @@ static void gic_v3_cpu_init(void)
     __asm__ volatile("msr ICC_PMR_EL1, %0" : : "r"(0xffUL));
     __asm__ volatile("msr ICC_BPR1_EL1, %0" : : "r"(0UL));
     __asm__ volatile("msr ICC_IGRPEN1_EL1, %0" : : "r"(1UL));
+    __asm__ volatile("msr ICC_IGRPEN0_EL1, %0" : : "r"(1UL));
     __asm__ volatile("isb");
 }
 

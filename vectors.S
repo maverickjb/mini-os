@@ -32,7 +32,7 @@ vectors:
     .align 7
     b       sync_el0_entry
     .align 7
-    b       exc_hang
+    b       irq_entry
     .align 7
     b       exc_hang
     .align 7

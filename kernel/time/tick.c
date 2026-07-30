@@ -17,6 +17,16 @@ static unsigned long read_cntfrq(void)
     return frq;
 }
 
+static void timer_el1_access_enable(void)
+{
+    unsigned long ctl;
+
+    __asm__ volatile("mrs %0, CNTKCTL_EL1" : "=r"(ctl));
+    ctl |= (1UL << 8) | (1UL << 10); /* EL1PTEN | EL1PCTEN */
+    __asm__ volatile("msr CNTKCTL_EL1, %0" : : "r"(ctl));
+    __asm__ volatile("isb");
+}
+
 static void timer_enable(void)
 {
     unsigned long ctl = 1; /* enable, interrupt unmasked */
@@ -27,7 +37,11 @@ static void timer_enable(void)
 
 static void timer_set_delta(unsigned long ticks)
 {
-    __asm__ volatile("msr CNTP_TVAL_EL0, %0" : : "r"(ticks));
+    unsigned long cnt, cval;
+
+    __asm__ volatile("mrs %0, CNTPCT_EL0" : "=r"(cnt));
+    cval = cnt + ticks;
+    __asm__ volatile("msr CNTP_CVAL_EL0, %0" : : "r"(cval));
     __asm__ volatile("isb");
 }
 
@@ -42,8 +56,9 @@ void tick_init(void)
     if (timer_freq == 0)
         timer_freq = 62500000UL;
 
-    timer_enable();
+    timer_el1_access_enable();
     tick_setup();
+    timer_enable();
 }
 
 void do_timer(void)

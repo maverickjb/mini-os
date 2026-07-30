@@ -5,6 +5,7 @@
 #include <linux/sched.h>
 #include <linux/sched/task.h>
 #include <linux/serial.h>
+#include <linux/tick.h>
 
 #include "page_alloc.h"
 #include "ramfs.h"
@@ -29,6 +30,7 @@ void kernel_main(void)
 
     if (id == 0) {
         serial_init();
+        time_init();
 
         uart_puts("Hello from CPU0\n");
         smp_init();
