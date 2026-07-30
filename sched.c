@@ -2,11 +2,10 @@
  * Scheduler — idle tasks (PID 0) and minimal run queue.
  */
 
-#include <linux/sched.h>
-
-#include "fork.h"
-#include "smp.h"
+#include <linux/sched/task.h>
 #include <linux/serial.h>
+
+#include "smp.h"
 
 extern void cpu_switch_to(struct task_struct *prev, struct task_struct *next);
 
@@ -27,6 +26,45 @@ struct task_struct *get_current(void)
 void set_current(struct task_struct *task)
 {
     cpu_current[smp_processor_id()] = task;
+}
+
+void enqueue_task(struct task_struct *task)
+{
+    struct task_struct *walk;
+
+    task->next = 0;
+    task->state = TASK_RUNNING;
+
+    if (!runqueue) {
+        runqueue = task;
+        return;
+    }
+
+    walk = runqueue;
+    while (walk->next)
+        walk = walk->next;
+
+    walk->next = task;
+}
+
+struct task_struct *pick_next_task(struct task_struct *prev)
+{
+    struct task_struct *start;
+    struct task_struct *walk;
+
+    if (!runqueue)
+        return prev;
+
+    start = prev && prev->next ? prev->next : runqueue;
+    walk = start;
+
+    do {
+        if (walk->state == TASK_RUNNING && walk->is_user)
+            return walk;
+        walk = walk->next ? walk->next : runqueue;
+    } while (walk != start);
+
+    return prev;
 }
 
 void sched_init(void)
@@ -69,6 +107,8 @@ void schedule(void)
         if (!runqueue || runqueue->state != TASK_RUNNING)
             return;
         next = runqueue;
+    } else if (prev->is_user) {
+        return;
     } else {
         next = &idle_tasks[cpu];
     }
@@ -111,4 +151,3 @@ void cpu_idle(void)
             __asm__ volatile("wfi");
     }
 }
-

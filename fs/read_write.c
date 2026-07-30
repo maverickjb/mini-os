@@ -3,11 +3,9 @@
  */
 
 #include <linux/fs.h>
-#include <linux/sched.h>
+#include <linux/sched/task.h>
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
-
-#include "fork.h"
 
 long vfs_write(struct file *file, const char *buf, unsigned long count)
 {

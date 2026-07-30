@@ -2,10 +2,11 @@
  * kernel_execve — load and run an ELF from ramfs.
  */
 
+#include <linux/sched/task.h>
+
 #include "exec.h"
 #include "binfmt.h"
 #include "ramfs.h"
-#include "fork.h"
 
 int kernel_execve(const char *kernel_filename)
 {

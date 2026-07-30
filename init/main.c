@@ -3,15 +3,14 @@
  */
 
 #include <linux/sched.h>
+#include <linux/sched/task.h>
 #include <linux/serial.h>
 
 #include "page_alloc.h"
 #include "ramfs.h"
 #include "initramfs.h"
 #include "smp.h"
-#include "sched.h"
 #include "exec.h"
-#include "fork.h"
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];

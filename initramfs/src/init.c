@@ -1,4 +1,6 @@
-#define __NR_write 64
+#define __NR_write       64
+#define __NR_clone       220
+#define __NR_sched_yield 124
 
 static long sys_write(long fd, const char *buf, long len)
 {
@@ -16,12 +18,45 @@ static long sys_write(long fd, const char *buf, long len)
     return x0;
 }
 
+static long sys_fork(void)
+{
+    register long x8 asm("x8") = __NR_clone;
+    register long x0 asm("x0") = 0;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8)
+        : "memory", "cc");
+
+    return x0;
+}
+
+static void sys_sched_yield(void)
+{
+    register long x8 asm("x8") = __NR_sched_yield;
+    register long x0 asm("x0") = 0;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8)
+        : "memory", "cc");
+}
+
 void _start(void)
 {
-    const char msg[] = "hello\n";
+    long pid;
 
-    sys_write(1, msg, sizeof(msg) - 1);
+    sys_write(1, "before fork\n", 12);
+
+    pid = sys_fork();
+
+    if (pid == 0)
+        sys_write(1, "child\n", 6);
+    else
+        sys_write(1, "parent\n", 7);
 
     for (;;)
-        ;
+        sys_sched_yield();
 }

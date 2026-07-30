@@ -225,6 +225,11 @@ int load_elf_binary(struct linux_binprm *bprm)
     mm->stack_top = bprm->stack_top;
     bprm->entry = mm->entry;
 
+    bprm->task->is_user = 1;
+    bprm->task->user_sp = mm->stack_top;
+    bprm->task->user_regs.elr_el1 = mm->entry;
+    bprm->task->user_regs.spsr_el1 = 0;
+
     mm_install(mm);
     start_user_mode(mm->entry, mm->stack_top);
 

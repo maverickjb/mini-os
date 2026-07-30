@@ -3,6 +3,7 @@
 
 #include <linux/mm_types.h>
 #include <linux/fs.h>
+#include <asm/ptrace.h>
 
 #define INIT_STACK_SIZE 4096
 #define NR_OPEN         8
@@ -17,6 +18,9 @@ struct task_struct {
     struct mm_struct *mm;
     struct file *files[NR_OPEN];
     struct task_struct *next;
+    int is_user;
+    unsigned long user_sp;
+    struct pt_regs user_regs;
 };
 
 #define TASK_RUNNING    0
@@ -28,5 +32,7 @@ void sched_init_idle(unsigned int cpu);
 void rest_init(void);
 void cpu_idle(void);
 void schedule(void);
+void enqueue_task(struct task_struct *task);
+struct task_struct *pick_next_task(struct task_struct *prev);
 
 #endif
