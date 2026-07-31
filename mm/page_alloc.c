@@ -6,6 +6,7 @@
 
 #include "page_alloc.h"
 #include "mem.h"
+#include <linux/stddef.h>
 
 #define MAX_PAGES       (PHYS_MEM_SIZE / PAGE_SIZE)
 
@@ -110,7 +111,7 @@ void page_alloc_init(void)
     unsigned long npages;
 
     for (unsigned int i = 0; i <= 15; i++)
-        free_area[i] = 0;
+        free_area[i] = NULL;
 
     for (unsigned int i = 0; i < MAX_PAGES; i++)
         block_order[i] = -1;
@@ -137,7 +138,7 @@ void *alloc_pages(int order)
     unsigned long pfn;
 
     if (!order_valid(order))
-        return 0;
+        return NULL;
 
     for (o = (unsigned int)order; o <= max_order; o++) {
         if (!free_area[o])
@@ -145,14 +146,14 @@ void *alloc_pages(int order)
 
         pfn = free_list_pop(o);
         if (pfn >= pool_pages)
-            return 0;
+            return NULL;
 
         split_block(pfn, o, (unsigned int)order);
         block_order[pfn] = -1;
         return (void *)pfn_to_addr(pfn);
     }
 
-    return 0;
+    return NULL;
 }
 
 void free_pages(void *addr, int order)

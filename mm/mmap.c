@@ -6,6 +6,7 @@
 #include "mem.h"
 #include "page_alloc.h"
 #include <linux/errno.h>
+#include <linux/stddef.h>
 
 #define PTE_VALID       3UL
 #define PTE_TABLE       3UL
@@ -47,13 +48,13 @@ static unsigned long *get_or_create_table(unsigned long *parent, unsigned long i
 
     if (entry & 1UL) {
         if ((entry & 3UL) != PTE_TABLE)
-            return 0;
+            return NULL;
         return (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
     }
 
     table = alloc_pages(0);
     if (!table)
-        return 0;
+        return NULL;
 
     page_zero(table);
     parent[index] = __virt_to_phys((unsigned long)table) | PTE_TABLE;
@@ -67,12 +68,12 @@ struct mm_struct *mm_alloc(void)
 
     mm = alloc_pages(0);
     if (!mm)
-        return 0;
+        return NULL;
 
     pgd = alloc_pages(0);
     if (!pgd) {
         free_pages(mm, 0);
-        return 0;
+        return NULL;
     }
 
     page_zero(pgd);

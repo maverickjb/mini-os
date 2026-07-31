@@ -5,6 +5,7 @@
 #include "ramfs.h"
 #include "page_alloc.h"
 #include <linux/errno.h>
+#include <linux/stddef.h>
 
 struct ramfs_dentry {
     char name[RAMFS_NAME_MAX + 1];
@@ -80,11 +81,11 @@ static struct ramfs_inode *ramfs_alloc_inode(unsigned int mode)
     struct ramfs_inode *inode = ramfs_kmalloc(sizeof(*inode));
 
     if (!inode)
-        return 0;
+        return NULL;
 
     inode->mode = mode;
-    inode->children = 0;
-    inode->data = 0;
+    inode->children = NULL;
+    inode->data = NULL;
     inode->size = 0;
     inode->capacity = 0;
     return inode;
@@ -119,14 +120,14 @@ static struct ramfs_dentry *ramfs_find_child(struct ramfs_inode *dir,
     struct ramfs_dentry *d;
 
     if (!dir || !(dir->mode & RAMFS_S_IFDIR))
-        return 0;
+        return NULL;
 
     for (d = dir->children; d; d = d->next) {
         if (ramfs_streq(d->name, name))
             return d;
     }
 
-    return 0;
+    return NULL;
 }
 
 static int ramfs_add_child(struct ramfs_inode *dir, const char *name,
@@ -208,7 +209,7 @@ static struct ramfs_inode *ramfs_lookup_at(struct ramfs_inode *dir,
             i++;
 
         if (i == 0)
-            return 0;
+            return NULL;
 
         {
             unsigned long j;
@@ -220,7 +221,7 @@ static struct ramfs_inode *ramfs_lookup_at(struct ramfs_inode *dir,
 
         d = ramfs_find_child(dir, name);
         if (!d)
-            return 0;
+            return NULL;
 
         path += i;
         path = ramfs_skip_slash(path);
@@ -228,7 +229,7 @@ static struct ramfs_inode *ramfs_lookup_at(struct ramfs_inode *dir,
             return d->inode;
 
         if (!(d->inode->mode & RAMFS_S_IFDIR))
-            return 0;
+            return NULL;
 
         dir = d->inode;
     }
@@ -239,11 +240,11 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
     struct ramfs_inode *dir = &root_inode;
     struct ramfs_dentry *d;
     const char *p = ramfs_skip_slash(path);
-    const char *last = 0;
+    const char *last = NULL;
     unsigned long i;
 
     if (!*p)
-        return 0;
+        return NULL;
 
     while (*p) {
         while (*p == '/')
@@ -267,9 +268,9 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
 
             d = ramfs_find_child(dir, component);
             if (!d)
-                return 0;
+                return NULL;
             if (!(d->inode->mode & RAMFS_S_IFDIR))
-                return 0;
+                return NULL;
             dir = d->inode;
             p += i;
         } else {
@@ -278,14 +279,14 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
     }
 
     if (!last)
-        return 0;
+        return NULL;
 
     i = 0;
     while (last[i] && last[i] != '/')
         i++;
 
     if (i == 0 || i > RAMFS_NAME_MAX)
-        return 0;
+        return NULL;
 
     {
         unsigned long j;
@@ -301,8 +302,8 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
 void ramfs_init(void)
 {
     root_inode.mode = RAMFS_S_IFDIR;
-    root_inode.children = 0;
-    root_inode.data = 0;
+    root_inode.children = NULL;
+    root_inode.data = NULL;
     root_inode.size = 0;
     root_inode.capacity = 0;
 }
@@ -315,7 +316,7 @@ struct ramfs_inode *ramfs_root(void)
 struct ramfs_inode *ramfs_lookup(const char *path)
 {
     if (!path || path[0] != '/')
-        return 0;
+        return NULL;
 
     return ramfs_lookup_at(&root_inode, path);
 }
@@ -567,7 +568,7 @@ unsigned long ramfs_size(const struct ramfs_inode *inode)
 const void *ramfs_data(const struct ramfs_inode *inode)
 {
     if (!inode || !(inode->mode & RAMFS_S_IFREG))
-        return 0;
+        return NULL;
 
     return inode->data;
 }

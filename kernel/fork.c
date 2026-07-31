@@ -4,6 +4,7 @@
 
 #include <linux/sched/task.h>
 #include <linux/errno.h>
+#include <linux/stddef.h>
 
 #include "page_alloc.h"
 #include "mmap.h"
@@ -29,18 +30,18 @@ static void task_zero(struct task_struct *tsk)
 
     tsk->pid = 0;
     tsk->state = TASK_SLEEPING;
-    tsk->saved_sp = 0;
-    tsk->thread_fn = 0;
-    tsk->thread_arg = 0;
-    tsk->stack = 0;
-    tsk->mm = 0;
-    tsk->next = 0;
+    tsk->saved_sp = NULL;
+    tsk->thread_fn = NULL;
+    tsk->thread_arg = NULL;
+    tsk->stack = NULL;
+    tsk->mm = NULL;
+    tsk->next = NULL;
     tsk->time_slice = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
 
     for (i = 0; i < NR_OPEN; i++)
-        tsk->files[i] = 0;
+        tsk->files[i] = NULL;
 }
 
 __attribute__((noinline))
@@ -87,11 +88,11 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
     tsk = alloc_pages(0);
     if (!tsk)
-        return 0;
+        return NULL;
 
     stack = alloc_pages(0);
     if (!stack)
-        return 0;
+        return NULL;
 
     task_zero(tsk);
     tsk->pid = next_pid++;

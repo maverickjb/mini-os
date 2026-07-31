@@ -5,6 +5,7 @@
 #include <linux/fs.h>
 #include <linux/serial.h>
 #include <linux/errno.h>
+#include <linux/stddef.h>
 #include "mem.h"
 
 #define UART0_VIRT      ((unsigned long)__phys_to_virt(0x09000000UL))
@@ -57,7 +58,7 @@ static const struct file_operations serial_fops = {
 
 struct file uart_file = {
     .f_op = &serial_fops,
-    .private_data = 0,
+    .private_data = NULL,
     .f_pos = 0,
 };
 

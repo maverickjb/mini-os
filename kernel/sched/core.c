@@ -4,6 +4,7 @@
 
 #include <linux/sched/task.h>
 #include <linux/serial.h>
+#include <linux/stddef.h>
 
 #include "smp.h"
 
@@ -69,7 +70,7 @@ void enqueue_task(struct task_struct *task)
 {
     struct task_struct *walk;
 
-    task->next = 0;
+    task->next = NULL;
     task->state = TASK_RUNNING;
     task->time_slice = SCHED_TIME_SLICE;
 
