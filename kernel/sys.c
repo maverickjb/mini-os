@@ -20,8 +20,10 @@ void syscall_handler(struct pt_regs *regs)
         break;
     case __NR_sched_yield:
         ksys_sched_yield(regs);
-        ret = 0;
-        break;
+        return;
+    case __NR_exit:
+        ksys_exit(regs, (long)regs->x0);
+        return;
     default:
         ret = -ENOSYS;
         break;

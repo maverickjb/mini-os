@@ -5,6 +5,7 @@ struct mm_struct {
     unsigned long *pgd;
     unsigned long entry;
     unsigned long stack_top;
+    int users;
 };
 
 #endif	/* __MM_TYPES_H */

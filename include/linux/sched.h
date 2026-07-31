@@ -9,9 +9,16 @@
 #define NR_OPEN           8
 #define SCHED_TIME_SLICE  10
 
+enum task_state {
+    TASK_RUNNING,
+    TASK_IDLE,
+    TASK_ZOMBIE,
+    TASK_DEAD,
+};
+
 struct task_struct {
     unsigned long pid;
-    volatile unsigned long state;
+    enum task_state state;
     unsigned long *saved_sp;
     void (*thread_fn)(void *);
     void *thread_arg;
@@ -23,11 +30,8 @@ struct task_struct {
     int is_user;
     unsigned long user_sp;
     struct pt_regs user_regs;
+    long exit_code;
 };
-
-#define TASK_RUNNING    0
-#define TASK_IDLE       1
-#define TASK_SLEEPING   2
 
 extern struct task_struct idle_tasks[];
 

@@ -39,6 +39,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->time_slice = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
+    tsk->exit_code = 0;
 
     for (i = 0; i < NR_OPEN; i++)
         tsk->files[i] = NULL;
@@ -131,12 +132,18 @@ long ksys_fork(struct pt_regs *regs)
     child->time_slice = SCHED_TIME_SLICE;
     child->is_user = 1;
     child->mm = parent->mm;
+    if (child->mm)
+        mm_get(child->mm);
     child->user_sp = parent->user_sp;
     copy_pt_regs(&child->user_regs, &parent->user_regs);
     child->user_regs.x0 = 0;
     copy_task_files(child, parent);
 
     enqueue_task(child);
+
+    copy_pt_regs(&parent->user_regs, regs);
+    parent->user_regs.x0 = (unsigned long)child->pid;
+
     return (long)child->pid;
 }
 

@@ -80,7 +80,28 @@ struct mm_struct *mm_alloc(void)
     mm->pgd = pgd;
     mm->entry = 0;
     mm->stack_top = 0;
+    mm->users = 1;
     return mm;
+}
+
+void mm_get(struct mm_struct *mm)
+{
+    if (mm)
+        mm->users++;
+}
+
+void mm_put(struct mm_struct *mm)
+{
+    if (!mm)
+        return;
+
+    mm->users--;
+    if (mm->users > 0)
+        return;
+
+    if (mm->pgd)
+        free_pages(mm->pgd, 0);
+    free_pages(mm, 0);
 }
 
 void mm_install(struct mm_struct *mm)
