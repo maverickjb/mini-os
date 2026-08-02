@@ -6,10 +6,9 @@
 #include <linux/serial.h>
 #include <linux/stddef.h>
 #include <linux/sched.h>
+#include <asm/exception.h>
 
 #include "smp.h"
-
-extern void cpu_switch_to(struct task_struct *prev, struct task_struct *next);
 
 struct task_struct idle_tasks[NR_CPUS] = {
     [0] = { .pid = 0, .state = TASK_IDLE },
@@ -21,6 +20,9 @@ struct task_struct idle_tasks[NR_CPUS] = {
 static struct task_struct *cpu_current[NR_CPUS];
 struct task_struct *runqueue;
 
+/* Exported for prepare_return_to_el0 in context.S (UP: CPU0 only). */
+struct task_struct *cpu_current_export;
+
 struct task_struct *get_current(void)
 {
     return cpu_current[smp_processor_id()];
@@ -28,7 +30,11 @@ struct task_struct *get_current(void)
 
 void set_current(struct task_struct *task)
 {
-    cpu_current[smp_processor_id()] = task;
+    unsigned int cpu = smp_processor_id();
+
+    cpu_current[cpu] = task;
+    if (cpu == 0)
+        cpu_current_export = task;
 }
 
 static struct task_struct *idle_task(void)
@@ -88,45 +94,27 @@ void sched_init(void)
 void sched_init_idle(unsigned int cpu)
 {
     cpu_current[cpu] = &idle_tasks[cpu];
+    if (cpu == 0)
+        cpu_current_export = &idle_tasks[cpu];
 }
 
-void rest_init(void)
+static void context_switch(struct task_struct *prev, struct task_struct *next,
+                           struct pt_regs *regs)
 {
-    struct task_struct *init;
-
-    init = kernel_thread(kernel_init, 0);
-    if (!init) {
-        uart_puts("kernel_thread failed\n");
-        return;
-    }
-
-    wake_up_process(init);
-    runqueue = init;
-
-    uart_puts("Rest init: PID 1 created, boot thread -> idle\n");
-}
-
-static void switch_kernel_tasks(struct task_struct *prev, struct task_struct *next)
-{
-    if (next == prev)
-        return;
-
-    if (prev->pid == 0)
-        prev->state = TASK_IDLE;
-    else
-        prev->state = TASK_RUNNING;
-
-    if (next->pid == 0)
-        next->state = TASK_IDLE;
-    else
-        next->state = TASK_RUNNING;
+    if (prev->is_user && interrupted_el0(regs))
+        save_user_regs(prev, regs);
 
     next->time_slice = SCHED_TIME_SLICE;
+
     set_current(next);
-    cpu_switch_to(prev, next);
+
+    /*
+     * Real context switch — returns on prev's kernel stack only when prev
+     * runs again (Linux-style). On exit, prev is zombie and never returns.
+     */
+    switch_to(prev, next);
 }
 
-__attribute__((noinline))
 void schedule(struct pt_regs *regs)
 {
     struct task_struct *prev = current;
@@ -137,13 +125,5 @@ void schedule(struct pt_regs *regs)
     if (next == prev)
         return;
 
-    if (next->is_user) {
-        save_user_regs(prev, regs);
-        next->time_slice = SCHED_TIME_SLICE;
-        set_current(next);
-        restore_user_regs(next, regs);
-        return;
-    }
-
-    switch_kernel_tasks(prev, next);
+    context_switch(prev, next, regs);
 }

@@ -4,6 +4,7 @@
 
 #include <linux/mm_types.h>
 #include <linux/sched.h>
+#include <linux/sched/task.h>
 #include <linux/errno.h>
 
 #include "binfmt.h"
@@ -28,7 +29,7 @@
 #define PF_W            2
 #define PF_R            4
 
-#define USER_STACK_TOP  0x80000000UL
+#define USER_STACK_TOP  0x4040000UL
 #define USER_STACK_SIZE (64UL * 1024UL)
 
 typedef struct {
@@ -59,7 +60,7 @@ typedef struct {
     unsigned long p_align;
 } Elf64_Phdr;
 
-extern void start_user_mode(unsigned long entry, unsigned long stack);
+extern void task_trampoline(void);
 
 static void kmemcpy(void *dst, const void *src, unsigned long n)
 {
@@ -107,9 +108,7 @@ static unsigned long elf_prot(unsigned long p_flags)
 
 static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out)
 {
-    unsigned long npages = USER_STACK_SIZE / PAGE_SIZE;
-    int order = pages_to_order(npages);
-    void *stack = alloc_pages(order);
+    void *stack = alloc_pages(0);
     unsigned long stack_phys;
     unsigned long map_base;
     int err;
@@ -118,14 +117,14 @@ static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out)
         return -ENOMEM;
 
     stack_phys = __virt_to_phys((unsigned long)stack);
-    map_base = USER_STACK_TOP - USER_STACK_SIZE;
+    map_base = (USER_STACK_TOP - PAGE_SIZE) & ~(PAGE_SIZE - 1UL);
 
-    err = do_map(mm, map_base, stack_phys, USER_STACK_SIZE,
+    err = do_map(mm, map_base, stack_phys, PAGE_SIZE,
                  MAP_PROT_READ | MAP_PROT_WRITE);
     if (err)
         return err;
 
-    *stack_top_out = USER_STACK_TOP;
+    *stack_top_out = map_base + PAGE_SIZE;
     return 0;
 }
 
@@ -207,6 +206,8 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     phdrs = (const Elf64_Phdr *)(bprm->buf + ehdr->e_phoff);
 
+    __asm__ volatile("msr daifset, #3");
+
     for (i = 0; i < ehdr->e_phnum; i++) {
         const Elf64_Phdr *ph = &phdrs[i];
 
@@ -228,11 +229,10 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     bprm->task->is_user = 1;
     bprm->task->user_sp = mm->stack_top;
+    kmemset(&bprm->task->user_regs, 0, sizeof(bprm->task->user_regs));
     bprm->task->user_regs.elr_el1 = mm->entry;
     bprm->task->user_regs.spsr_el1 = 0;
 
-    mm_install(mm);
-    start_user_mode(mm->entry, mm->stack_top);
-
-    return 0;
+    task_user_ctx_init(bprm->task);
+    ret_from_fork();
 }

@@ -4,6 +4,7 @@
 
 #include <linux/sched/task.h>
 #include <linux/sched.h>
+#include <linux/serial.h>
 #include <linux/stddef.h>
 
 #include "mmap.h"
@@ -38,6 +39,7 @@ void ksys_exit(struct pt_regs *regs, long status)
 
     schedule(regs);
 
+    uart_puts("ksys_exit: schedule returned (bug)\n");
     for (;;)
-        ;
+        __asm__ volatile("wfi");
 }

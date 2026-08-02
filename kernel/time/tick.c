@@ -6,7 +6,7 @@
 #include <linux/irq.h>
 #include <linux/sched/task.h>
 #include <linux/serial.h>
-#include <asm/ptrace.h>
+#include <asm/exception.h>
 
 static unsigned long jiffies;
 static unsigned long timer_freq;
@@ -71,11 +71,6 @@ void do_timer(void)
 unsigned long get_jiffies(void)
 {
     return jiffies;
-}
-
-static int interrupted_el0(struct pt_regs *regs)
-{
-    return regs && (regs->spsr_el1 & 0xf) == 0;
 }
 
 void handle_arch_tick(struct pt_regs *regs)

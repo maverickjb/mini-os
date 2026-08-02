@@ -10,10 +10,12 @@
 
 #define PTE_VALID       3UL
 #define PTE_TABLE       3UL
+#define PTE_BLOCK       (1UL << 0)
 #define PTE_AF          (1UL << 10)
+#define PTE_SHARED      (3UL << 8)   /* inner shareable */
+#define PTE_USER        (1UL << 6)   /* AP[1]: user accessible at EL0 */
+#define PTE_RDONLY      (1UL << 7)   /* AP[2]: read-only */
 #define PTE_UXN         (1UL << 54)
-#define PTE_AP_RW_EL0   (1UL << 6)
-#define PTE_AP_RO_EL0   (3UL << 6)
 #define PTE_ADDR_MASK   (~0xFFFUL)
 
 #define PTE_ENTRIES     512
@@ -28,12 +30,10 @@ static void page_zero(unsigned long *page)
 
 static unsigned long prot_to_pte(unsigned long prot)
 {
-    unsigned long pte = PTE_VALID | PTE_AF;
+    unsigned long pte = PTE_VALID | PTE_AF | PTE_SHARED | PTE_USER;
 
-    if ((prot & MAP_PROT_WRITE))
-        pte |= PTE_AP_RW_EL0;
-    else
-        pte |= PTE_AP_RO_EL0;
+    if (!(prot & MAP_PROT_WRITE))
+        pte |= PTE_RDONLY;
 
     if (!(prot & MAP_PROT_EXEC))
         pte |= PTE_UXN;
@@ -122,6 +122,30 @@ void mm_install(struct mm_struct *mm)
         : "r"(ttbr0));
 }
 
+static int map_l2_block(struct mm_struct *mm, unsigned long va, unsigned long pa,
+                        unsigned long prot)
+{
+    unsigned long *l2;
+    unsigned long l1_idx = (va >> 30) & 0x1ffUL;
+    unsigned long l2_idx = (va >> 21) & 0x1ffUL;
+    unsigned long pte;
+
+    pte = (pa & ~0x1fffffUL) | PTE_BLOCK | PTE_AF | PTE_SHARED | PTE_USER;
+
+    if (!(prot & MAP_PROT_WRITE))
+        pte |= PTE_RDONLY;
+
+    if (!(prot & MAP_PROT_EXEC))
+        pte |= PTE_UXN;
+
+    l2 = get_or_create_table(mm->pgd, l1_idx);
+    if (!l2)
+        return -ENOMEM;
+
+    l2[l2_idx] = pte;
+    return 0;
+}
+
 static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
                     unsigned long prot)
 {
@@ -140,7 +164,17 @@ static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
         return -ENOMEM;
 
     l3[l3_idx] = (pa & PTE_ADDR_MASK) | prot_to_pte(prot);
+    __asm__ volatile("dsb sy");
     return 0;
+}
+
+int do_map_l2(struct mm_struct *mm, unsigned long virt, unsigned long phys,
+              unsigned long prot)
+{
+    if ((virt & 0x1fffffUL) || (phys & 0x1fffffUL))
+        return -EINVAL;
+
+    return map_l2_block(mm, virt, phys, prot);
 }
 
 int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
@@ -165,5 +199,7 @@ int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
             return err;
     }
 
+    __asm__ volatile("dsb sy");
+    __asm__ volatile("isb");
     return 0;
 }

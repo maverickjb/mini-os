@@ -13,6 +13,9 @@ void mm_get(struct mm_struct *mm);
 void mm_put(struct mm_struct *mm);
 void mm_install(struct mm_struct *mm);
 
+int do_map_l2(struct mm_struct *mm, unsigned long virt, unsigned long phys,
+              unsigned long prot);
+
 int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
            unsigned long size, unsigned long prot);
 

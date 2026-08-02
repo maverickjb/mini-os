@@ -7,6 +7,7 @@
 
 #include <linux/sched.h>
 #include <linux/errno.h>
+#include <linux/sched/task.h>
  
 #include "mem.h"
 #include "smp.h"
@@ -14,7 +15,7 @@
 extern void secondary_startup(void);
 extern void mmu_enable_secondary(void);
 
-volatile unsigned long cpu_release[NR_CPUS];
+volatile unsigned long cpu_release[NR_CPUS] __attribute__((section(".data.boot"))) = { 0 };
 static volatile unsigned char cpu_online[NR_CPUS];
 
 unsigned int smp_processor_id(void)
@@ -32,13 +33,18 @@ static unsigned int cpu_id(void)
 
 void smp_init(void)
 {
-    for (unsigned int i = 0; i < NR_CPUS; i++) {
+    unsigned int i;
+
+    for (i = 0; i < NR_CPUS; i++) {
         cpu_release[i] = 0;
         cpu_online[i] = 0;
+        sched_init_idle(i);
     }
 
     cpu_online[0] = 1;
 }
+
+#define CPU_UP_TIMEOUT  100000U
 
 int cpu_up(unsigned int cpu)
 {
@@ -49,11 +55,12 @@ int cpu_up(unsigned int cpu)
         return 0;
 
     cpu_release[cpu] = __virt_to_phys(secondary_startup);
+    __asm__ volatile("dsb ishst");
     __asm__ volatile("dsb sy");
     __asm__ volatile("sev");
 
     for (unsigned int spins = 0; !cpu_online[cpu]; spins++) {
-        if (spins == 100000000U)
+        if (spins == CPU_UP_TIMEOUT)
             return -ETIMEDOUT;
         __asm__ volatile("yield");
     }
@@ -63,7 +70,9 @@ int cpu_up(unsigned int cpu)
 
 void bringup_nonboot_cpus(void)
 {
-    for (unsigned int cpu = 1; cpu < NR_CPUS; cpu++)
+    unsigned int cpu;
+
+    for (cpu = 1; cpu < NR_CPUS; cpu++)
         (void)cpu_up(cpu);
 }
 
@@ -72,6 +81,7 @@ void secondary_main(void)
     unsigned int id = cpu_id();
 
     cpu_online[id] = 1;
+    __asm__ volatile("dsb sy");
     sched_init_idle(id);
     cpu_idle();
 }

@@ -12,14 +12,31 @@
 enum task_state {
     TASK_RUNNING,
     TASK_IDLE,
+    TASK_SLEEPING,
     TASK_ZOMBIE,
     TASK_DEAD,
+};
+
+struct cpu_context {
+    unsigned long x19;
+    unsigned long x20;
+    unsigned long x21;
+    unsigned long x22;
+    unsigned long x23;
+    unsigned long x24;
+    unsigned long x25;
+    unsigned long x26;
+    unsigned long x27;
+    unsigned long x28;
+    unsigned long fp;
+    unsigned long pc;
+    unsigned long sp;
 };
 
 struct task_struct {
     unsigned long pid;
     enum task_state state;
-    unsigned long *saved_sp;
+    struct cpu_context ctx;
     void (*thread_fn)(void *);
     void *thread_arg;
     unsigned long *stack;
@@ -34,10 +51,11 @@ struct task_struct {
 };
 
 extern struct task_struct idle_tasks[];
+extern struct task_struct *runqueue;
+extern struct task_struct *cpu_current_export;
 
 void sched_init(void);
 void sched_init_idle(unsigned int cpu);
-void rest_init(void);
 void cpu_idle(void);
 void schedule(struct pt_regs *regs);
 void enqueue_task(struct task_struct *task);

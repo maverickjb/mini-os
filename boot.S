@@ -55,20 +55,41 @@ boot_cont:
     ldr     x1, =_stack_top
     mov     sp, x1
 
-    bl      kernel_main
+    bl      start_kernel
 
 hang:
     wfe
     b       hang
 
 secondary_park:
-    adr     x1, cpu_release
-    ldr     x2, [x1, x0, lsl #3]
-    cbz     x2, 1f
-    br      x2
+    mrs     x0, mpidr_el1
+    and     x0, x0, #0xff
+
+    ldr     x3, =PHYS_VIRT_OFFSET
+
+    /* Per-CPU stack + VBAR before WFE (timer IRQ safe). */
+    ldr     x1, =__per_cpu_stacks
+    sub     x1, x1, x3
+    ldr     x2, =__per_cpu_stack_size
+    mul     x4, x0, x2
+    add     x1, x1, x4
+    add     sp, x1, x2
+
+    ldr     x1, =vectors
+    sub     x1, x1, x3
+    msr     vbar_el1, x1
+    isb
+
 1:
+    ldr     x1, =cpu_release
+    sub     x1, x1, x3
+    ldr     x2, [x1, x0, lsl #3]
+    cbz     x2, 2f
+    isb
+    br      x2
+2:
     wfe
-    b       secondary_park
+    b       1b
 
 .global secondary_startup
 secondary_startup:

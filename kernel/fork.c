@@ -1,5 +1,5 @@
 /*
- * Task management — kernel threads and user fork().
+ * Task management — kernel threads, user fork(), return to user.
  */
 
 #include <linux/sched/task.h>
@@ -13,7 +13,7 @@ extern void task_trampoline(void);
 
 static unsigned long next_pid = 1;
 
-static void __attribute__((noinline)) copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src)
+void copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src)
 {
     unsigned long *d = (unsigned long *)dst;
     const unsigned long *s = (const unsigned long *)src;
@@ -24,13 +24,43 @@ static void __attribute__((noinline)) copy_pt_regs(struct pt_regs *dst, const st
         d[i] = s[i];
 }
 
+void save_user_regs(struct task_struct *task, struct pt_regs *regs)
+{
+    copy_pt_regs(&task->user_regs, regs);
+    __asm__ volatile("mrs %0, sp_el0" : "=r"(task->user_sp));
+}
+
+struct pt_regs *task_pt_regs(struct task_struct *task)
+{
+    return (struct pt_regs *)((char *)task->stack + INIT_STACK_SIZE -
+                              sizeof(struct pt_regs));
+}
+
+void task_user_ctx_init(struct task_struct *task)
+{
+    task->ctx.sp = (unsigned long)(task->stack +
+                                   INIT_STACK_SIZE / sizeof(unsigned long));
+    task->ctx.pc = (unsigned long)ret_from_fork;
+}
+
+void ret_from_fork(void)
+{
+    struct task_struct *task = current;
+
+    __asm__ volatile("msr sp_el0, %0" : : "r"(task->user_sp));
+    if (task->mm)
+        mm_install(task->mm);
+
+    __asm__ volatile("msr daifclr, #3");
+    finish_eret(&task->user_regs);
+}
+
 static void task_zero(struct task_struct *tsk)
 {
     unsigned int i;
 
     tsk->pid = 0;
     tsk->state = TASK_SLEEPING;
-    tsk->saved_sp = NULL;
     tsk->thread_fn = NULL;
     tsk->thread_arg = NULL;
     tsk->stack = NULL;
@@ -45,33 +75,13 @@ static void task_zero(struct task_struct *tsk)
         tsk->files[i] = NULL;
 }
 
-__attribute__((noinline))
-static void task_frame_init(struct task_struct *task, void (*fn)(void *), void *arg)
+static void task_ctx_init(struct task_struct *task, void (*fn)(void *), void *arg)
 {
-    unsigned long *sp = task->stack + (INIT_STACK_SIZE / sizeof(unsigned long)) - 12;
-    unsigned int i;
-
-    for (i = 0; i < 12; i++)
-        sp[i] = 0;
-
-    sp[0] = (unsigned long)arg;
-    sp[1] = (unsigned long)fn;
-    sp[11] = (unsigned long)task_trampoline;
-    task->saved_sp = sp;
-}
-
-void save_user_regs(struct task_struct *task, struct pt_regs *regs)
-{
-    copy_pt_regs(&task->user_regs, regs);
-    __asm__ volatile("mrs %0, sp_el0" : "=r"(task->user_sp));
-}
-
-void restore_user_regs(struct task_struct *task, struct pt_regs *regs)
-{
-    copy_pt_regs(regs, &task->user_regs);
-    __asm__ volatile("msr sp_el0, %0" : : "r"(task->user_sp));
-    if (task->mm)
-        mm_install(task->mm);
+    task->ctx.x19 = (unsigned long)arg;
+    task->ctx.x20 = (unsigned long)fn;
+    task->ctx.sp = (unsigned long)(task->stack +
+                                   INIT_STACK_SIZE / sizeof(unsigned long));
+    task->ctx.pc = (unsigned long)task_trampoline;
 }
 
 static void copy_task_files(struct task_struct *child, struct task_struct *parent)
@@ -102,7 +112,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     tsk->thread_arg = arg;
     tsk->stack = stack;
 
-    task_frame_init(tsk, fn, arg);
+    task_ctx_init(tsk, fn, arg);
     return tsk;
 }
 
@@ -116,6 +126,7 @@ long ksys_fork(struct pt_regs *regs)
 {
     struct task_struct *parent = current;
     struct task_struct *child;
+    unsigned long *stack;
 
     if (!parent || !parent->is_user)
         return -EINVAL;
@@ -124,6 +135,12 @@ long ksys_fork(struct pt_regs *regs)
     if (!child)
         return -ENOMEM;
 
+    stack = alloc_pages(0);
+    if (!stack) {
+        free_pages(child, 0);
+        return -ENOMEM;
+    }
+
     task_zero(child);
     save_user_regs(parent, regs);
 
@@ -131,6 +148,7 @@ long ksys_fork(struct pt_regs *regs)
     child->state = TASK_RUNNING;
     child->time_slice = SCHED_TIME_SLICE;
     child->is_user = 1;
+    child->stack = stack;
     child->mm = parent->mm;
     if (child->mm)
         mm_get(child->mm);
@@ -138,11 +156,12 @@ long ksys_fork(struct pt_regs *regs)
     copy_pt_regs(&child->user_regs, &parent->user_regs);
     child->user_regs.x0 = 0;
     copy_task_files(child, parent);
+    task_user_ctx_init(child);
 
     enqueue_task(child);
 
-    copy_pt_regs(&parent->user_regs, regs);
-    parent->user_regs.x0 = (unsigned long)child->pid;
+    copy_pt_regs(regs, &parent->user_regs);
+    regs->x0 = (unsigned long)child->pid;
 
     return (long)child->pid;
 }

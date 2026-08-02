@@ -16,6 +16,22 @@
 extern char __initramfs_start[];
 extern char __initramfs_end[];
 
+static void rest_init(void)
+{
+    struct task_struct *init;
+
+    init = kernel_thread(kernel_init, 0);
+    if (!init) {
+        uart_puts("kernel_thread failed\n");
+        return;
+    }
+
+    wake_up_process(init);
+    runqueue = init;
+
+    uart_puts("Rest init: PID 1 created, boot thread -> idle\n");
+}
+
 static unsigned int cpu_id(void)
 {
     unsigned long mpidr;
@@ -24,7 +40,7 @@ static unsigned int cpu_id(void)
     return (unsigned int)(mpidr & 0xff);
 }
 
-void kernel_main(void)
+void start_kernel(void)
 {
     unsigned int id = cpu_id();
 
