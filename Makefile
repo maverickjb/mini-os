@@ -13,11 +13,11 @@ ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
            -Wl,--entry=0x40000000
 
-SRCS    := boot.S vectors.S context.S mmu_enable.S init/main.c smp.c \
+SRCS    := boot.S vectors.S context.S mmu_enable.S init/main.c kernel/smp.c \
            kernel/sched/core.c kernel/sched/idle.c \
            kernel/fork.c kernel/exit.c kernel/sys.c kernel/irq.c kernel/time/tick.c \
            mm/page_alloc.c \
-           mmu.c fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
+           fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
            fs/binfmt.c mm/mmap.c mm/uaccess.c fs/read_write.c drivers/tty/serial.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)

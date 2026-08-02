@@ -6,7 +6,7 @@
 #include <linux/sched/task.h>
 #include <linux/serial.h>
 
-#include "smp.h"
+#include <asm/smp.h>
 
 extern struct task_struct *runqueue;
 

@@ -2,7 +2,7 @@
  * EL1 exception vectors — per-task kernel stacks, IRQ + EL0 syscall.
  */
 
-#include "mem.h"
+#include <asm/memory.h>
 #include <asm/asm-offsets.h>
 
 .section .text.boot, "ax"

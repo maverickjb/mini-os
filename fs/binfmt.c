@@ -6,11 +6,11 @@
 #include <linux/sched.h>
 #include <linux/sched/task.h>
 #include <linux/errno.h>
+#include <asm/memory.h>
 
 #include "binfmt.h"
 #include "mmap.h"
 #include "page_alloc.h"
-#include "mem.h"
 
 #define EI_MAG0         0
 #define EI_MAG1         1

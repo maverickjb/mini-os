@@ -6,11 +6,11 @@
 #include <linux/sched/task.h>
 #include <linux/serial.h>
 #include <linux/tick.h>
+#include <asm/smp.h>
 
 #include "page_alloc.h"
 #include "ramfs.h"
 #include "initramfs.h"
-#include "smp.h"
 #include "exec.h"
 
 extern char __initramfs_start[];

@@ -8,7 +8,7 @@
 #include <linux/sched.h>
 #include <asm/exception.h>
 
-#include "smp.h"
+#include <asm/smp.h>
 
 struct task_struct idle_tasks[NR_CPUS] = {
     [0] = { .pid = 0, .state = TASK_IDLE },

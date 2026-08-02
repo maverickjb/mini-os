@@ -1,5 +1,5 @@
-#ifndef MEM_H
-#define MEM_H
+#ifndef __ASM_MEMORY_H
+#define __ASM_MEMORY_H
 
 /*
  * Kernel runs at a fixed high virtual address; RAM is at 0x40000000 phys
@@ -18,4 +18,4 @@
 #define __phys_to_virt(pa)  ((void *)((unsigned long)(pa) + PHYS_VIRT_OFFSET))
 #define __virt_to_phys(va)  ((unsigned long)(va) - PHYS_VIRT_OFFSET)
 
-#endif
+#endif /* __ASM_MEMORY_H */

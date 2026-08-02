@@ -5,7 +5,7 @@
  */
 
 #include "page_alloc.h"
-#include "mem.h"
+#include <asm/memory.h>
 #include <linux/stddef.h>
 
 #define MAX_PAGES       (PHYS_MEM_SIZE / PAGE_SIZE)

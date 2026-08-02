@@ -9,8 +9,8 @@
 #include <linux/errno.h>
 #include <linux/sched/task.h>
  
-#include "mem.h"
-#include "smp.h"
+#include <asm/memory.h>
+#include <asm/smp.h>
 
 extern void secondary_startup(void);
 extern void mmu_enable_secondary(void);

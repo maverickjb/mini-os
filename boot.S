@@ -2,7 +2,7 @@
  * miniSMP — AArch64 bare-metal entry for QEMU virt
  */
 
-#include "mem.h"
+#include <asm/memory.h>
 
 .macro call_phys fn
     ldr     x10, =\fn

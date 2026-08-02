@@ -5,7 +5,7 @@
  * TTBR1: kernel at KERNEL_VIRT_BASE, MMIO at MMIO_VIRT_BASE.
  */
 
-#include "mem.h"
+#include <asm/memory.h>
 
 #define PTE_TABLE       (3 << 0)
 #define PTE_BLOCK       (1 << 0)

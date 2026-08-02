@@ -6,7 +6,7 @@
 #include <linux/serial.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
-#include "mem.h"
+#include <asm/memory.h>
 
 #define UART0_VIRT      ((unsigned long)__phys_to_virt(0x09000000UL))
 

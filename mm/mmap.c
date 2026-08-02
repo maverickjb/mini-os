@@ -3,7 +3,7 @@
  */
 
 #include "mmap.h"
-#include "mem.h"
+#include <asm/memory.h>
 #include "page_alloc.h"
 #include <linux/errno.h>
 #include <linux/stddef.h>
@@ -122,30 +122,6 @@ void mm_install(struct mm_struct *mm)
         : "r"(ttbr0));
 }
 
-static int map_l2_block(struct mm_struct *mm, unsigned long va, unsigned long pa,
-                        unsigned long prot)
-{
-    unsigned long *l2;
-    unsigned long l1_idx = (va >> 30) & 0x1ffUL;
-    unsigned long l2_idx = (va >> 21) & 0x1ffUL;
-    unsigned long pte;
-
-    pte = (pa & ~0x1fffffUL) | PTE_BLOCK | PTE_AF | PTE_SHARED | PTE_USER;
-
-    if (!(prot & MAP_PROT_WRITE))
-        pte |= PTE_RDONLY;
-
-    if (!(prot & MAP_PROT_EXEC))
-        pte |= PTE_UXN;
-
-    l2 = get_or_create_table(mm->pgd, l1_idx);
-    if (!l2)
-        return -ENOMEM;
-
-    l2[l2_idx] = pte;
-    return 0;
-}
-
 static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
                     unsigned long prot)
 {
@@ -166,15 +142,6 @@ static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
     l3[l3_idx] = (pa & PTE_ADDR_MASK) | prot_to_pte(prot);
     __asm__ volatile("dsb sy");
     return 0;
-}
-
-int do_map_l2(struct mm_struct *mm, unsigned long virt, unsigned long phys,
-              unsigned long prot)
-{
-    if ((virt & 0x1fffffUL) || (phys & 0x1fffffUL))
-        return -EINVAL;
-
-    return map_l2_block(mm, virt, phys, prot);
 }
 
 int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
