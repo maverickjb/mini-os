@@ -10,7 +10,7 @@
 
 #include <asm/smp.h>
 
-#include "mmap.h"
+#include <linux/mm.h>
 
 struct task_struct idle_tasks[NR_CPUS] = {
     [0] = { .pid = 0, .state = TASK_IDLE },

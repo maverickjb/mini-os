@@ -9,9 +9,9 @@
 #include <linux/errno.h>
 #include <linux/uaccess.h>
 #include <linux/irq.h>
+#include <linux/mm.h>
 
 #include "page_alloc.h"
-#include "mmap.h"
 
 static void exit_files(struct task_struct *task)
 {

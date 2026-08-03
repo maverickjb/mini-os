@@ -2,7 +2,7 @@
  * Runtime user mappings via TTBR0 (4 KiB page tables).
  */
 
-#include "mmap.h"
+#include <linux/mm.h>
 #include <asm/memory.h>
 #include "page_alloc.h"
 #include <linux/errno.h>

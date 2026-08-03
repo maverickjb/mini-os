@@ -1,7 +1,6 @@
-#ifndef MMAP_H
-#define MMAP_H
+#ifndef __LINUX_MM_H
+#define __LINUX_MM_H
 
-#include "page_alloc.h"
 #include <linux/mm_types.h>
 
 #define MAP_PROT_READ   (1UL << 0)
@@ -17,4 +16,4 @@ void mm_install(struct mm_struct *mm);
 int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
            unsigned long size, unsigned long prot);
 
-#endif
+#endif /* __LINUX_MM_H */

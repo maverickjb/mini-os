@@ -9,7 +9,7 @@
 #include <asm/memory.h>
 
 #include "binfmt.h"
-#include "mmap.h"
+#include <linux/mm.h>
 #include "page_alloc.h"
 
 #define EI_MAG0         0

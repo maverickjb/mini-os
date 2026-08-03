@@ -9,8 +9,8 @@
 #include <linux/irq.h>
 #include <asm/memory.h>
 
+#include <linux/mm.h>
 #include "page_alloc.h"
-#include "mmap.h"
 
 extern void task_trampoline(void);
 
