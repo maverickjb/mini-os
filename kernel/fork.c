@@ -5,6 +5,9 @@
 #include <linux/sched/task.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
+#include <linux/uaccess.h>
+#include <linux/irq.h>
+#include <asm/memory.h>
 
 #include "page_alloc.h"
 #include "mmap.h"
@@ -28,12 +31,6 @@ void save_user_regs(struct task_struct *task, struct pt_regs *regs)
 {
     copy_pt_regs(&task->user_regs, regs);
     __asm__ volatile("mrs %0, sp_el0" : "=r"(task->user_sp));
-}
-
-struct pt_regs *task_pt_regs(struct task_struct *task)
-{
-    return (struct pt_regs *)((char *)task->stack + INIT_STACK_SIZE -
-                              sizeof(struct pt_regs));
 }
 
 void task_user_ctx_init(struct task_struct *task)
@@ -66,6 +63,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->stack = NULL;
     tsk->mm = NULL;
     tsk->next = NULL;
+    tsk->parent = NULL;
     tsk->time_slice = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
@@ -90,6 +88,39 @@ static void copy_task_files(struct task_struct *child, struct task_struct *paren
 
     for (i = 0; i < NR_OPEN; i++)
         child->files[i] = parent->files[i];
+}
+
+static int dup_user_stack(struct task_struct *child, struct task_struct *parent)
+{
+    void *stack;
+    unsigned long stack_va;
+    unsigned long stack_phys;
+    int err;
+
+    if (!child->mm || !parent->mm || !parent->mm->stack_top)
+        return -EINVAL;
+
+    stack = alloc_pages(0);
+    if (!stack)
+        return -ENOMEM;
+
+    stack_va = parent->mm->stack_top - PAGE_SIZE;
+    stack_phys = __virt_to_phys((unsigned long)stack);
+
+    err = do_map(child->mm, stack_va, stack_phys, PAGE_SIZE,
+                 MAP_PROT_READ | MAP_PROT_WRITE);
+    if (err) {
+        free_pages(stack, 0);
+        return err;
+    }
+
+    if (copy_from_user(stack, (void *)stack_va, PAGE_SIZE)) {
+        free_pages(stack, 0);
+        return -EFAULT;
+    }
+
+    child->user_sp = parent->user_sp;
+    return 0;
 }
 
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
@@ -127,6 +158,7 @@ long ksys_fork(struct pt_regs *regs)
     struct task_struct *parent = current;
     struct task_struct *child;
     unsigned long *stack;
+    int err;
 
     if (!parent || !parent->is_user)
         return -EINVAL;
@@ -149,10 +181,22 @@ long ksys_fork(struct pt_regs *regs)
     child->time_slice = SCHED_TIME_SLICE;
     child->is_user = 1;
     child->stack = stack;
-    child->mm = parent->mm;
-    if (child->mm)
-        mm_get(child->mm);
-    child->user_sp = parent->user_sp;
+    child->parent = parent;
+    child->mm = mm_dup(parent->mm);
+    if (!child->mm) {
+        free_pages(stack, 0);
+        free_pages(child, 0);
+        return -ENOMEM;
+    }
+
+    err = dup_user_stack(child, parent);
+    if (err) {
+        mm_put(child->mm);
+        free_pages(stack, 0);
+        free_pages(child, 0);
+        return err;
+    }
+
     copy_pt_regs(&child->user_regs, &parent->user_regs);
     child->user_regs.x0 = 0;
     copy_task_files(child, parent);
@@ -171,5 +215,7 @@ void ksys_sched_yield(struct pt_regs *regs)
     if (!current || !current->is_user)
         return;
 
+    irq_enable();
     schedule(regs);
+    irq_disable();
 }

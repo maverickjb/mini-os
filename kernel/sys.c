@@ -50,6 +50,10 @@ void syscall_handler(struct pt_regs *regs)
         ksys_exit(regs, (long)regs->x0);
         __asm__ volatile("msr daifclr, #3");
         return;
+    case __NR_wait4:
+        ret = ksys_wait4(regs, (long)regs->x0, (int *)regs->x1,
+                         (long)regs->x2);
+        break;
     default:
         ret = -ENOSYS;
         break;

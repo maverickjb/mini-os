@@ -24,7 +24,7 @@ static void timer_el1_access_enable(void)
     unsigned long ctl;
 
     __asm__ volatile("mrs %0, CNTKCTL_EL1" : "=r"(ctl));
-    ctl |= (1UL << 8) | (1UL << 10); /* EL1PTEN | EL1PCTEN */
+    ctl |= (1UL << 8) | (1UL << 10); /* EL0PTEN | EL0PCTEN */
     __asm__ volatile("msr CNTKCTL_EL1, %0" : : "r"(ctl));
     __asm__ volatile("isb");
 }

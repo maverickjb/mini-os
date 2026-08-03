@@ -10,6 +10,8 @@
 
 #include <asm/smp.h>
 
+#include "mmap.h"
+
 struct task_struct idle_tasks[NR_CPUS] = {
     [0] = { .pid = 0, .state = TASK_IDLE },
     [1] = { .pid = 0, .state = TASK_IDLE },
@@ -62,6 +64,24 @@ void enqueue_task(struct task_struct *task)
     walk->next = task;
 }
 
+void dequeue_task(struct task_struct *task)
+{
+    struct task_struct **prev;
+
+    if (!task)
+        return;
+
+    prev = &runqueue;
+    while (*prev) {
+        if (*prev == task) {
+            *prev = task->next;
+            task->next = NULL;
+            return;
+        }
+        prev = &(*prev)->next;
+    }
+}
+
 struct task_struct *pick_next_task(struct task_struct *prev)
 {
     struct task_struct *start;
@@ -107,6 +127,9 @@ static void context_switch(struct task_struct *prev, struct task_struct *next,
     next->time_slice = SCHED_TIME_SLICE;
 
     set_current(next);
+
+    if (next->is_user && next->mm)
+        mm_install(next->mm);
 
     /*
      * Real context switch — returns on prev's kernel stack only when prev

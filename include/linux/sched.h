@@ -43,6 +43,7 @@ struct task_struct {
     struct mm_struct *mm;
     struct file *files[NR_OPEN];
     struct task_struct *next;
+    struct task_struct *parent;
     int time_slice;
     int is_user;
     unsigned long user_sp;
@@ -59,6 +60,7 @@ void sched_init_idle(unsigned int cpu);
 void cpu_idle(void);
 void schedule(struct pt_regs *regs);
 void enqueue_task(struct task_struct *task);
+void dequeue_task(struct task_struct *task);
 struct task_struct *pick_next_task(struct task_struct *prev);
 
 #endif

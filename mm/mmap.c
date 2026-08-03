@@ -104,6 +104,66 @@ void mm_put(struct mm_struct *mm)
     free_pages(mm, 0);
 }
 
+static unsigned long *dup_pgtable(unsigned long *src, int level)
+{
+    unsigned long *dst;
+    unsigned int i;
+
+    dst = alloc_pages(0);
+    if (!dst)
+        return NULL;
+
+    page_zero(dst);
+
+    for (i = 0; i < PTE_ENTRIES; i++) {
+        unsigned long ent = src[i];
+
+        if (!(ent & 1UL))
+            continue;
+
+        if (level < 3) {
+            unsigned long *sub;
+            unsigned long *child_src =
+                (unsigned long *)__phys_to_virt(ent & PTE_ADDR_MASK);
+
+            sub = dup_pgtable(child_src, level + 1);
+            if (!sub) {
+                free_pages(dst, 0);
+                return NULL;
+            }
+            dst[i] = __virt_to_phys((unsigned long)sub) | PTE_TABLE;
+        } else {
+            dst[i] = ent;
+        }
+    }
+
+    return dst;
+}
+
+struct mm_struct *mm_dup(struct mm_struct *src)
+{
+    struct mm_struct *mm;
+
+    if (!src || !src->pgd)
+        return NULL;
+
+    mm = mm_alloc();
+    if (!mm)
+        return NULL;
+
+    free_pages(mm->pgd, 0);
+
+    mm->pgd = dup_pgtable(src->pgd, 1);
+    if (!mm->pgd) {
+        free_pages(mm, 0);
+        return NULL;
+    }
+
+    mm->entry = src->entry;
+    mm->stack_top = src->stack_top;
+    return mm;
+}
+
 void mm_install(struct mm_struct *mm)
 {
     unsigned long ttbr0;
