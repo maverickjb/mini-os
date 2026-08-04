@@ -4,7 +4,7 @@
 
 #include <linux/mm.h>
 #include <asm/memory.h>
-#include "page_alloc.h"
+#include <linux/gfp.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
 

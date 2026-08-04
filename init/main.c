@@ -8,7 +8,7 @@
 #include <linux/tick.h>
 #include <asm/smp.h>
 
-#include "page_alloc.h"
+#include <linux/gfp.h>
 #include "ramfs.h"
 #include "initramfs.h"
 #include "exec.h"

@@ -11,7 +11,7 @@
 #include <linux/irq.h>
 #include <linux/mm.h>
 
-#include "page_alloc.h"
+#include <linux/gfp.h>
 
 static void exit_files(struct task_struct *task)
 {

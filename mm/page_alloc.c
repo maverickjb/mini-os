@@ -4,7 +4,7 @@
  * Manages RAM from __alloc_start up to 128 MiB at 0x40000000 (QEMU virt).
  */
 
-#include "page_alloc.h"
+#include <linux/gfp.h>
 #include <asm/memory.h>
 #include <linux/stddef.h>
 

@@ -10,7 +10,7 @@
 #include <asm/memory.h>
 
 #include <linux/mm.h>
-#include "page_alloc.h"
+#include <linux/gfp.h>
 
 extern void task_trampoline(void);
 

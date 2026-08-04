@@ -10,7 +10,7 @@
 
 #include "binfmt.h"
 #include <linux/mm.h>
-#include "page_alloc.h"
+#include <linux/gfp.h>
 
 #define EI_MAG0         0
 #define EI_MAG1         1
