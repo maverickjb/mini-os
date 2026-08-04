@@ -113,16 +113,6 @@ static void gic_v2_init(void)
     GICC_CTLR = 1;
 }
 
-void irq_enable(void)
-{
-    __asm__ volatile("msr DAIFClr, #2" : : : "memory");
-}
-
-void irq_disable(void)
-{
-    __asm__ volatile("msr DAIFSet, #2" : : : "memory");
-}
-
 void init_IRQ(void)
 {
     unsigned int archrev = (GICD_PIDR2 >> 4) & 0x7U;

@@ -8,7 +8,5 @@
 
 void init_IRQ(void);
 void handle_arch_irq(struct pt_regs *regs);
-void irq_enable(void);
-void irq_disable(void);
 
 #endif

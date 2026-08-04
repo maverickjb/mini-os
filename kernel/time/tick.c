@@ -7,6 +7,7 @@
 #include <linux/sched/task.h>
 #include <linux/serial.h>
 #include <asm/exception.h>
+#include <asm/irqflags.h>
 
 static unsigned long jiffies;
 static unsigned long timer_freq;
@@ -106,5 +107,5 @@ void time_init(void)
     vectors_init();
     init_IRQ();
     tick_init();
-    irq_enable();
+    local_irq_enable();
 }

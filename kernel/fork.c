@@ -6,7 +6,7 @@
 #include <linux/errno.h>
 #include <linux/stddef.h>
 #include <linux/uaccess.h>
-#include <linux/irq.h>
+#include <asm/irqflags.h>
 #include <asm/memory.h>
 
 #include <linux/mm.h>
@@ -215,7 +215,7 @@ void ksys_sched_yield(struct pt_regs *regs)
     if (!current || !current->is_user)
         return;
 
-    irq_enable();
+    local_irq_enable();
     schedule(regs);
-    irq_disable();
+    local_irq_disable();
 }

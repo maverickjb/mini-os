@@ -8,7 +8,7 @@
 #include <linux/stddef.h>
 #include <linux/errno.h>
 #include <linux/uaccess.h>
-#include <linux/irq.h>
+#include <asm/irqflags.h>
 #include <linux/mm.h>
 
 #include <linux/gfp.h>
@@ -80,7 +80,7 @@ void ksys_exit(struct pt_regs *regs, long status)
     if (parent && parent->state == TASK_SLEEPING)
         wake_up_process(parent);
 
-    irq_enable();
+    local_irq_enable();
     schedule(regs);
 
     uart_puts("ksys_exit: schedule returned (bug)\n");
@@ -121,9 +121,9 @@ long ksys_wait4(struct pt_regs *regs, long pid, int *status, long options)
             return -ECHILD;
 
         current->state = TASK_SLEEPING;
-        irq_enable();
+        local_irq_enable();
         schedule(regs);
-        irq_disable();
+        local_irq_disable();
         current->state = TASK_RUNNING;
         current->time_slice = SCHED_TIME_SLICE;
     }
