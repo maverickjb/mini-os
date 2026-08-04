@@ -128,8 +128,15 @@ static void context_switch(struct task_struct *prev, struct task_struct *next,
 
     set_current(next);
 
-    if (next->is_user && next->mm)
+    if (next->is_user && next->mm) {
         mm_install(next->mm);
+        /*
+         * SP_EL0 is per-CPU, not per-task. Restore the next task's saved
+         * user stack pointer so a later eret does not reuse the previous
+         * task's SP (e.g. parent waitpid after child exec/exit).
+         */
+        __asm__ volatile("msr sp_el0, %0" : : "r"(next->user_sp));
+    }
 
     /*
      * Real context switch — returns on prev's kernel stack only when prev

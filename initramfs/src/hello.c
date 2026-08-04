@@ -1,4 +1,5 @@
 #define __NR_write 64
+#define __NR_exit  93
 
 static long sys_write(long fd, const char *buf, long len)
 {
@@ -16,10 +17,23 @@ static long sys_write(long fd, const char *buf, long len)
     return x0;
 }
 
-void _start(void)
+static void sys_exit(long status)
 {
-    sys_write(1, "hello from exec\n", 16);
+    register long x8 asm("x8") = __NR_exit;
+    register long x0 asm("x0") = status;
+
+    asm volatile(
+        "svc #0"
+        :
+        : "r"(x0), "r"(x8)
+        : "memory", "cc");
 
     for (;;)
         ;
+}
+
+void _start(void)
+{
+    sys_write(1, "hello from exec\n", 16);
+    sys_exit(42);
 }
