@@ -30,9 +30,10 @@ all: initramfs mini-os.elf mini-os.bin
 
 initramfs: $(INITRAMFS_CPIO)
 
-INIT_BIN := initramfs/root/init
+INIT_BIN  := initramfs/root/init
+HELLO_BIN := initramfs/root/bin/hello
 
-$(INITRAMFS_CPIO): $(INIT_BIN)
+$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN)
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
 
 INIT_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
@@ -40,6 +41,10 @@ INIT_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
 
 $(INIT_BIN): initramfs/src/init.c
 	mkdir -p initramfs/root
+	$(CC) $(INIT_CFLAGS) -o $@ $<
+
+$(HELLO_BIN): initramfs/src/hello.c
+	mkdir -p initramfs/root/bin
 	$(CC) $(INIT_CFLAGS) -o $@ $<
 
 fs/initramfs_blob.o: $(INITRAMFS_CPIO)

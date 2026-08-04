@@ -172,6 +172,7 @@ int load_elf_binary(struct linux_binprm *bprm)
     const Elf64_Ehdr *ehdr;
     const Elf64_Phdr *phdrs;
     struct mm_struct *mm;
+    struct mm_struct *old_mm;
     unsigned int i;
     int err;
 
@@ -180,12 +181,6 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     if (!bprm->task)
         return -EINVAL;
-
-    mm = mm_alloc();
-    if (!mm)
-        return -ENOMEM;
-
-    bprm->task->mm = mm;
 
     ehdr = (const Elf64_Ehdr *)bprm->buf;
 
@@ -204,9 +199,11 @@ int load_elf_binary(struct linux_binprm *bprm)
         bprm->len)
         return -ENOEXEC;
 
-    phdrs = (const Elf64_Phdr *)(bprm->buf + ehdr->e_phoff);
+    mm = mm_alloc();
+    if (!mm)
+        return -ENOMEM;
 
-    __asm__ volatile("msr daifset, #3");
+    phdrs = (const Elf64_Phdr *)(bprm->buf + ehdr->e_phoff);
 
     for (i = 0; i < ehdr->e_phnum; i++) {
         const Elf64_Phdr *ph = &phdrs[i];
@@ -215,17 +212,26 @@ int load_elf_binary(struct linux_binprm *bprm)
             continue;
 
         err = load_segment(mm, bprm->buf, bprm->len, ph);
-        if (err)
+        if (err) {
+            mm_put(mm);
             return err;
+        }
     }
 
     err = setup_stack(mm, &bprm->stack_top);
-    if (err)
+    if (err) {
+        mm_put(mm);
         return err;
+    }
 
     mm->entry = ehdr->e_entry;
     mm->stack_top = bprm->stack_top;
     bprm->entry = mm->entry;
+
+    old_mm = bprm->task->mm;
+    bprm->task->mm = mm;
+    if (old_mm)
+        mm_put(old_mm);
 
     bprm->task->is_user = 1;
     bprm->task->user_sp = mm->stack_top;
@@ -235,4 +241,6 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     task_user_ctx_init(bprm->task);
     ret_from_fork();
+
+    return 0;
 }

@@ -54,6 +54,11 @@ void syscall_handler(struct pt_regs *regs)
         ret = ksys_wait4(regs, (long)regs->x0, (int *)regs->x1,
                          (long)regs->x2);
         break;
+    case __NR_execve:
+        ret = ksys_execve(regs, (const char *)regs->x0,
+                          (char *const *)regs->x1,
+                          (char *const *)regs->x2);
+        break;
     default:
         ret = -ENOSYS;
         break;
