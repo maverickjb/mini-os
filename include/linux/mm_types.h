@@ -5,6 +5,8 @@ struct mm_struct {
     unsigned long *pgd;
     unsigned long entry;
     unsigned long stack_top;
+    unsigned long start_brk;
+    unsigned long brk;
     int users;
 };
 

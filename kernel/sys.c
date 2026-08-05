@@ -59,6 +59,9 @@ void syscall_handler(struct pt_regs *regs)
                           (char *const *)regs->x1,
                           (char *const *)regs->x2);
         break;
+    case __NR_brk:
+        ret = ksys_brk(regs->x0);
+        break;
     default:
         ret = -ENOSYS;
         break;

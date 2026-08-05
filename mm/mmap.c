@@ -7,6 +7,8 @@
 #include <linux/gfp.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
+#include <linux/sched/task.h>
+#include <linux/syscalls.h>
 
 #define PTE_VALID       3UL
 #define PTE_TABLE       3UL
@@ -80,6 +82,8 @@ struct mm_struct *mm_alloc(void)
     mm->pgd = pgd;
     mm->entry = 0;
     mm->stack_top = 0;
+    mm->start_brk = 0;
+    mm->brk = 0;
     mm->users = 1;
     return mm;
 }
@@ -161,6 +165,8 @@ struct mm_struct *mm_dup(struct mm_struct *src)
 
     mm->entry = src->entry;
     mm->stack_top = src->stack_top;
+    mm->start_brk = src->start_brk;
+    mm->brk = src->brk;
     return mm;
 }
 
@@ -229,4 +235,85 @@ int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
     __asm__ volatile("dsb sy");
     __asm__ volatile("isb");
     return 0;
+}
+
+static int va_mapped(struct mm_struct *mm, unsigned long va)
+{
+    unsigned long *l2;
+    unsigned long *l3;
+    unsigned long l1_idx = (va >> 30) & 0x1ffUL;
+    unsigned long l2_idx = (va >> 21) & 0x1ffUL;
+    unsigned long l3_idx = (va >> 12) & 0x1ffUL;
+    unsigned long entry;
+
+    entry = mm->pgd[l1_idx];
+    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
+        return 0;
+
+    l2 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
+    entry = l2[l2_idx];
+    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
+        return 0;
+
+    l3 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
+    return (l3[l3_idx] & 1UL) != 0;
+}
+
+long do_brk(struct mm_struct *mm, unsigned long newbrk)
+{
+    unsigned long oldbrk;
+    unsigned long addr;
+    unsigned long end;
+    unsigned long stack_limit;
+
+    if (!mm || !mm->pgd)
+        return -EINVAL;
+
+    oldbrk = mm->brk;
+    stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : 0;
+
+    /* Query / invalid request: return current break (Linux-compatible). */
+    if (newbrk < mm->start_brk || (stack_limit && newbrk >= stack_limit))
+        return (long)oldbrk;
+
+    if (newbrk == oldbrk)
+        return (long)oldbrk;
+
+    if (newbrk > oldbrk) {
+        addr = (oldbrk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+        end = (newbrk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+
+        for (; addr < end; addr += PAGE_SIZE) {
+            void *page;
+            unsigned long phys;
+            int err;
+
+            if (va_mapped(mm, addr))
+                continue;
+
+            page = alloc_pages(0);
+            if (!page)
+                return (long)oldbrk;
+
+            page_zero((unsigned long *)page);
+            phys = __virt_to_phys((unsigned long)page);
+            err = do_map(mm, addr, phys, PAGE_SIZE,
+                         MAP_PROT_READ | MAP_PROT_WRITE);
+            if (err) {
+                free_pages(page, 0);
+                return (long)oldbrk;
+            }
+        }
+    }
+
+    mm->brk = newbrk;
+    return (long)newbrk;
+}
+
+long ksys_brk(unsigned long brk)
+{
+    if (!current || !current->is_user || !current->mm)
+        return -EINVAL;
+
+    return do_brk(current->mm, brk);
 }

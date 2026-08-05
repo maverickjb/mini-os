@@ -207,6 +207,7 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     for (i = 0; i < ehdr->e_phnum; i++) {
         const Elf64_Phdr *ph = &phdrs[i];
+        unsigned long seg_end;
 
         if (ph->p_type != PT_LOAD)
             continue;
@@ -216,7 +217,14 @@ int load_elf_binary(struct linux_binprm *bprm)
             mm_put(mm);
             return err;
         }
+
+        seg_end = ph->p_vaddr + ph->p_memsz;
+        if (seg_end > mm->start_brk)
+            mm->start_brk = seg_end;
     }
+
+    mm->start_brk = (mm->start_brk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+    mm->brk = mm->start_brk;
 
     err = setup_stack(mm, &bprm->stack_top);
     if (err) {

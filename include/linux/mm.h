@@ -15,5 +15,6 @@ void mm_install(struct mm_struct *mm);
 
 int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
            unsigned long size, unsigned long prot);
+long do_brk(struct mm_struct *mm, unsigned long newbrk);
 
 #endif /* __LINUX_MM_H */
