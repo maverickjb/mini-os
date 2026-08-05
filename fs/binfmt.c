@@ -29,9 +29,6 @@
 #define PF_W            2
 #define PF_R            4
 
-#define USER_STACK_TOP  0x4040000UL
-#define USER_STACK_SIZE (64UL * 1024UL)
-
 typedef struct {
     unsigned char e_ident[16];
     unsigned short e_type;

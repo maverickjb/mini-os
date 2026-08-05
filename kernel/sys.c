@@ -62,6 +62,10 @@ void syscall_handler(struct pt_regs *regs)
     case __NR_brk:
         ret = ksys_brk(regs->x0);
         break;
+    case __NR_mmap:
+        ret = ksys_mmap(regs->x0, regs->x1, regs->x2, regs->x3,
+                        regs->x4, regs->x5);
+        break;
     default:
         ret = -ENOSYS;
         break;

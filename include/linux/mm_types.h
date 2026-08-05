@@ -7,6 +7,7 @@ struct mm_struct {
     unsigned long stack_top;
     unsigned long start_brk;
     unsigned long brk;
+    unsigned long mmap_base;
     int users;
 };
 

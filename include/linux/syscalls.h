@@ -11,5 +11,7 @@ long ksys_wait4(struct pt_regs *regs, long pid, int *status, long options);
 long ksys_execve(struct pt_regs *regs, const char *filename,
                  char *const *argv, char *const *envp);
 long ksys_brk(unsigned long brk);
+long ksys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
+               unsigned long flags, unsigned long fd, unsigned long off);
 
 #endif	/* _LINUX_SYSCALLS_H */

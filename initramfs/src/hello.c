@@ -1,6 +1,12 @@
 #define __NR_write 64
 #define __NR_exit  93
 #define __NR_brk   214
+#define __NR_mmap  222
+
+#define PROT_READ       0x1
+#define PROT_WRITE      0x2
+#define MAP_PRIVATE     0x02
+#define MAP_ANONYMOUS   0x20
 
 static long sys_write(long fd, const char *buf, long len)
 {
@@ -47,6 +53,26 @@ static long sys_brk(unsigned long addr)
     return x0;
 }
 
+static long sys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
+                     unsigned long flags, long fd, unsigned long off)
+{
+    register long x8 asm("x8") = __NR_mmap;
+    register long x0 asm("x0") = (long)addr;
+    register long x1 asm("x1") = (long)len;
+    register long x2 asm("x2") = (long)prot;
+    register long x3 asm("x3") = (long)flags;
+    register long x4 asm("x4") = fd;
+    register long x5 asm("x5") = (long)off;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5), "r"(x8)
+        : "memory", "cc");
+
+    return x0;
+}
+
 static void print_hex(unsigned long n)
 {
     int i;
@@ -64,6 +90,7 @@ void _start(void)
 {
     unsigned long cur;
     unsigned long next;
+    long map;
     volatile unsigned long *p;
     unsigned long i;
 
@@ -96,5 +123,29 @@ void _start(void)
     }
 
     sys_write(1, "brk ok\n", 7);
+
+    map = sys_mmap(0, 8192, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map < 0) {
+        sys_write(1, "mmap failed\n", 12);
+        sys_exit(3);
+    }
+
+    sys_write(1, "mmap addr=", 10);
+    print_hex((unsigned long)map);
+    sys_write(1, "\n", 1);
+
+    p = (volatile unsigned long *)map;
+    for (i = 0; i < 1024; i++)
+        p[i] = 0xBEEF0000UL + i;
+
+    for (i = 0; i < 1024; i++) {
+        if (p[i] != 0xBEEF0000UL + i) {
+            sys_write(1, "mmap rw failed\n", 15);
+            sys_exit(4);
+        }
+    }
+
+    sys_write(1, "mmap ok\n", 8);
     sys_exit(42);
 }

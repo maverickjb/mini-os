@@ -84,6 +84,7 @@ struct mm_struct *mm_alloc(void)
     mm->stack_top = 0;
     mm->start_brk = 0;
     mm->brk = 0;
+    mm->mmap_base = USER_MMAP_BASE;
     mm->users = 1;
     return mm;
 }
@@ -167,6 +168,7 @@ struct mm_struct *mm_dup(struct mm_struct *src)
     mm->stack_top = src->stack_top;
     mm->start_brk = src->start_brk;
     mm->brk = src->brk;
+    mm->mmap_base = src->mmap_base;
     return mm;
 }
 
@@ -316,4 +318,110 @@ long ksys_brk(unsigned long brk)
         return -EINVAL;
 
     return do_brk(current->mm, brk);
+}
+
+static unsigned long find_free_vma(struct mm_struct *mm, unsigned long len)
+{
+    unsigned long va;
+    unsigned long end;
+    unsigned long stack_limit;
+    unsigned long a;
+
+    stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : USER_STACK_TOP;
+    va = (mm->mmap_base + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+
+    while (va + len <= stack_limit) {
+        end = va + len;
+        for (a = va; a < end; a += PAGE_SIZE) {
+            if (va_mapped(mm, a))
+                break;
+        }
+        if (a >= end) {
+            mm->mmap_base = end;
+            return va;
+        }
+        va = a + PAGE_SIZE;
+    }
+
+    return 0;
+}
+
+long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
+             unsigned long prot, unsigned long flags)
+{
+    unsigned long map_prot;
+    unsigned long va;
+    unsigned long end;
+    unsigned long stack_limit;
+
+    if (!mm || !mm->pgd || len == 0)
+        return -EINVAL;
+
+    if (!(flags & MAP_ANONYMOUS))
+        return -EINVAL;
+
+    len = (len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+    stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : USER_STACK_TOP;
+
+    map_prot = 0;
+    if (prot & PROT_READ)
+        map_prot |= MAP_PROT_READ;
+    if (prot & PROT_WRITE)
+        map_prot |= MAP_PROT_WRITE;
+    if (prot & PROT_EXEC)
+        map_prot |= MAP_PROT_EXEC;
+    if (!map_prot)
+        return -EINVAL;
+
+    if (!addr || !(flags & MAP_FIXED)) {
+        va = find_free_vma(mm, len);
+        if (!va)
+            return -ENOMEM;
+    } else {
+        va = addr & ~(PAGE_SIZE - 1UL);
+        if (va + len > stack_limit || va < USER_MMAP_BASE)
+            return -EINVAL;
+        for (end = va; end < va + len; end += PAGE_SIZE) {
+            if (va_mapped(mm, end) && !(flags & MAP_FIXED))
+                return -ENOMEM;
+        }
+    }
+
+    for (end = va; end < va + len; end += PAGE_SIZE) {
+        void *page;
+        unsigned long phys;
+        int err;
+
+        if (va_mapped(mm, end))
+            continue;
+
+        page = alloc_pages(0);
+        if (!page)
+            return -ENOMEM;
+
+        page_zero((unsigned long *)page);
+        phys = __virt_to_phys((unsigned long)page);
+        err = do_map(mm, end, phys, PAGE_SIZE, map_prot);
+        if (err) {
+            free_pages(page, 0);
+            return err;
+        }
+    }
+
+    return (long)va;
+}
+
+long ksys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
+               unsigned long flags, unsigned long fd, unsigned long off)
+{
+    (void)fd;
+    (void)off;
+
+    if (!current || !current->is_user || !current->mm)
+        return -EINVAL;
+
+    if (!(flags & MAP_ANONYMOUS) && (long)fd >= 0)
+        return -ENODEV;
+
+    return do_mmap(current->mm, addr, len, prot, flags);
 }
