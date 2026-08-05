@@ -82,6 +82,73 @@ static void task_ctx_init(struct task_struct *task, void (*fn)(void *), void *ar
     task->ctx.pc = (unsigned long)task_trampoline;
 }
 
+static void page_zero(unsigned long *page)
+{
+    unsigned int i;
+
+    for (i = 0; i < (PAGE_SIZE / sizeof(unsigned long)); i++)
+        page[i] = 0;
+}
+
+static struct mm_struct *mm_init(struct mm_struct *mm)
+{
+    unsigned long *pgd;
+
+    pgd = alloc_pages(0);
+    if (!pgd) {
+        free_pages(mm, 0);
+        return NULL;
+    }
+
+    page_zero(pgd);
+    mm->pgd = pgd;
+    mm->entry = 0;
+    mm->stack_top = 0;
+    mm->start_brk = 0;
+    mm->brk = 0;
+    mm->mmap_base = USER_MMAP_BASE;
+    mm->users = 1;
+    return mm;
+}
+
+struct mm_struct *mm_alloc(void)
+{
+    struct mm_struct *mm;
+
+    mm = alloc_pages(0);
+    if (!mm)
+        return NULL;
+
+    return mm_init(mm);
+}
+
+struct mm_struct *dup_mm(struct mm_struct *oldmm)
+{
+    struct mm_struct *mm;
+
+    if (!oldmm || !oldmm->pgd)
+        return NULL;
+
+    mm = alloc_pages(0);
+    if (!mm)
+        return NULL;
+
+    mm->entry = oldmm->entry;
+    mm->stack_top = oldmm->stack_top;
+    mm->start_brk = oldmm->start_brk;
+    mm->brk = oldmm->brk;
+    mm->mmap_base = oldmm->mmap_base;
+    mm->users = 1;
+
+    mm->pgd = dup_pgtable(oldmm->pgd, 1);
+    if (!mm->pgd) {
+        free_pages(mm, 0);
+        return NULL;
+    }
+
+    return mm;
+}
+
 static void copy_task_files(struct task_struct *child, struct task_struct *parent)
 {
     unsigned int i;
@@ -182,7 +249,7 @@ long ksys_fork(struct pt_regs *regs)
     child->is_user = 1;
     child->stack = stack;
     child->parent = parent;
-    child->mm = mm_dup(parent->mm);
+    child->mm = dup_mm(parent->mm);
     if (!child->mm) {
         free_pages(stack, 0);
         free_pages(child, 0);

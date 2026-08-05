@@ -63,32 +63,6 @@ static unsigned long *get_or_create_table(unsigned long *parent, unsigned long i
     return table;
 }
 
-struct mm_struct *mm_alloc(void)
-{
-    struct mm_struct *mm;
-    unsigned long *pgd;
-
-    mm = alloc_pages(0);
-    if (!mm)
-        return NULL;
-
-    pgd = alloc_pages(0);
-    if (!pgd) {
-        free_pages(mm, 0);
-        return NULL;
-    }
-
-    page_zero(pgd);
-    mm->pgd = pgd;
-    mm->entry = 0;
-    mm->stack_top = 0;
-    mm->start_brk = 0;
-    mm->brk = 0;
-    mm->mmap_base = USER_MMAP_BASE;
-    mm->users = 1;
-    return mm;
-}
-
 void mm_get(struct mm_struct *mm)
 {
     if (mm)
@@ -109,7 +83,7 @@ void mm_put(struct mm_struct *mm)
     free_pages(mm, 0);
 }
 
-static unsigned long *dup_pgtable(unsigned long *src, int level)
+unsigned long *dup_pgtable(unsigned long *src, int level)
 {
     unsigned long *dst;
     unsigned int i;
@@ -143,33 +117,6 @@ static unsigned long *dup_pgtable(unsigned long *src, int level)
     }
 
     return dst;
-}
-
-struct mm_struct *mm_dup(struct mm_struct *src)
-{
-    struct mm_struct *mm;
-
-    if (!src || !src->pgd)
-        return NULL;
-
-    mm = mm_alloc();
-    if (!mm)
-        return NULL;
-
-    free_pages(mm->pgd, 0);
-
-    mm->pgd = dup_pgtable(src->pgd, 1);
-    if (!mm->pgd) {
-        free_pages(mm, 0);
-        return NULL;
-    }
-
-    mm->entry = src->entry;
-    mm->stack_top = src->stack_top;
-    mm->start_brk = src->start_brk;
-    mm->brk = src->brk;
-    mm->mmap_base = src->mmap_base;
-    return mm;
 }
 
 void mm_install(struct mm_struct *mm)

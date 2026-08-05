@@ -24,7 +24,8 @@
 #define USER_STACK_TOP  0x4040000UL
 
 struct mm_struct *mm_alloc(void);
-struct mm_struct *mm_dup(struct mm_struct *src);
+struct mm_struct *dup_mm(struct mm_struct *oldmm);
+unsigned long *dup_pgtable(unsigned long *src, int level);
 void mm_get(struct mm_struct *mm);
 void mm_put(struct mm_struct *mm);
 void mm_install(struct mm_struct *mm);
