@@ -26,8 +26,8 @@
 struct mm_struct *mm_alloc(void);
 struct mm_struct *dup_mm(struct mm_struct *oldmm);
 unsigned long *dup_pgtable(unsigned long *src, int level);
-void mm_get(struct mm_struct *mm);
 void mm_put(struct mm_struct *mm);
+void free_user_page_tables(unsigned long *pgd);
 void mm_install(struct mm_struct *mm);
 
 int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
@@ -35,5 +35,6 @@ int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
 long do_brk(struct mm_struct *mm, unsigned long newbrk);
 long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
              unsigned long prot, unsigned long flags);
+long do_munmap(struct mm_struct *mm, unsigned long addr, unsigned long len);
 
 #endif /* __LINUX_MM_H */

@@ -18,7 +18,9 @@
 #define PTE_USER        (1UL << 6)   /* AP[1]: user accessible at EL0 */
 #define PTE_RDONLY      (1UL << 7)   /* AP[2]: read-only */
 #define PTE_UXN         (1UL << 54)
-#define PTE_ADDR_MASK   (~0xFFFUL)
+/* Output address field [47:12]; must not include upper attr bits (e.g. UXN). */
+#define PTE_ADDR_MASK   0x0000FFFFFFFFF000UL
+#define PTE_FLAGS_MASK  (~PTE_ADDR_MASK)
 
 #define PTE_ENTRIES     512
 
@@ -28,6 +30,15 @@ static void page_zero(unsigned long *page)
 
     for (i = 0; i < PTE_ENTRIES; i++)
         page[i] = 0;
+}
+
+static void kmemcpy(void *dst, const void *src, unsigned long n)
+{
+    unsigned char *d = dst;
+    const unsigned char *s = src;
+
+    while (n--)
+        *d++ = *s++;
 }
 
 static unsigned long prot_to_pte(unsigned long prot)
@@ -63,10 +74,41 @@ static unsigned long *get_or_create_table(unsigned long *parent, unsigned long i
     return table;
 }
 
-void mm_get(struct mm_struct *mm)
+static void free_pgtable_level(unsigned long *table, int level)
 {
-    if (mm)
-        mm->users++;
+    unsigned int i;
+
+    if (!table)
+        return;
+
+    for (i = 0; i < PTE_ENTRIES; i++) {
+        unsigned long ent = table[i];
+
+        if (!(ent & 1UL))
+            continue;
+
+        if (level < 3) {
+            unsigned long *child =
+                (unsigned long *)__phys_to_virt(ent & PTE_ADDR_MASK);
+
+            free_pgtable_level(child, level + 1);
+        } else {
+            void *page = __phys_to_virt(ent & PTE_ADDR_MASK);
+
+            free_pages(page, 0);
+        }
+    }
+
+    free_pages(table, 0);
+}
+
+/*
+ * Free an entire user page-table tree rooted at pgd (level 1),
+ * including intermediate tables and mapped leaf pages.
+ */
+void free_user_page_tables(unsigned long *pgd)
+{
+    free_pgtable_level(pgd, 1);
 }
 
 void mm_put(struct mm_struct *mm)
@@ -78,12 +120,16 @@ void mm_put(struct mm_struct *mm)
     if (mm->users > 0)
         return;
 
-    if (mm->pgd)
-        free_pages(mm->pgd, 0);
+    if (mm->pgd) {
+        free_user_page_tables(mm->pgd);
+        mm->pgd = NULL;
+    }
     free_pages(mm, 0);
 }
 
-unsigned long *dup_pgtable(unsigned long *src, int level)
+#define PT_ENTRIES 512
+
+static unsigned long *dup_pgtable_level(unsigned long *src, int level)
 {
     unsigned long *dst;
     unsigned int i;
@@ -94,29 +140,116 @@ unsigned long *dup_pgtable(unsigned long *src, int level)
 
     page_zero(dst);
 
-    for (i = 0; i < PTE_ENTRIES; i++) {
+    for (i = 0; i < PT_ENTRIES; i++) {
+
         unsigned long ent = src[i];
 
+        /* invalid entry */
         if (!(ent & 1UL))
             continue;
 
-        if (level < 3) {
-            unsigned long *sub;
-            unsigned long *child_src =
-                (unsigned long *)__phys_to_virt(ent & PTE_ADDR_MASK);
 
-            sub = dup_pgtable(child_src, level + 1);
-            if (!sub) {
+        /*
+         * Levels 0-2 contain pointers to lower page tables
+         */
+        if (level < 3) {
+
+            unsigned long *child_src;
+            unsigned long *child_dst;
+
+            child_src =
+                (unsigned long *)__phys_to_virt(
+                    ent & PTE_ADDR_MASK);
+
+            /*
+             * Allocate and copy lower-level table
+             */
+            child_dst =
+                dup_pgtable_level(child_src, level + 1);
+
+            if (!child_dst) {
                 free_pages(dst, 0);
                 return NULL;
             }
-            dst[i] = __virt_to_phys((unsigned long)sub) | PTE_TABLE;
+
+
+            /*
+             * Put new child table address
+             */
+            dst[i] =
+                __virt_to_phys((unsigned long)child_dst)
+                |
+                (ent & PTE_FLAGS_MASK);
+
         } else {
-            dst[i] = ent;
+
+            /*
+             * Level 3: actual page mapping
+             *
+             * Parent:
+             *
+             *   VA ---> PA A
+             *
+             * Child:
+             *
+             *   VA ---> PA B
+             *
+             */
+
+            unsigned long old_pa;
+            unsigned long new_pa;
+
+            void *old_page;
+            void *new_page;
+
+
+            old_pa = ent & PTE_ADDR_MASK;
+
+            old_page = __phys_to_virt(old_pa);
+
+
+            /*
+             * Allocate child's physical page
+             */
+            new_page = alloc_pages(0);
+
+            if (!new_page) {
+                free_pages(dst, 0);
+                return NULL;
+            }
+
+
+            /*
+             * Copy user memory
+             */
+            kmemcpy(new_page, old_page, PAGE_SIZE);
+
+
+            new_pa =
+                __virt_to_phys((unsigned long)new_page);
+
+
+            /*
+             * Same permissions,
+             * different physical address
+             */
+            dst[i] =
+                new_pa |
+                (ent & PTE_FLAGS_MASK);
         }
     }
 
     return dst;
+}
+
+/*
+ * Duplicate a user page-table tree. level=1 is the PGD (L1).
+ * Intermediate tables are cloned; leaf pages get private physical copies
+ * so parent and child do not share mm_struct or mapped pages.
+ */
+unsigned long *dup_pgtable(unsigned long *src, int level)
+{
+    return dup_pgtable_level(src, level);
 }
 
 void mm_install(struct mm_struct *mm)
@@ -206,6 +339,67 @@ static int va_mapped(struct mm_struct *mm, unsigned long va)
 
     l3 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
     return (l3[l3_idx] & 1UL) != 0;
+}
+
+static int unmap_page(struct mm_struct *mm, unsigned long va)
+{
+    unsigned long *l2;
+    unsigned long *l3;
+    unsigned long l1_idx = (va >> 30) & 0x1ffUL;
+    unsigned long l2_idx = (va >> 21) & 0x1ffUL;
+    unsigned long l3_idx = (va >> 12) & 0x1ffUL;
+    unsigned long entry;
+    void *page;
+
+    entry = mm->pgd[l1_idx];
+    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
+        return 0;
+
+    l2 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
+    entry = l2[l2_idx];
+    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
+        return 0;
+
+    l3 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
+    entry = l3[l3_idx];
+    if (!(entry & 1UL))
+        return 0;
+
+    page = __phys_to_virt(entry & PTE_ADDR_MASK);
+    l3[l3_idx] = 0;
+    free_pages(page, 0);
+
+    __asm__ volatile(
+        "dsb sy\n"
+        "tlbi vae1, %0\n"
+        "dsb sy\n"
+        "isb\n"
+        :
+        : "r"(va >> 12));
+
+    return 0;
+}
+
+long do_munmap(struct mm_struct *mm, unsigned long addr, unsigned long len)
+{
+    unsigned long va;
+    unsigned long end;
+
+    if (!mm || !mm->pgd)
+        return -EINVAL;
+
+    if (len == 0)
+        return 0;
+
+    if (addr & (PAGE_SIZE - 1UL))
+        return -EINVAL;
+
+    end = (addr + len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+
+    for (va = addr; va < end; va += PAGE_SIZE)
+        unmap_page(mm, va);
+
+    return 0;
 }
 
 long do_brk(struct mm_struct *mm, unsigned long newbrk)
@@ -371,4 +565,12 @@ long ksys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
         return -ENODEV;
 
     return do_mmap(current->mm, addr, len, prot, flags);
+}
+
+long ksys_munmap(unsigned long addr, unsigned long len)
+{
+    if (!current || !current->is_user || !current->mm)
+        return -EINVAL;
+
+    return do_munmap(current->mm, addr, len);
 }

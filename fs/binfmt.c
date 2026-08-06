@@ -76,19 +76,6 @@ static void kmemset(void *dst, int c, unsigned long n)
         *d++ = (unsigned char)c;
 }
 
-static int pages_to_order(unsigned long npages)
-{
-    int order = 0;
-    unsigned long count = 1;
-
-    while (count < npages && order < 15) {
-        count <<= 1;
-        order++;
-    }
-
-    return order;
-}
-
 static unsigned long elf_prot(unsigned long p_flags)
 {
     unsigned long prot = 0;
@@ -132,34 +119,47 @@ static int load_segment(struct mm_struct *mm, const unsigned char *buf,
     unsigned long memsz = ph->p_memsz;
     unsigned long filesz = ph->p_filesz;
     unsigned long offset = ph->p_offset;
-    unsigned long page_off = vaddr & (PAGE_SIZE - 1UL);
     unsigned long map_start = vaddr & ~(PAGE_SIZE - 1UL);
     unsigned long map_end = (vaddr + memsz + PAGE_SIZE - 1UL) &
                             ~(PAGE_SIZE - 1UL);
-    unsigned long map_size = map_end - map_start;
-    unsigned long npages = map_size / PAGE_SIZE;
-    void *mem;
-    unsigned long phys;
-    int err;
+    unsigned long va;
+    unsigned long file_pos = 0;
 
     if (offset + filesz > len)
         return -ENOEXEC;
 
-    mem = alloc_pages(pages_to_order(npages));
-    if (!mem)
-        return -ENOMEM;
+    for (va = map_start; va < map_end; va += PAGE_SIZE) {
+        void *page;
+        unsigned long phys;
+        unsigned long page_skip;
+        unsigned long copy_len;
+        int err;
 
-    phys = __virt_to_phys((unsigned long)mem);
+        page = alloc_pages(0);
+        if (!page)
+            return -ENOMEM;
 
-    err = do_map(mm, map_start, phys, map_size, elf_prot(ph->p_flags));
-    if (err)
-        return err;
+        kmemset(page, 0, PAGE_SIZE);
+        phys = __virt_to_phys((unsigned long)page);
 
-    if (filesz)
-        kmemcpy((unsigned char *)mem + page_off, buf + offset, filesz);
+        err = do_map(mm, va, phys, PAGE_SIZE, elf_prot(ph->p_flags));
+        if (err) {
+            free_pages(page, 0);
+            return err;
+        }
 
-    if (memsz > filesz)
-        kmemset((unsigned char *)mem + page_off + filesz, 0, memsz - filesz);
+        page_skip = (va == map_start) ? (vaddr - map_start) : 0;
+
+        if (file_pos < filesz) {
+            unsigned long file_left = filesz - file_pos;
+            unsigned long room = PAGE_SIZE - page_skip;
+
+            copy_len = file_left < room ? file_left : room;
+            kmemcpy((unsigned char *)page + page_skip,
+                    buf + offset + file_pos, copy_len);
+            file_pos += copy_len;
+        }
+    }
 
     return 0;
 }

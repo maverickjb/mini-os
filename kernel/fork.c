@@ -157,34 +157,14 @@ static void copy_task_files(struct task_struct *child, struct task_struct *paren
         child->files[i] = parent->files[i];
 }
 
+/*
+ * Leaf pages (including the stack) are already privately copied by
+ * dup_pgtable_level(). Just inherit the parent's user SP.
+ */
 static int dup_user_stack(struct task_struct *child, struct task_struct *parent)
 {
-    void *stack;
-    unsigned long stack_va;
-    unsigned long stack_phys;
-    int err;
-
     if (!child->mm || !parent->mm || !parent->mm->stack_top)
         return -EINVAL;
-
-    stack = alloc_pages(0);
-    if (!stack)
-        return -ENOMEM;
-
-    stack_va = parent->mm->stack_top - PAGE_SIZE;
-    stack_phys = __virt_to_phys((unsigned long)stack);
-
-    err = do_map(child->mm, stack_va, stack_phys, PAGE_SIZE,
-                 MAP_PROT_READ | MAP_PROT_WRITE);
-    if (err) {
-        free_pages(stack, 0);
-        return err;
-    }
-
-    if (copy_from_user(stack, (void *)stack_va, PAGE_SIZE)) {
-        free_pages(stack, 0);
-        return -EFAULT;
-    }
 
     child->user_sp = parent->user_sp;
     return 0;

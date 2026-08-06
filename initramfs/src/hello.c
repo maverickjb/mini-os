@@ -1,7 +1,8 @@
-#define __NR_write 64
-#define __NR_exit  93
-#define __NR_brk   214
-#define __NR_mmap  222
+#define __NR_write  64
+#define __NR_exit   93
+#define __NR_brk    214
+#define __NR_munmap 215
+#define __NR_mmap   222
 
 #define PROT_READ       0x1
 #define PROT_WRITE      0x2
@@ -73,6 +74,21 @@ static long sys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
     return x0;
 }
 
+static long sys_munmap(unsigned long addr, unsigned long len)
+{
+    register long x8 asm("x8") = __NR_munmap;
+    register long x0 asm("x0") = (long)addr;
+    register long x1 asm("x1") = (long)len;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x1), "r"(x8)
+        : "memory", "cc");
+
+    return x0;
+}
+
 static void print_hex(unsigned long n)
 {
     int i;
@@ -91,6 +107,8 @@ void _start(void)
     unsigned long cur;
     unsigned long next;
     long map;
+    long map2;
+    long ret;
     volatile unsigned long *p;
     unsigned long i;
 
@@ -147,5 +165,33 @@ void _start(void)
     }
 
     sys_write(1, "mmap ok\n", 8);
+
+    ret = sys_munmap((unsigned long)map, 8192);
+    if (ret != 0) {
+        sys_write(1, "munmap failed\n", 14);
+        sys_exit(5);
+    }
+
+    sys_write(1, "munmap ok\n", 10);
+
+    map2 = sys_mmap(0, 4096, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map2 < 0) {
+        sys_write(1, "mmap2 failed\n", 13);
+        sys_exit(6);
+    }
+
+    p = (volatile unsigned long *)map2;
+    p[0] = 0xCAFEBABEUL;
+    if (p[0] != 0xCAFEBABEUL) {
+        sys_write(1, "mmap2 rw failed\n", 16);
+        sys_exit(7);
+    }
+
+    sys_write(1, "mmap2 addr=", 11);
+    print_hex((unsigned long)map2);
+    sys_write(1, "\n", 1);
+
+    sys_write(1, "munmap test ok\n", 15);
     sys_exit(42);
 }

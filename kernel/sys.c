@@ -66,6 +66,9 @@ void syscall_handler(struct pt_regs *regs)
         ret = ksys_mmap(regs->x0, regs->x1, regs->x2, regs->x3,
                         regs->x4, regs->x5);
         break;
+    case __NR_munmap:
+        ret = ksys_munmap(regs->x0, regs->x1);
+        break;
     default:
         ret = -ENOSYS;
         break;
