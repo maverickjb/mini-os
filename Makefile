@@ -18,7 +18,7 @@ SRCS    := kernel/head.S vectors.S context.S mmu_enable.S init/main.c kernel/smp
            kernel/fork.c kernel/exit.c kernel/sys.c kernel/irq.c kernel/time/tick.c \
            mm/page_alloc.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
-           fs/binfmt.c mm/mmap.c mm/uaccess.c fs/read_write.c drivers/tty/serial.c
+           fs/binfmt.c fs/open.c mm/mmap.c mm/uaccess.c fs/read_write.c drivers/tty/serial.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 
@@ -46,6 +46,7 @@ $(INIT_BIN): initramfs/src/init.c
 $(HELLO_BIN): initramfs/src/hello.c
 	mkdir -p initramfs/root/bin
 	$(CC) $(INIT_CFLAGS) -o $@ $<
+	printf 'hello from open\n' > initramfs/root/msg.txt
 
 fs/initramfs_blob.o: $(INITRAMFS_CPIO)
 

@@ -39,6 +39,13 @@ void syscall_handler(struct pt_regs *regs)
     case __NR_write:
         ret = ksys_write(regs->x0, (const char *)regs->x1, regs->x2);
         break;
+    case __NR_read:
+        ret = ksys_read(regs->x0, (char *)regs->x1, regs->x2);
+        break;
+    case __NR_openat:
+        ret = ksys_openat((int)regs->x0, (const char *)regs->x1,
+                          (int)regs->x2, regs->x3);
+        break;
     case __NR_clone:
         ret = ksys_fork(regs);
         break;
