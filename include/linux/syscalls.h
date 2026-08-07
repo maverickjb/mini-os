@@ -7,6 +7,7 @@ long ksys_write(unsigned long fd, const char *buf, unsigned long count);
 long ksys_read(unsigned long fd, char *buf, unsigned long count);
 long ksys_open(const char *filename, int flags, unsigned long mode);
 long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode);
+long ksys_close(unsigned long fd);
 long ksys_fork(struct pt_regs *regs);
 void ksys_sched_yield(struct pt_regs *regs);
 void ksys_exit(struct pt_regs *regs, long status);

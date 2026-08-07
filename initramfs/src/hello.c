@@ -4,6 +4,7 @@
 #define __NR_munmap 215
 #define __NR_mmap   222
 #define __NR_openat 56
+#define __NR_close  57
 #define __NR_read   63
 
 #define PROT_READ       0x1
@@ -58,6 +59,20 @@ static long sys_open(const char *path, int flags)
         "svc #0"
         : "+r"(x0)
         : "r"(x1), "r"(x2), "r"(x3), "r"(x8)
+        : "memory", "cc");
+
+    return x0;
+}
+
+static long sys_close(long fd)
+{
+    register long x8 asm("x8") = __NR_close;
+    register long x0 asm("x0") = fd;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8)
         : "memory", "cc");
 
     return x0;
@@ -223,6 +238,19 @@ void _start(void)
     sys_write(1, "read: ", 6);
     sys_write(1, buf, n);
     sys_write(1, "open test ok\n", 13);
+
+    ret = sys_close(fd);
+    if (ret != 0) {
+        sys_write(1, "close failed\n", 13);
+        sys_exit(10);
+    }
+
+    n = sys_read(fd, buf, sizeof(buf) - 1);
+    if (n >= 0) {
+        sys_write(1, "read after close ok (bug)\n", 26);
+        sys_exit(11);
+    }
+    sys_write(1, "close test ok\n", 14);
 
     sys_exit(42);
 }

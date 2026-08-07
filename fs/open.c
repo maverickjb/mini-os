@@ -9,6 +9,7 @@
 #include <linux/errno.h>
 #include <linux/gfp.h>
 #include <linux/stddef.h>
+#include <linux/serial.h>
 
 #include "namei.h"
 #include "ramfs.h"
@@ -132,4 +133,25 @@ long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
      */
     (void)dfd;
     return ksys_open(filename, flags, mode);
+}
+
+long ksys_close(unsigned long fd)
+{
+    struct task_struct *task = current;
+    struct file *file;
+
+    if (!task || fd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[fd];
+    if (!file)
+        return -EBADF;
+
+    task->files[fd] = NULL;
+
+    /* Stdio shares the static uart_file; only free open()-allocated files. */
+    if (file != &uart_file)
+        free_pages(file, 0);
+
+    return 0;
 }

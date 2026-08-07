@@ -46,6 +46,9 @@ void syscall_handler(struct pt_regs *regs)
         ret = ksys_openat((int)regs->x0, (const char *)regs->x1,
                           (int)regs->x2, regs->x3);
         break;
+    case __NR_close:
+        ret = ksys_close(regs->x0);
+        break;
     case __NR_clone:
         ret = ksys_fork(regs);
         break;
