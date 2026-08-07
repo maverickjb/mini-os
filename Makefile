@@ -18,7 +18,7 @@ SRCS    := kernel/head.S vectors.S context.S mmu_enable.S init/main.c kernel/smp
            kernel/fork.c kernel/exit.c kernel/sys.c kernel/irq.c kernel/time/tick.c \
            mm/page_alloc.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
-           fs/binfmt.c fs/open.c fs/namei.c mm/mmap.c mm/uaccess.c \
+           fs/binfmt.c fs/open.c fs/pipe.c fs/namei.c mm/mmap.c mm/uaccess.c \
            fs/read_write.c drivers/tty/serial.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)

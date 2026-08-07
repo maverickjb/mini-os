@@ -7,6 +7,7 @@
 #define __NR_dup3   24
 #define __NR_openat 56
 #define __NR_close  57
+#define __NR_pipe2  59
 #define __NR_read   63
 
 #define PROT_READ       0x1
@@ -106,6 +107,21 @@ static long sys_dup2(long oldfd, long newfd)
         "svc #0"
         : "+r"(x0)
         : "r"(x1), "r"(x2), "r"(x8)
+        : "memory", "cc");
+
+    return x0;
+}
+
+static long sys_pipe(int *fildes)
+{
+    register long x8 asm("x8") = __NR_pipe2;
+    register long x0 asm("x0") = (long)fildes;
+    register long x1 asm("x1") = 0;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x1), "r"(x8)
         : "memory", "cc");
 
     return x0;
@@ -319,6 +335,32 @@ void _start(void)
         sys_exit(16);
     }
     sys_write(1, "dup test ok\n", 12);
+
+    {
+        int pfd[2];
+
+        ret = sys_pipe(pfd);
+        if (ret != 0) {
+            sys_write(1, "pipe failed\n", 12);
+            sys_exit(17);
+        }
+
+        ret = sys_write(pfd[1], "pipe", 4);
+        if (ret != 4) {
+            sys_write(1, "pipe write failed\n", 18);
+            sys_exit(18);
+        }
+
+        sys_close(pfd[1]);
+        n = sys_read(pfd[0], buf, 4);
+        if (n != 4 || buf[0] != 'p' || buf[1] != 'i' ||
+            buf[2] != 'p' || buf[3] != 'e') {
+            sys_write(1, "pipe read failed\n", 17);
+            sys_exit(19);
+        }
+        sys_close(pfd[0]);
+        sys_write(1, "pipe test ok\n", 13);
+    }
 
     sys_exit(42);
 }

@@ -60,6 +60,9 @@ void syscall_handler(struct pt_regs *regs)
     case __NR_dup3:
         ret = ksys_dup3(regs->x0, regs->x1, (int)regs->x2);
         break;
+    case __NR_pipe2:
+        ret = ksys_pipe2((int *)regs->x0, (int)regs->x1);
+        break;
     case __NR_clone:
         ret = ksys_fork(regs);
         break;

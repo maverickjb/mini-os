@@ -11,6 +11,7 @@ long ksys_close(unsigned long fd);
 long ksys_dup(unsigned long oldfd);
 long ksys_dup2(unsigned long oldfd, unsigned long newfd);
 long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags);
+long ksys_pipe2(int *fildes, int flags);
 long ksys_fork(struct pt_regs *regs);
 void ksys_sched_yield(void);
 void ksys_exit(long status);

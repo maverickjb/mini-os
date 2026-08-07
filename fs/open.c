@@ -31,6 +31,9 @@ void fput(struct file *file)
     if (file->refcount > 0)
         return;
 
+    if (file->f_op && file->f_op->release)
+        file->f_op->release(file);
+
     /* uart_file is static and must never be freed. */
     if (file != &uart_file)
         free_pages(file, 0);
@@ -53,7 +56,7 @@ static int copy_path_from_user(char *dst, const char *src, unsigned long max)
     return -ENAMETOOLONG;
 }
 
-static struct file *alloc_file(void)
+struct file *alloc_file(void)
 {
     struct file *file;
 
@@ -70,7 +73,7 @@ static struct file *alloc_file(void)
     return file;
 }
 
-static int install_fd(struct task_struct *task, struct file *file)
+int install_fd(struct task_struct *task, struct file *file)
 {
     int fd;
 

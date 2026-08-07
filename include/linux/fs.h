@@ -2,6 +2,7 @@
 #define _LINUX_FS_H
 
 struct file;
+struct task_struct;
 
 #define S_IFDIR         0040000
 #define S_IFREG         0100000
@@ -10,6 +11,7 @@ struct file_ops {
     long (*read)(struct file *file, char *buf, unsigned long count, long *pos);
     long (*write)(struct file *file, const char *buf, unsigned long count,
                   long *pos);
+    int (*release)(struct file *file);
 };
 
 struct inode {
@@ -31,6 +33,8 @@ struct file {
 
 void get_file(struct file *file);
 void fput(struct file *file);
+struct file *alloc_file(void);
+int install_fd(struct task_struct *task, struct file *file);
 
 /* Linux open flags (subset). */
 #define O_RDONLY        0

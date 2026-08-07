@@ -24,6 +24,7 @@
 #define ENAMETOOLONG   36
 #define ENOSYS         38
 #define ENOTEMPTY      39
+#define EPIPE          32
 #define ETIMEDOUT     110
 
 #endif
