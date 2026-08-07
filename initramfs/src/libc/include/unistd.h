@@ -1,0 +1,38 @@
+#ifndef _LIBC_UNISTD_H
+#define _LIBC_UNISTD_H
+
+#include <stddef.h>
+
+typedef long ssize_t;
+typedef long off_t;
+typedef int pid_t;
+
+#define STDIN_FILENO  0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
+#define AT_FDCWD (-100)
+
+#define O_RDONLY 0
+#define O_WRONLY 1
+#define O_RDWR   2
+#define O_CREAT  0x40
+#define O_TRUNC  0x200
+
+long syscall(long nr, long a0, long a1, long a2, long a3, long a4, long a5);
+
+ssize_t write(int fd, const void *buf, size_t count);
+ssize_t read(int fd, void *buf, size_t count);
+int open(const char *path, int flags, ...);
+int close(int fd);
+void _exit(int status) __attribute__((noreturn));
+
+pid_t fork(void);
+int execve(const char *path, char *const argv[], char *const envp[]);
+pid_t waitpid(pid_t pid, int *status, int options);
+
+/* Kernel-style: returns current/new program break address. */
+void *brk(void *addr);
+void *sbrk(long increment);
+
+#endif

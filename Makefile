@@ -37,16 +37,29 @@ HELLO_BIN := initramfs/root/bin/hello
 $(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN)
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
 
-INIT_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
-               -static -Wl,-e,_start
+LIBC_DIR  := initramfs/src/libc
+LIBC_INC  := -I$(LIBC_DIR)/include
+LIBC_OBJS := $(LIBC_DIR)/syscall.o $(LIBC_DIR)/string.o $(LIBC_DIR)/malloc.o \
+             $(LIBC_DIR)/stdio.o $(LIBC_DIR)/printf.o
 
-$(INIT_BIN): initramfs/src/init.c
+LIBC_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
+               -Wall -Wextra -O0 -g -fno-pie -fno-PIE $(LIBC_INC)
+
+USER_CFLAGS := $(LIBC_CFLAGS) -static -Wl,-e,_start -Wl,--build-id=none
+
+$(LIBC_DIR)/%.o: $(LIBC_DIR)/%.c
+	$(CC) $(LIBC_CFLAGS) -c $< -o $@
+
+$(LIBC_DIR)/%.o: $(LIBC_DIR)/%.S
+	$(CC) $(LIBC_CFLAGS) -c $< -o $@
+
+$(INIT_BIN): initramfs/src/init.c $(LIBC_OBJS)
 	mkdir -p initramfs/root
-	$(CC) $(INIT_CFLAGS) -o $@ $<
+	$(CC) $(USER_CFLAGS) -o $@ $< $(LIBC_OBJS)
 
-$(HELLO_BIN): initramfs/src/hello.c
+$(HELLO_BIN): initramfs/src/hello.c $(LIBC_OBJS)
 	mkdir -p initramfs/root/bin
-	$(CC) $(INIT_CFLAGS) -o $@ $<
+	$(CC) $(USER_CFLAGS) -o $@ $< $(LIBC_OBJS)
 	printf 'hello from open\n' > initramfs/root/msg.txt
 
 fs/initramfs_blob.o: $(INITRAMFS_CPIO)
@@ -64,7 +77,7 @@ mini-os.bin: mini-os.elf
 	$(OBJCOPY) -O binary $< $@
 
 clean:
-	rm -f $(OBJS) mini-os.elf mini-os.bin initramfs/initramfs.cpio
+	rm -f $(OBJS) $(LIBC_OBJS) mini-os.elf mini-os.bin initramfs/initramfs.cpio
 	rm -rf initramfs/root
 
 QEMU    ?= qemu-system-aarch64

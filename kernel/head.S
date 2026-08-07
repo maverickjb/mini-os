@@ -48,6 +48,11 @@ boot_cont:
     dsb     sy
     isb
 
+    /* Enable FP/ASIMD at EL0/EL1 (printf/va_list may spill q0–q7). */
+    mov     x0, #(3 << 20)
+    msr     cpacr_el1, x0
+    isb
+
     ldr     x0, =vectors
     msr     vbar_el1, x0
     isb
@@ -112,6 +117,10 @@ secondary_cont:
     msr     ttbr0_el1, xzr
     tlbi    vmalle1
     dsb     sy
+    isb
+
+    mov     x0, #(3 << 20)
+    msr     cpacr_el1, x0
     isb
 
     ldr     x0, =vectors

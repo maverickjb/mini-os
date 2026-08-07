@@ -126,7 +126,8 @@ static int load_segment(struct mm_struct *mm, const unsigned char *buf,
     unsigned long va;
     unsigned long file_pos = 0;
 
-    if (offset + filesz > len)
+    /* BSS-only segments (filesz == 0) may have p_offset past EOF. */
+    if (filesz && offset + filesz > len)
         return -ENOEXEC;
 
     for (va = map_start; va < map_end; va += PAGE_SIZE) {
