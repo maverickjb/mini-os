@@ -6,6 +6,7 @@
 #include <linux/errno.h>
 #include <linux/uaccess.h>
 #include <linux/syscalls.h>
+#include <linux/fs.h>
 
 #include "exec.h"
 #include "binfmt.h"
@@ -32,7 +33,7 @@ static int copy_path_from_user(char *dst, const char *src, unsigned long max)
 
 static int do_execve(const char *filename)
 {
-    struct ramfs_inode *inode;
+    struct inode *inode;
     struct linux_binprm bprm;
 
     if (!filename || filename[0] == '\0')
@@ -42,11 +43,11 @@ static int do_execve(const char *filename)
     if (!inode)
         return -ENOENT;
 
-    if (!ramfs_is_reg(inode))
+    if (!inode_is_reg(inode))
         return -ENOEXEC;
 
     bprm.buf = (const unsigned char *)ramfs_data(inode);
-    bprm.len = ramfs_size(inode);
+    bprm.len = inode->size;
     bprm.entry = 0;
     bprm.stack_top = 0;
     bprm.task = get_current();

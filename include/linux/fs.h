@@ -3,26 +3,26 @@
 
 struct file;
 
-struct inode {
-    unsigned long ino;      // inode number
-    unsigned long size;     // file size
+#define S_IFDIR         0040000
+#define S_IFREG         0100000
 
-    int type;               // file/dir
-
-    void *data;             // file content in memory
-
-    struct file_ops *ops;
-};
-
-struct file_operations {
+struct file_ops {
     long (*read)(struct file *file, char *buf, unsigned long count, long *pos);
     long (*write)(struct file *file, const char *buf, unsigned long count,
                   long *pos);
 };
 
+struct inode {
+    unsigned long ino;
+    unsigned long size;
+    int type;
+    struct file_ops *ops;
+    void *private_data;
+};
+
 struct file {
     struct inode *inode;
-    const struct file_operations *f_op;
+    struct file_ops *f_op;
     void *private_data;
     long f_pos;
     int f_flags;
@@ -38,5 +38,15 @@ struct file {
 #define O_DIRECTORY     0x10000
 
 #define AT_FDCWD        (-100)
+
+static inline int inode_is_dir(const struct inode *inode)
+{
+    return inode && inode->type == S_IFDIR;
+}
+
+static inline int inode_is_reg(const struct inode *inode)
+{
+    return inode && inode->type == S_IFREG;
+}
 
 #endif /* _LINUX_FS_H */

@@ -52,14 +52,16 @@ static long serial_write(struct file *file, const char *buf,
     return (long)count;
 }
 
-static const struct file_operations serial_fops = {
+static struct file_ops serial_fops = {
     .write = serial_write,
 };
 
 struct file uart_file = {
+    .inode = NULL,
     .f_op = &serial_fops,
     .private_data = NULL,
     .f_pos = 0,
+    .f_flags = 0,
 };
 
 void serial_init(void)

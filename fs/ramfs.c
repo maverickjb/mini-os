@@ -1,5 +1,5 @@
 /*
- * ramfs — purely in-memory tree of files and directories.
+ * ramfs — in-memory tree; each node embeds a generic struct inode.
  */
 
 #include "ramfs.h"
@@ -13,15 +13,43 @@ struct ramfs_dentry {
     struct ramfs_dentry *next;
 };
 
-struct ramfs_inode {
-    unsigned int mode;
-    struct ramfs_dentry *children;
-    void *data;
-    unsigned long size;
-    unsigned long capacity;
-};
-
 static struct ramfs_inode root_inode;
+static unsigned long next_ino = 1;
+
+static long ramfs_file_read(struct file *file, char *buf, unsigned long count,
+                            long *pos)
+{
+    long n;
+
+    if (!file || !file->inode)
+        return -EINVAL;
+
+    n = ramfs_read(file->inode, buf, count, (unsigned long)*pos);
+    if (n > 0)
+        *pos += n;
+
+    return n;
+}
+
+static long ramfs_file_write(struct file *file, const char *buf,
+                             unsigned long count, long *pos)
+{
+    long n;
+
+    if (!file || !file->inode)
+        return -EINVAL;
+
+    n = ramfs_write(file->inode, buf, count, (unsigned long)*pos);
+    if (n > 0)
+        *pos += n;
+
+    return n;
+}
+
+struct file_ops ramfs_file_ops = {
+    .read = ramfs_file_read,
+    .write = ramfs_file_write,
+};
 
 static int ramfs_streq(const char *a, const char *b)
 {
@@ -76,42 +104,50 @@ static void ramfs_kfree(void *ptr, unsigned long size)
     free_pages(ptr, (int)order);
 }
 
-static struct ramfs_inode *ramfs_alloc_inode(unsigned int mode)
+static void ramfs_inode_init(struct ramfs_inode *ri, int type)
 {
-    struct ramfs_inode *inode = ramfs_kmalloc(sizeof(*inode));
-
-    if (!inode)
-        return NULL;
-
-    inode->mode = mode;
-    inode->children = NULL;
-    inode->data = NULL;
-    inode->size = 0;
-    inode->capacity = 0;
-    return inode;
+    ri->inode.ino = next_ino++;
+    ri->inode.size = 0;
+    ri->inode.type = type;
+    ri->inode.ops = (type == S_IFREG) ? &ramfs_file_ops : NULL;
+    ri->inode.private_data = NULL;
+    ri->children = NULL;
+    ri->data = NULL;
+    ri->capacity = 0;
 }
 
-static void ramfs_free_inode(struct ramfs_inode *inode)
+static struct ramfs_inode *ramfs_alloc_inode(int type)
+{
+    struct ramfs_inode *ri = ramfs_kmalloc(sizeof(*ri));
+
+    if (!ri)
+        return NULL;
+
+    ramfs_inode_init(ri, type);
+    return ri;
+}
+
+static void ramfs_free_inode(struct ramfs_inode *ri)
 {
     struct ramfs_dentry *d;
     struct ramfs_dentry *next;
 
-    if (!inode)
+    if (!ri)
         return;
 
-    if (inode->mode & RAMFS_S_IFDIR) {
-        for (d = inode->children; d; d = next) {
+    if (ri->inode.type == S_IFDIR) {
+        for (d = ri->children; d; d = next) {
             next = d->next;
             ramfs_free_inode(d->inode);
             ramfs_kfree(d, sizeof(*d));
         }
     }
 
-    if (inode->data)
-        ramfs_kfree(inode->data, inode->capacity);
+    if (ri->data)
+        ramfs_kfree(ri->data, ri->capacity);
 
-    if (inode != &root_inode)
-        ramfs_kfree(inode, sizeof(*inode));
+    if (ri != &root_inode)
+        ramfs_kfree(ri, sizeof(*ri));
 }
 
 static struct ramfs_dentry *ramfs_find_child(struct ramfs_inode *dir,
@@ -119,7 +155,7 @@ static struct ramfs_dentry *ramfs_find_child(struct ramfs_inode *dir,
 {
     struct ramfs_dentry *d;
 
-    if (!dir || !(dir->mode & RAMFS_S_IFDIR))
+    if (!dir || dir->inode.type != S_IFDIR)
         return NULL;
 
     for (d = dir->children; d; d = d->next) {
@@ -131,11 +167,11 @@ static struct ramfs_dentry *ramfs_find_child(struct ramfs_inode *dir,
 }
 
 static int ramfs_add_child(struct ramfs_inode *dir, const char *name,
-                           struct ramfs_inode *inode)
+                           struct ramfs_inode *ri)
 {
     struct ramfs_dentry *d;
 
-    if (!dir || !(dir->mode & RAMFS_S_IFDIR))
+    if (!dir || dir->inode.type != S_IFDIR)
         return -ENOTDIR;
 
     if (ramfs_find_child(dir, name))
@@ -155,7 +191,7 @@ static int ramfs_add_child(struct ramfs_inode *dir, const char *name,
         d->name[i] = '\0';
     }
 
-    d->inode = inode;
+    d->inode = ri;
     d->next = dir->children;
     dir->children = d;
     return 0;
@@ -167,7 +203,7 @@ static int ramfs_remove_child(struct ramfs_inode *dir, const char *name,
     struct ramfs_dentry **prev = &dir->children;
     struct ramfs_dentry *d;
 
-    if (!dir || !(dir->mode & RAMFS_S_IFDIR))
+    if (!dir || dir->inode.type != S_IFDIR)
         return -ENOTDIR;
 
     while (*prev) {
@@ -228,7 +264,7 @@ static struct ramfs_inode *ramfs_lookup_at(struct ramfs_inode *dir,
         if (!*path)
             return d->inode;
 
-        if (!(d->inode->mode & RAMFS_S_IFDIR))
+        if (d->inode->inode.type != S_IFDIR)
             return NULL;
 
         dir = d->inode;
@@ -269,7 +305,7 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
             d = ramfs_find_child(dir, component);
             if (!d)
                 return NULL;
-            if (!(d->inode->mode & RAMFS_S_IFDIR))
+            if (d->inode->inode.type != S_IFDIR)
                 return NULL;
             dir = d->inode;
             p += i;
@@ -301,31 +337,34 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
 
 void ramfs_init(void)
 {
-    root_inode.mode = RAMFS_S_IFDIR;
-    root_inode.children = NULL;
-    root_inode.data = NULL;
-    root_inode.size = 0;
-    root_inode.capacity = 0;
+    next_ino = 1;
+    ramfs_inode_init(&root_inode, S_IFDIR);
 }
 
-struct ramfs_inode *ramfs_root(void)
+struct inode *ramfs_root(void)
 {
-    return &root_inode;
+    return &root_inode.inode;
 }
 
-struct ramfs_inode *ramfs_lookup(const char *path)
+struct inode *ramfs_lookup(const char *path)
 {
+    struct ramfs_inode *ri;
+
     if (!path || path[0] != '/')
         return NULL;
 
-    return ramfs_lookup_at(&root_inode, path);
+    ri = ramfs_lookup_at(&root_inode, path);
+    if (!ri)
+        return NULL;
+
+    return &ri->inode;
 }
 
 int ramfs_mkdir(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
-    struct ramfs_inode *inode;
+    struct ramfs_inode *ri;
     int err;
 
     if (!path || path[0] != '/')
@@ -338,13 +377,13 @@ int ramfs_mkdir(const char *path)
     if (ramfs_find_child(parent, name))
         return -EEXIST;
 
-    inode = ramfs_alloc_inode(RAMFS_S_IFDIR);
-    if (!inode)
+    ri = ramfs_alloc_inode(S_IFDIR);
+    if (!ri)
         return -ENOMEM;
 
-    err = ramfs_add_child(parent, name, inode);
+    err = ramfs_add_child(parent, name, ri);
     if (err) {
-        ramfs_kfree(inode, sizeof(*inode));
+        ramfs_kfree(ri, sizeof(*ri));
         return err;
     }
 
@@ -355,7 +394,7 @@ int ramfs_create(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
-    struct ramfs_inode *inode;
+    struct ramfs_inode *ri;
     int err;
 
     if (!path || path[0] != '/')
@@ -368,13 +407,13 @@ int ramfs_create(const char *path)
     if (ramfs_find_child(parent, name))
         return -EEXIST;
 
-    inode = ramfs_alloc_inode(RAMFS_S_IFREG);
-    if (!inode)
+    ri = ramfs_alloc_inode(S_IFREG);
+    if (!ri)
         return -ENOMEM;
 
-    err = ramfs_add_child(parent, name, inode);
+    err = ramfs_add_child(parent, name, ri);
     if (err) {
-        ramfs_kfree(inode, sizeof(*inode));
+        ramfs_kfree(ri, sizeof(*ri));
         return err;
     }
 
@@ -385,7 +424,7 @@ int ramfs_unlink(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
-    struct ramfs_inode *inode;
+    struct ramfs_inode *ri;
     int err;
 
     if (!path || path[0] != '/')
@@ -395,16 +434,16 @@ int ramfs_unlink(const char *path)
     if (!parent)
         return -ENOENT;
 
-    err = ramfs_remove_child(parent, name, &inode);
+    err = ramfs_remove_child(parent, name, &ri);
     if (err)
         return err;
 
-    if (inode->mode & RAMFS_S_IFDIR) {
-        ramfs_add_child(parent, name, inode);
+    if (ri->inode.type == S_IFDIR) {
+        ramfs_add_child(parent, name, ri);
         return -EISDIR;
     }
 
-    ramfs_free_inode(inode);
+    ramfs_free_inode(ri);
     return 0;
 }
 
@@ -412,7 +451,7 @@ int ramfs_rmdir(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
-    struct ramfs_inode *inode;
+    struct ramfs_inode *ri;
     int err;
 
     if (!path || path[0] != '/')
@@ -422,36 +461,36 @@ int ramfs_rmdir(const char *path)
     if (!parent)
         return -ENOENT;
 
-    err = ramfs_remove_child(parent, name, &inode);
+    err = ramfs_remove_child(parent, name, &ri);
     if (err)
         return err;
 
-    if (!(inode->mode & RAMFS_S_IFDIR)) {
-        ramfs_add_child(parent, name, inode);
+    if (ri->inode.type != S_IFDIR) {
+        ramfs_add_child(parent, name, ri);
         return -ENOTDIR;
     }
 
-    if (inode->children) {
-        ramfs_add_child(parent, name, inode);
+    if (ri->children) {
+        ramfs_add_child(parent, name, ri);
         return -ENOTEMPTY;
     }
 
-    ramfs_free_inode(inode);
+    ramfs_free_inode(ri);
     return 0;
 }
 
-static int ramfs_ensure_capacity(struct ramfs_inode *inode, unsigned long need)
+static int ramfs_ensure_capacity(struct ramfs_inode *ri, unsigned long need)
 {
     void *new_data;
     unsigned long new_cap;
 
-    if (!(inode->mode & RAMFS_S_IFREG))
+    if (ri->inode.type != S_IFREG)
         return -EISDIR;
 
-    if (need <= inode->capacity)
+    if (need <= ri->capacity)
         return 0;
 
-    new_cap = inode->capacity ? inode->capacity : PAGE_SIZE;
+    new_cap = ri->capacity ? ri->capacity : PAGE_SIZE;
     while (new_cap < need)
         new_cap <<= 1;
 
@@ -459,26 +498,29 @@ static int ramfs_ensure_capacity(struct ramfs_inode *inode, unsigned long need)
     if (!new_data)
         return -ENOMEM;
 
-    if (inode->data && inode->size)
-        ramfs_memcpy(new_data, inode->data, inode->size);
+    if (ri->data && ri->inode.size)
+        ramfs_memcpy(new_data, ri->data, ri->inode.size);
 
-    if (inode->data)
-        ramfs_kfree(inode->data, inode->capacity);
+    if (ri->data)
+        ramfs_kfree(ri->data, ri->capacity);
 
-    inode->data = new_data;
-    inode->capacity = new_cap;
+    ri->data = new_data;
+    ri->capacity = new_cap;
     return 0;
 }
 
-long ramfs_read(struct ramfs_inode *inode, void *buf, unsigned long len,
+long ramfs_read(struct inode *inode, void *buf, unsigned long len,
                 unsigned long offset)
 {
+    struct ramfs_inode *ri;
     unsigned long avail;
 
     if (!inode || !buf)
         return -EINVAL;
-    if (!(inode->mode & RAMFS_S_IFREG))
+    if (inode->type != S_IFREG)
         return -EISDIR;
+
+    ri = RAMFS_I(inode);
 
     if (offset >= inode->size)
         return 0;
@@ -487,33 +529,35 @@ long ramfs_read(struct ramfs_inode *inode, void *buf, unsigned long len,
     if (len > avail)
         len = avail;
 
-    if (len && inode->data)
-        ramfs_memcpy(buf, (unsigned char *)inode->data + offset, len);
+    if (len && ri->data)
+        ramfs_memcpy(buf, (unsigned char *)ri->data + offset, len);
 
     return (long)len;
 }
 
-long ramfs_write(struct ramfs_inode *inode, const void *buf, unsigned long len,
+long ramfs_write(struct inode *inode, const void *buf, unsigned long len,
                  unsigned long offset)
 {
+    struct ramfs_inode *ri;
     unsigned long end;
     int err;
 
     if (!inode || !buf)
         return -EINVAL;
-    if (!(inode->mode & RAMFS_S_IFREG))
+    if (inode->type != S_IFREG)
         return -EISDIR;
 
+    ri = RAMFS_I(inode);
     end = offset + len;
     if (end < offset)
         return -EINVAL;
 
-    err = ramfs_ensure_capacity(inode, end);
+    err = ramfs_ensure_capacity(ri, end);
     if (err)
         return err;
 
     if (len)
-        ramfs_memcpy((unsigned char *)inode->data + offset, buf, len);
+        ramfs_memcpy((unsigned char *)ri->data + offset, buf, len);
 
     if (end > inode->size)
         inode->size = end;
@@ -521,54 +565,44 @@ long ramfs_write(struct ramfs_inode *inode, const void *buf, unsigned long len,
     return (long)len;
 }
 
-int ramfs_truncate(struct ramfs_inode *inode, unsigned long size)
+int ramfs_truncate(struct inode *inode, unsigned long size)
 {
+    struct ramfs_inode *ri;
+
     if (!inode)
         return -EINVAL;
-    if (!(inode->mode & RAMFS_S_IFREG))
+    if (inode->type != S_IFREG)
         return -EISDIR;
 
-    if (size > inode->capacity)
+    ri = RAMFS_I(inode);
+    if (size > ri->capacity)
         return -EINVAL;
 
     inode->size = size;
     return 0;
 }
 
-int ramfs_readdir(struct ramfs_inode *dir, ramfs_readdir_fn fn, void *arg)
+int ramfs_readdir(struct inode *dir, ramfs_readdir_fn fn, void *arg)
 {
+    struct ramfs_inode *ri;
     struct ramfs_dentry *d;
 
     if (!dir || !fn)
         return -EINVAL;
-    if (!(dir->mode & RAMFS_S_IFDIR))
+    if (dir->type != S_IFDIR)
         return -ENOTDIR;
 
-    for (d = dir->children; d; d = d->next)
-        fn(d->name, d->inode, arg);
+    ri = RAMFS_I(dir);
+    for (d = ri->children; d; d = d->next)
+        fn(d->name, &d->inode->inode, arg);
 
     return 0;
 }
 
-int ramfs_is_dir(const struct ramfs_inode *inode)
+const void *ramfs_data(struct inode *inode)
 {
-    return inode && (inode->mode & RAMFS_S_IFDIR);
-}
-
-int ramfs_is_reg(const struct ramfs_inode *inode)
-{
-    return inode && (inode->mode & RAMFS_S_IFREG);
-}
-
-unsigned long ramfs_size(const struct ramfs_inode *inode)
-{
-    return inode ? inode->size : 0;
-}
-
-const void *ramfs_data(const struct ramfs_inode *inode)
-{
-    if (!inode || !(inode->mode & RAMFS_S_IFREG))
+    if (!inode || inode->type != S_IFREG)
         return NULL;
 
-    return inode->data;
+    return RAMFS_I(inode)->data;
 }

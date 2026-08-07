@@ -5,14 +5,13 @@
 #include "initramfs.h"
 #include "ramfs.h"
 #include <linux/errno.h>
+#include <linux/fs.h>
 
 #define CPIO_MAGIC      "070701"
 #define CPIO_TRAILER    "TRAILER!!!"
 #define CPIO_HDR_SIZE   110
 
 #define S_IFMT          00170000U
-#define S_IFDIR         0040000U
-#define S_IFREG         0100000U
 
 static unsigned long cpio_hex(const char *s, unsigned int len)
 {
@@ -210,7 +209,7 @@ int unpack_to_rootfs(const void *data, unsigned long size)
         }
 
         if ((mode & S_IFMT) == S_IFREG) {
-            struct ramfs_inode *inode;
+            struct inode *inode;
 
             if (parent_dir(path, pdir) < 0)
                 return -EINVAL;

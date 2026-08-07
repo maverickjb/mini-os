@@ -6,6 +6,7 @@
 #include <linux/sched/task.h>
 #include <linux/serial.h>
 #include <linux/tick.h>
+#include <linux/fs.h>
 #include <asm/smp.h>
 
 #include <linux/gfp.h>
@@ -86,13 +87,13 @@ void start_kernel(void)
     cpu_idle();
 }
 
-static void ramfs_list_entry(const char *name, struct ramfs_inode *inode, void *arg)
+static void ramfs_list_entry(const char *name, struct inode *inode, void *arg)
 {
     (void)arg;
 
     uart_puts("  ");
     uart_puts(name);
-    uart_puts(ramfs_is_dir(inode) ? "/\n" : "\n");
+    uart_puts(inode_is_dir(inode) ? "/\n" : "\n");
 }
 
 void initramfs_show(void)
