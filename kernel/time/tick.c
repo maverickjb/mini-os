@@ -93,7 +93,7 @@ void handle_arch_tick(struct pt_regs *regs)
         if (current->time_slice <= 0) {
             current->time_slice = SCHED_TIME_SLICE;
             if (current->is_user && interrupted_el0(regs))
-                schedule(regs);
+                schedule();
         }
     }
 

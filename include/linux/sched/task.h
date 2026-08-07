@@ -13,7 +13,6 @@ void wake_up_process(struct task_struct *task);
 void kernel_init(void *arg);
 
 void copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src);
-void save_user_regs(struct task_struct *task, struct pt_regs *regs);
 void switch_to(struct task_struct *prev, struct task_struct *next);
 
 void task_user_ctx_init(struct task_struct *task);

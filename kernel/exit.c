@@ -68,7 +68,7 @@ static void free_task(struct task_struct *task)
     free_pages(task, 0);
 }
 
-void ksys_exit(struct pt_regs *regs, long status)
+void ksys_exit(long status)
 {
     struct task_struct *task = current;
     struct task_struct *parent;
@@ -86,14 +86,14 @@ void ksys_exit(struct pt_regs *regs, long status)
         wake_up_process(parent);
 
     local_irq_enable();
-    schedule(regs);
+    schedule();
 
     uart_puts("ksys_exit: schedule returned (bug)\n");
     for (;;)
         __asm__ volatile("wfi");
 }
 
-long ksys_wait4(struct pt_regs *regs, long pid, int *status, long options)
+long ksys_wait4(long pid, int *status, long options)
 {
     struct task_struct *parent = current;
     struct task_struct *child;
@@ -127,7 +127,7 @@ long ksys_wait4(struct pt_regs *regs, long pid, int *status, long options)
 
         current->state = TASK_SLEEPING;
         local_irq_enable();
-        schedule(regs);
+        schedule();
         local_irq_disable();
         current->state = TASK_RUNNING;
         current->time_slice = SCHED_TIME_SLICE;

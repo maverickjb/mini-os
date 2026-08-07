@@ -47,7 +47,11 @@ struct task_struct {
     int time_slice;
     int is_user;
     unsigned long user_sp;
-    struct pt_regs user_regs;
+    /*
+     * Active trap frame on this task's kernel stack (syscall/IRQ entry),
+     * or a fabricated frame at stack top for a newly forked/exec'd task.
+     */
+    struct pt_regs *regs;
     long exit_code;
 };
 
@@ -58,7 +62,7 @@ extern struct task_struct *cpu_current_export;
 void sched_init(void);
 void sched_init_idle(unsigned int cpu);
 void cpu_idle(void);
-void schedule(struct pt_regs *regs);
+void schedule(void);
 void enqueue_task(struct task_struct *task);
 void dequeue_task(struct task_struct *task);
 struct task_struct *pick_next_task(struct task_struct *prev);

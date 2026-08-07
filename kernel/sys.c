@@ -6,6 +6,8 @@
 #include <linux/syscalls.h>
 #include <linux/errno.h>
 #include <linux/serial.h>
+#include <linux/sched/task.h>
+#include <linux/stddef.h>
 #include <asm/ptrace.h>
 
 void report_el0_fault(struct pt_regs *regs, unsigned long ec)
@@ -35,6 +37,9 @@ void syscall_handler(struct pt_regs *regs)
 
     __asm__ volatile("msr daifset, #3");
 
+    if (current)
+        current->regs = regs;
+
     switch (regs->x8) {
     case __NR_write:
         ret = ksys_write(regs->x0, (const char *)regs->x1, regs->x2);
@@ -59,16 +64,15 @@ void syscall_handler(struct pt_regs *regs)
         ret = ksys_fork(regs);
         break;
     case __NR_sched_yield:
-        ksys_sched_yield(regs);
+        ksys_sched_yield();
         __asm__ volatile("msr daifclr, #3");
         return;
     case __NR_exit:
-        ksys_exit(regs, (long)regs->x0);
+        ksys_exit((long)regs->x0);
         __asm__ volatile("msr daifclr, #3");
         return;
     case __NR_wait4:
-        ret = ksys_wait4(regs, (long)regs->x0, (int *)regs->x1,
-                         (long)regs->x2);
+        ret = ksys_wait4((long)regs->x0, (int *)regs->x1, (long)regs->x2);
         break;
     case __NR_execve:
         ret = ksys_execve(regs, (const char *)regs->x0,

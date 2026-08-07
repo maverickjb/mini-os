@@ -26,7 +26,7 @@ void cpu_idle(void)
 
     for (;;) {
         if (cpu == 0 && runqueue && runqueue->state == TASK_RUNNING)
-            schedule(0);
+            schedule();
         else
             __asm__ volatile("wfi");
     }

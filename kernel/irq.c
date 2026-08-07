@@ -5,6 +5,7 @@
 #include <linux/irq.h>
 #include <linux/errno.h>
 #include <linux/tick.h>
+#include <linux/sched/task.h>
 #include <asm/ptrace.h>
 #include <asm/memory.h>
 
@@ -129,6 +130,9 @@ void init_IRQ(void)
 void handle_arch_irq(struct pt_regs *regs)
 {
     unsigned int irq;
+
+    if (current)
+        current->regs = regs;
 
     if (gic_is_v3) {
         __asm__ volatile("mrs %0, ICC_IAR1_EL1" : "=r"(irq));

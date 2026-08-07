@@ -20,7 +20,7 @@ static unsigned long next_pid = 1;
 void copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src)
 {
     unsigned long *d = (unsigned long *)dst;
-    const unsigned long *s = (const unsigned long *)src;
+    const unsigned long *s = (unsigned long *)src;
     unsigned int i;
     unsigned int n = sizeof(*dst) / sizeof(unsigned long);
 
@@ -28,16 +28,13 @@ void copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src)
         d[i] = s[i];
 }
 
-void save_user_regs(struct task_struct *task, struct pt_regs *regs)
-{
-    copy_pt_regs(&task->user_regs, regs);
-    __asm__ volatile("mrs %0, sp_el0" : "=r"(task->user_sp));
-}
-
+/*
+ * task->regs must already point at a pt_regs on this task's kernel stack.
+ * Point cpu_context at ret_from_fork so the first switch_to returns to EL0.
+ */
 void task_user_ctx_init(struct task_struct *task)
 {
-    task->ctx.sp = (unsigned long)(task->stack +
-                                   INIT_STACK_SIZE / sizeof(unsigned long));
+    task->ctx.sp = (unsigned long)task->regs;
     task->ctx.pc = (unsigned long)ret_from_fork;
 }
 
@@ -50,7 +47,16 @@ void ret_from_fork(void)
         mm_install(task->mm);
 
     __asm__ volatile("msr daifclr, #3");
-    finish_eret(&task->user_regs);
+    finish_eret(task->regs);
+}
+
+static struct pt_regs *task_stack_regs(struct task_struct *task)
+{
+    /*
+     * Kernel SP grows down from the stack top. Put a fabricated trap frame
+     * at the bottom so exec/fork setup cannot clobber the live call chain.
+     */
+    return (struct pt_regs *)task->stack;
 }
 
 static void task_zero(struct task_struct *tsk)
@@ -68,6 +74,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->time_slice = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
+    tsk->regs = NULL;
     tsk->exit_code = 0;
 
     for (i = 0; i < NR_OPEN; i++)
@@ -225,7 +232,7 @@ long ksys_fork(struct pt_regs *regs)
     }
 
     task_zero(child);
-    save_user_regs(parent, regs);
+    __asm__ volatile("mrs %0, sp_el0" : "=r"(parent->user_sp));
 
     child->pid = next_pid++;
     child->state = TASK_RUNNING;
@@ -248,25 +255,25 @@ long ksys_fork(struct pt_regs *regs)
         return err;
     }
 
-    copy_pt_regs(&child->user_regs, &parent->user_regs);
-    child->user_regs.x0 = 0;
+    child->regs = task_stack_regs(child);
+    copy_pt_regs(child->regs, regs);
+    child->regs->x0 = 0;
     copy_task_files(child, parent);
     task_user_ctx_init(child);
 
     enqueue_task(child);
 
-    copy_pt_regs(regs, &parent->user_regs);
     regs->x0 = (unsigned long)child->pid;
 
     return (long)child->pid;
 }
 
-void ksys_sched_yield(struct pt_regs *regs)
+void ksys_sched_yield(void)
 {
     if (!current || !current->is_user)
         return;
 
     local_irq_enable();
-    schedule(regs);
+    schedule();
     local_irq_disable();
 }

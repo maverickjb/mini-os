@@ -1,12 +1,16 @@
 /*
  * Round-robin scheduler — PID 0 idle, runnable tasks time-sliced.
+ *
+ * schedule() does not take a trap frame: pt_regs lives on the current
+ * task's kernel stack (pointed to by task->regs). switch_to() saves SP,
+ * so the frame remains in place until the task runs again and returns
+ * through the syscall/IRQ exit path.
  */
 
 #include <linux/sched/task.h>
 #include <linux/serial.h>
 #include <linux/stddef.h>
 #include <linux/sched.h>
-#include <asm/exception.h>
 
 #include <asm/smp.h>
 
@@ -118,11 +122,10 @@ void sched_init_idle(unsigned int cpu)
         cpu_current_export = &idle_tasks[cpu];
 }
 
-static void context_switch(struct task_struct *prev, struct task_struct *next,
-                           struct pt_regs *regs)
+static void context_switch(struct task_struct *prev, struct task_struct *next)
 {
-    if (prev->is_user && interrupted_el0(regs))
-        save_user_regs(prev, regs);
+    if (prev->is_user)
+        __asm__ volatile("mrs %0, sp_el0" : "=r"(prev->user_sp));
 
     next->time_slice = SCHED_TIME_SLICE;
 
@@ -141,11 +144,12 @@ static void context_switch(struct task_struct *prev, struct task_struct *next,
     /*
      * Real context switch — returns on prev's kernel stack only when prev
      * runs again (Linux-style). On exit, prev is zombie and never returns.
+     * prev's SP still points into the stack that holds its pt_regs.
      */
     switch_to(prev, next);
 }
 
-void schedule(struct pt_regs *regs)
+void schedule(void)
 {
     struct task_struct *prev = current;
     struct task_struct *next;
@@ -155,5 +159,5 @@ void schedule(struct pt_regs *regs)
     if (next == prev)
         return;
 
-    context_switch(prev, next, regs);
+    context_switch(prev, next);
 }

@@ -7,6 +7,7 @@
 #include <linux/sched/task.h>
 #include <linux/errno.h>
 #include <asm/memory.h>
+#include <asm/ptrace.h>
 
 #include "binfmt.h"
 #include <linux/mm.h>
@@ -240,9 +241,14 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     bprm->task->is_user = 1;
     bprm->task->user_sp = mm->stack_top;
-    kmemset(&bprm->task->user_regs, 0, sizeof(bprm->task->user_regs));
-    bprm->task->user_regs.elr_el1 = mm->entry;
-    bprm->task->user_regs.spsr_el1 = 0;
+    {
+        struct pt_regs *regs = (struct pt_regs *)bprm->task->stack;
+
+        kmemset(regs, 0, sizeof(*regs));
+        regs->elr_el1 = mm->entry;
+        regs->spsr_el1 = 0;
+        bprm->task->regs = regs;
+    }
 
     task_user_ctx_init(bprm->task);
     ret_from_fork();
