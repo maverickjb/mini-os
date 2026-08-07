@@ -49,6 +49,12 @@ void syscall_handler(struct pt_regs *regs)
     case __NR_close:
         ret = ksys_close(regs->x0);
         break;
+    case __NR_dup:
+        ret = ksys_dup(regs->x0);
+        break;
+    case __NR_dup3:
+        ret = ksys_dup3(regs->x0, regs->x1, (int)regs->x2);
+        break;
     case __NR_clone:
         ret = ksys_fork(regs);
         break;

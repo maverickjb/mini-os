@@ -1,5 +1,5 @@
 /*
- * open(2) — look up a path, attach inode, install an fd.
+ * open(2) / close(2) / dup — fd table and file refcounting.
  */
 
 #include <linux/fs.h>
@@ -15,6 +15,26 @@
 #include "ramfs.h"
 
 #define PATH_MAX 256
+
+void get_file(struct file *file)
+{
+    if (file)
+        file->refcount++;
+}
+
+void fput(struct file *file)
+{
+    if (!file)
+        return;
+
+    file->refcount--;
+    if (file->refcount > 0)
+        return;
+
+    /* uart_file is static and must never be freed. */
+    if (file != &uart_file)
+        free_pages(file, 0);
+}
 
 static int copy_path_from_user(char *dst, const char *src, unsigned long max)
 {
@@ -41,6 +61,7 @@ static struct file *alloc_file(void)
     if (!file)
         return NULL;
 
+    file->refcount = 1;
     file->inode = NULL;
     file->f_op = NULL;
     file->private_data = NULL;
@@ -61,6 +82,22 @@ static int install_fd(struct task_struct *task, struct file *file)
     }
 
     return -EMFILE;
+}
+
+static long close_fd(struct task_struct *task, unsigned long fd)
+{
+    struct file *file;
+
+    if (fd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[fd];
+    if (!file)
+        return -EBADF;
+
+    task->files[fd] = NULL;
+    fput(file);
+    return 0;
 }
 
 long ksys_open(const char *filename, int flags, unsigned long mode)
@@ -119,7 +156,7 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
 
     fd = install_fd(task, file);
     if (fd < 0) {
-        free_pages(file, 0);
+        fput(file);
         return fd;
     }
 
@@ -138,20 +175,64 @@ long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
 long ksys_close(unsigned long fd)
 {
     struct task_struct *task = current;
-    struct file *file;
 
-    if (!task || fd >= NR_OPEN)
+    if (!task)
         return -EBADF;
 
-    file = task->files[fd];
+    return close_fd(task, fd);
+}
+
+long ksys_dup(unsigned long oldfd)
+{
+    struct task_struct *task = current;
+    struct file *file;
+    int fd;
+
+    if (!task || oldfd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[oldfd];
     if (!file)
         return -EBADF;
 
-    task->files[fd] = NULL;
+    get_file(file);
+    fd = install_fd(task, file);
+    if (fd < 0) {
+        fput(file);
+        return fd;
+    }
 
-    /* Stdio shares the static uart_file; only free open()-allocated files. */
-    if (file != &uart_file)
-        free_pages(file, 0);
+    return fd;
+}
 
-    return 0;
+long ksys_dup2(unsigned long oldfd, unsigned long newfd)
+{
+    return ksys_dup3(oldfd, newfd, 0);
+}
+
+long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags)
+{
+    struct task_struct *task = current;
+    struct file *file;
+    struct file *old_new;
+
+    (void)flags;
+
+    if (!task || oldfd >= NR_OPEN || newfd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[oldfd];
+    if (!file)
+        return -EBADF;
+
+    if (oldfd == newfd)
+        return (long)newfd;
+
+    get_file(file);
+    old_new = task->files[newfd];
+    task->files[newfd] = file;
+    if (old_new)
+        fput(old_new);
+
+    return (long)newfd;
 }

@@ -104,7 +104,9 @@ void initramfs_show(void)
 
 static void init_stdio(struct task_struct *task)
 {
+    get_file(&uart_file);
     task->files[1] = &uart_file;
+    get_file(&uart_file);
     task->files[2] = &uart_file;
 }
 

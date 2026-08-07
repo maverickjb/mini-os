@@ -57,6 +57,7 @@ static struct file_ops serial_fops = {
 };
 
 struct file uart_file = {
+    .refcount = 0,
     .inode = NULL,
     .f_op = &serial_fops,
     .private_data = NULL,

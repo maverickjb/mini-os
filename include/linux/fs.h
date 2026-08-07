@@ -21,12 +21,16 @@ struct inode {
 };
 
 struct file {
+    int refcount;
     struct inode *inode;
     struct file_ops *f_op;
     void *private_data;
     long f_pos;
     int f_flags;
 };
+
+void get_file(struct file *file);
+void fput(struct file *file);
 
 /* Linux open flags (subset). */
 #define O_RDONLY        0

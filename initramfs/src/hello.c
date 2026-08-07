@@ -3,6 +3,8 @@
 #define __NR_brk    214
 #define __NR_munmap 215
 #define __NR_mmap   222
+#define __NR_dup    23
+#define __NR_dup3   24
 #define __NR_openat 56
 #define __NR_close  57
 #define __NR_read   63
@@ -73,6 +75,37 @@ static long sys_close(long fd)
         "svc #0"
         : "+r"(x0)
         : "r"(x8)
+        : "memory", "cc");
+
+    return x0;
+}
+
+static long sys_dup(long oldfd)
+{
+    register long x8 asm("x8") = __NR_dup;
+    register long x0 asm("x0") = oldfd;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8)
+        : "memory", "cc");
+
+    return x0;
+}
+
+static long sys_dup2(long oldfd, long newfd)
+{
+    /* aarch64 has no dup2; glibc uses dup3(old, new, 0). */
+    register long x8 asm("x8") = __NR_dup3;
+    register long x0 asm("x0") = oldfd;
+    register long x1 asm("x1") = newfd;
+    register long x2 asm("x2") = 0;
+
+    asm volatile(
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x1), "r"(x2), "r"(x8)
         : "memory", "cc");
 
     return x0;
@@ -251,6 +284,41 @@ void _start(void)
         sys_exit(11);
     }
     sys_write(1, "close test ok\n", 14);
+
+    fd = sys_open("/msg.txt", O_RDONLY);
+    if (fd < 0) {
+        sys_write(1, "reopen failed\n", 14);
+        sys_exit(12);
+    }
+
+    ret = sys_dup(fd);
+    if (ret < 0) {
+        sys_write(1, "dup failed\n", 11);
+        sys_exit(13);
+    }
+    sys_write(1, "dup fd=", 7);
+    print_num(ret);
+    sys_write(1, "\n", 1);
+
+    n = sys_read(ret, buf, sizeof(buf) - 1);
+    if (n <= 0) {
+        sys_write(1, "dup read failed\n", 16);
+        sys_exit(14);
+    }
+
+    ret = sys_dup2(fd, 3);
+    if (ret != 3) {
+        sys_write(1, "dup2 failed\n", 12);
+        sys_exit(15);
+    }
+
+    sys_close(fd);
+    n = sys_read(3, buf, sizeof(buf) - 1);
+    if (n < 0) {
+        sys_write(1, "dup2 read after close failed\n", 29);
+        sys_exit(16);
+    }
+    sys_write(1, "dup test ok\n", 12);
 
     sys_exit(42);
 }

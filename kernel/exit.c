@@ -10,6 +10,7 @@
 #include <linux/uaccess.h>
 #include <asm/irqflags.h>
 #include <linux/mm.h>
+#include <linux/fs.h>
 
 #include <linux/gfp.h>
 
@@ -17,8 +18,12 @@ static void exit_files(struct task_struct *task)
 {
     unsigned int i;
 
-    for (i = 0; i < NR_OPEN; i++)
-        task->files[i] = NULL;
+    for (i = 0; i < NR_OPEN; i++) {
+        if (task->files[i]) {
+            fput(task->files[i]);
+            task->files[i] = NULL;
+        }
+    }
 }
 
 static void exit_mm(struct task_struct *task)

@@ -11,6 +11,7 @@
 
 #include <linux/mm.h>
 #include <linux/gfp.h>
+#include <linux/fs.h>
 
 extern void task_trampoline(void);
 
@@ -153,8 +154,11 @@ static void copy_task_files(struct task_struct *child, struct task_struct *paren
 {
     unsigned int i;
 
-    for (i = 0; i < NR_OPEN; i++)
+    for (i = 0; i < NR_OPEN; i++) {
         child->files[i] = parent->files[i];
+        if (child->files[i])
+            get_file(child->files[i]);
+    }
 }
 
 /*
