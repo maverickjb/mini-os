@@ -1,15 +1,15 @@
 /*
- * AArch64 syscall wrappers and CRT entry for mini-os userspace.
+ * AArch64 syscall wrappers for mini-os userspace.
  *
  * Linux aarch64 ABI: x8 = nr, x0–x5 = args, svc #0, return in x0.
  */
 
 .section .text
-.global _start
 .global syscall
 .global write
 .global read
 .global close
+.global open
 .global _exit
 .global brk
 .global fork
@@ -69,7 +69,6 @@ _exit:
  * open(path, flags, mode) — uses openat(AT_FDCWD, ...).
  * Variadic mode is in x2 from C caller.
  */
-.global open
 open:
     mov     x3, x2          /* mode */
     mov     x2, x1          /* flags */
@@ -92,18 +91,9 @@ execve:
     svc     #0
     ret
 
-/* pid_t waitpid(pid_t pid, int *status, int options) → wait4(..., 0) */
+/* pid_t waitpid(pid_t pid, int *status, int options) → wait4(..., NULL) */
 waitpid:
     mov     x3, xzr         /* rusage = NULL */
     mov     x8, #__NR_wait4
     svc     #0
     ret
-
-/*
- * CRT: call main(), then exit with its return value.
- */
-_start:
-    mov     x0, xzr
-    mov     x1, xzr
-    bl      main
-    bl      _exit
