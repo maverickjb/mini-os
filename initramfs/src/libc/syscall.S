@@ -15,10 +15,14 @@
 .global fork
 .global execve
 .global waitpid
+.global fstat
+.global fstatat
 
 #define __NR_close  57
 #define __NR_read   63
 #define __NR_write  64
+#define __NR_newfstatat 79
+#define __NR_fstat  80
 #define __NR_exit   93
 #define __NR_brk    214
 #define __NR_openat 56
@@ -95,5 +99,17 @@ execve:
 waitpid:
     mov     x3, xzr         /* rusage = NULL */
     mov     x8, #__NR_wait4
+    svc     #0
+    ret
+
+/* int fstat(int fd, struct stat *st) */
+fstat:
+    mov     x8, #__NR_fstat
+    svc     #0
+    ret
+
+/* int fstatat(int dirfd, const char *path, struct stat *st, int flags) */
+fstatat:
+    mov     x8, #__NR_newfstatat
     svc     #0
     ret

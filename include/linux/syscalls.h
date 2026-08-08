@@ -3,6 +3,8 @@
 
 #include <asm/ptrace.h>
 
+struct stat;
+
 long ksys_write(unsigned long fd, const char *buf, unsigned long count);
 long ksys_read(unsigned long fd, char *buf, unsigned long count);
 long ksys_open(const char *filename, int flags, unsigned long mode);
@@ -12,6 +14,9 @@ long ksys_dup(unsigned long oldfd);
 long ksys_dup2(unsigned long oldfd, unsigned long newfd);
 long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags);
 long ksys_pipe2(int *fildes, int flags);
+long ksys_fstat(unsigned long fd, struct stat *statbuf);
+long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
+                     int flag);
 long ksys_fork(struct pt_regs *regs);
 void ksys_sched_yield(void);
 void ksys_exit(long status);

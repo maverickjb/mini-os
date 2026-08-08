@@ -4,6 +4,8 @@
 struct file;
 struct task_struct;
 
+#define S_IFIFO         0010000
+#define S_IFCHR         0020000
 #define S_IFDIR         0040000
 #define S_IFREG         0100000
 

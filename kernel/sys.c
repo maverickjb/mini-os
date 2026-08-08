@@ -4,6 +4,7 @@
 
 #include <linux/unistd.h>
 #include <linux/syscalls.h>
+#include <linux/stat.h>
 #include <linux/errno.h>
 #include <linux/serial.h>
 #include <linux/sched/task.h>
@@ -62,6 +63,13 @@ void syscall_handler(struct pt_regs *regs)
         break;
     case __NR_pipe2:
         ret = ksys_pipe2((int *)regs->x0, (int)regs->x1);
+        break;
+    case __NR_fstat:
+        ret = ksys_fstat(regs->x0, (struct stat *)regs->x1);
+        break;
+    case __NR_newfstatat:
+        ret = ksys_newfstatat((int)regs->x0, (const char *)regs->x1,
+                              (struct stat *)regs->x2, (int)regs->x3);
         break;
     case __NR_clone:
         ret = ksys_fork(regs);
