@@ -14,23 +14,6 @@
 
 #define PATH_MAX 256
 
-static int copy_path_from_user(char *dst, const char *src, unsigned long max)
-{
-    unsigned long i;
-
-    if (!src || max == 0)
-        return -EINVAL;
-
-    for (i = 0; i < max; i++) {
-        if (copy_from_user(dst + i, src + i, 1))
-            return -EFAULT;
-        if (dst[i] == '\0')
-            return 0;
-    }
-
-    return -ENAMETOOLONG;
-}
-
 static int do_execve(const char *filename)
 {
     struct inode *inode;
@@ -76,9 +59,11 @@ long ksys_execve(struct pt_regs *regs, const char *filename,
     if (!current || !current->is_user)
         return -EINVAL;
 
-    err = copy_path_from_user(path, filename, PATH_MAX);
-    if (err)
+    err = strncpy_from_user(path, filename, PATH_MAX);
+    if (err < 0)
         return err;
+    if (err >= PATH_MAX)
+        return -ENAMETOOLONG;
 
     return do_execve(path);
 }
