@@ -71,6 +71,9 @@ void syscall_handler(struct pt_regs *regs)
         ret = ksys_newfstatat((int)regs->x0, (const char *)regs->x1,
                               (struct stat *)regs->x2, (int)regs->x3);
         break;
+    case __NR_getdents64:
+        ret = ksys_getdents64(regs->x0, (void *)regs->x1, regs->x2);
+        break;
     case __NR_clone:
         ret = ksys_fork(regs);
         break;

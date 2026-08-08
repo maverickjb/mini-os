@@ -1,55 +1,42 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/stat.h>
-
-static void print_stat(const char *label, const struct stat *st)
-{
-    printf("%s: ino=%d mode=0x%x size=%d%s\n",
-           label,
-           (int)st->st_ino,
-           (int)st->st_mode,
-           (int)st->st_size,
-           S_ISREG(st->st_mode) ? " reg" :
-           S_ISDIR(st->st_mode) ? " dir" :
-           S_ISCHR(st->st_mode) ? " chr" : "");
-}
+#include <dirent.h>
 
 int main(void)
 {
-    struct stat st;
+    char buf[512];
     int fd;
-    int ret;
+    long n;
+    long bpos;
 
-    ret = stat("/msg.txt", &st);
-    if (ret < 0) {
-        printf("stat /msg.txt failed: %d\n", ret);
-        return 1;
-    }
-    print_stat("stat /msg.txt", &st);
-
-    fd = open("/msg.txt", O_RDONLY);
+    fd = open("/", O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
-        printf("open /msg.txt failed: %d\n", fd);
+        printf("open / failed: %d\n", fd);
         return 1;
     }
 
-    ret = fstat(fd, &st);
-    if (ret < 0) {
-        printf("fstat failed: %d\n", ret);
-        close(fd);
-        return 1;
-    }
-    print_stat("fstat msg.txt", &st);
+    printf("getdents64 /:\n");
+    for (;;) {
+        n = getdents64(fd, buf, sizeof(buf));
+        if (n < 0) {
+            printf("getdents64 failed: %d\n", (int)n);
+            close(fd);
+            return 1;
+        }
+        if (n == 0)
+            break;
 
-    ret = fstat(STDOUT_FILENO, &st);
-    if (ret < 0) {
-        printf("fstat stdout failed: %d\n", ret);
-        close(fd);
-        return 1;
+        for (bpos = 0; bpos < n;) {
+            struct linux_dirent64 *d = (struct linux_dirent64 *)(buf + bpos);
+
+            printf("  %s type=%d ino=%d\n",
+                   d->d_name, (int)d->d_type, (int)d->d_ino);
+            bpos += d->d_reclen;
+        }
     }
-    print_stat("fstat stdout", &st);
 
     close(fd);
-    printf("stat tests ok\n");
+    printf("getdents64 ok\n");
     return 0;
 }

@@ -120,13 +120,17 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
             return -ENOENT;
     }
 
-    if (inode_is_dir(inode))
-        return -EISDIR;
-
-    if (!inode_is_reg(inode))
+    if (inode_is_dir(inode)) {
+        if ((flags & O_ACCMODE) != O_RDONLY)
+            return -EISDIR;
+    } else if (flags & O_DIRECTORY) {
+        return -ENOTDIR;
+    } else if (!inode_is_reg(inode)) {
         return -ENOENT;
+    }
 
-    if ((flags & O_TRUNC) && (flags & O_ACCMODE) != O_RDONLY) {
+    if (!inode_is_dir(inode) && (flags & O_TRUNC) &&
+        (flags & O_ACCMODE) != O_RDONLY) {
         err = ramfs_truncate(inode, 0);
         if (err)
             return err;

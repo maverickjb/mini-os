@@ -47,5 +47,6 @@ int ramfs_readdir(struct inode *dir, ramfs_readdir_fn fn, void *arg);
 const void *ramfs_data(struct inode *inode);
 
 extern struct file_ops ramfs_file_ops;
+extern struct file_ops ramfs_dir_ops;
 
 #endif

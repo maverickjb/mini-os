@@ -16,8 +16,9 @@ typedef int pid_t;
 #define O_RDONLY 0
 #define O_WRONLY 1
 #define O_RDWR   2
-#define O_CREAT  0x40
-#define O_TRUNC  0x200
+#define O_CREAT     0x40
+#define O_TRUNC     0x200
+#define O_DIRECTORY 0x10000
 
 long syscall(long nr, long a0, long a1, long a2, long a3, long a4, long a5);
 

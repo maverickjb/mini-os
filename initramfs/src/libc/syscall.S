@@ -17,8 +17,10 @@
 .global waitpid
 .global fstat
 .global fstatat
+.global getdents64
 
 #define __NR_close  57
+#define __NR_getdents64 61
 #define __NR_read   63
 #define __NR_write  64
 #define __NR_newfstatat 79
@@ -111,5 +113,11 @@ fstat:
 /* int fstatat(int dirfd, const char *path, struct stat *st, int flags) */
 fstatat:
     mov     x8, #__NR_newfstatat
+    svc     #0
+    ret
+
+/* long getdents64(int fd, void *dirp, unsigned long count) */
+getdents64:
+    mov     x8, #__NR_getdents64
     svc     #0
     ret

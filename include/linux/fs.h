@@ -13,6 +13,7 @@ struct file_ops {
     long (*read)(struct file *file, char *buf, unsigned long count, long *pos);
     long (*write)(struct file *file, const char *buf, unsigned long count,
                   long *pos);
+    long (*readdir)(struct file *file, void *dirp, unsigned long count);
     int (*release)(struct file *file);
 };
 

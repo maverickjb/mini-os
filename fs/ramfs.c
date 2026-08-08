@@ -6,6 +6,8 @@
 #include <linux/gfp.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
+#include <linux/dirent.h>
+#include <linux/uaccess.h>
 
 struct ramfs_dentry {
     char name[RAMFS_NAME_MAX + 1];
@@ -49,6 +51,99 @@ static long ramfs_file_write(struct file *file, const char *buf,
 struct file_ops ramfs_file_ops = {
     .read = ramfs_file_read,
     .write = ramfs_file_write,
+};
+
+static unsigned char ramfs_dtype(int type)
+{
+    switch (type) {
+    case S_IFREG:
+        return DT_REG;
+    case S_IFDIR:
+        return DT_DIR;
+    case S_IFCHR:
+        return DT_CHR;
+    case S_IFIFO:
+        return DT_FIFO;
+    default:
+        return DT_UNKNOWN;
+    }
+}
+
+static unsigned long ramfs_namelen(const char *s)
+{
+    unsigned long n = 0;
+
+    while (s[n])
+        n++;
+    return n;
+}
+
+static long ramfs_dir_readdir(struct file *file, void *dirp, unsigned long count)
+{
+    struct ramfs_inode *ri;
+    struct ramfs_dentry *d;
+    long index;
+    long pos;
+    unsigned long written;
+
+    if (!file || !file->inode || !inode_is_dir(file->inode))
+        return -ENOTDIR;
+    if (!dirp)
+        return -EFAULT;
+    if (count == 0)
+        return 0;
+
+    ri = RAMFS_I(file->inode);
+    index = file->f_pos;
+    written = 0;
+    pos = 0;
+
+    for (d = ri->children; d; d = d->next, pos++) {
+        unsigned long namelen;
+        unsigned long reclen;
+        unsigned long i;
+        char kbuf[sizeof(struct linux_dirent64) + RAMFS_NAME_MAX + 8];
+        struct linux_dirent64 *de = (struct linux_dirent64 *)kbuf;
+
+        if (pos < index)
+            continue;
+
+        namelen = ramfs_namelen(d->name);
+        reclen = (offsetof(struct linux_dirent64, d_name) + namelen + 1UL +
+                  7UL) &
+                 ~7UL;
+        if (reclen > sizeof(kbuf))
+            return -EINVAL;
+
+        if (written + reclen > count) {
+            if (written == 0)
+                return -EINVAL;
+            break;
+        }
+
+        for (i = 0; i < reclen; i++)
+            kbuf[i] = 0;
+
+        de->d_ino = d->inode->inode.ino;
+        de->d_off = pos + 1;
+        de->d_reclen = (unsigned short)reclen;
+        de->d_type = ramfs_dtype(d->inode->inode.type);
+        for (i = 0; i < namelen; i++)
+            de->d_name[i] = d->name[i];
+        de->d_name[namelen] = '\0';
+
+        if (copy_to_user((char *)dirp + written, kbuf, reclen))
+            return -EFAULT;
+
+        written += reclen;
+        file->f_pos = pos + 1;
+    }
+
+    return (long)written;
+}
+
+struct file_ops ramfs_dir_ops = {
+    .readdir = ramfs_dir_readdir,
 };
 
 static int ramfs_streq(const char *a, const char *b)
@@ -109,7 +204,12 @@ static void ramfs_inode_init(struct ramfs_inode *ri, int type)
     ri->inode.ino = next_ino++;
     ri->inode.size = 0;
     ri->inode.type = type;
-    ri->inode.ops = (type == S_IFREG) ? &ramfs_file_ops : NULL;
+    if (type == S_IFREG)
+        ri->inode.ops = &ramfs_file_ops;
+    else if (type == S_IFDIR)
+        ri->inode.ops = &ramfs_dir_ops;
+    else
+        ri->inode.ops = NULL;
     ri->inode.private_data = NULL;
     ri->children = NULL;
     ri->data = NULL;
