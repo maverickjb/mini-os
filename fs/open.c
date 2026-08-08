@@ -11,8 +11,8 @@
 #include <linux/stddef.h>
 #include <linux/serial.h>
 
-#include "namei.h"
-#include "ramfs.h"
+#include <linux/namei.h>
+#include <linux/ramfs.h>
 
 #define PATH_MAX 256
 

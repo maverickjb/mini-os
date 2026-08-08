@@ -8,9 +8,8 @@
 #include <linux/syscalls.h>
 #include <linux/fs.h>
 
-#include "exec.h"
-#include "binfmt.h"
-#include "ramfs.h"
+#include <linux/binfmts.h>
+#include <linux/ramfs.h>
 
 #define PATH_MAX 256
 

@@ -2,8 +2,8 @@
  * Initramfs unpack — Linux-style cpio "newc" to ramfs root.
  */
 
-#include "initramfs.h"
-#include "ramfs.h"
+#include <linux/initramfs.h>
+#include <linux/ramfs.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
 

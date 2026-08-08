@@ -1,5 +1,5 @@
-#ifndef BINFMT_H
-#define BINFMT_H
+#ifndef _LINUX_BINFMTS_H
+#define _LINUX_BINFMTS_H
 
 struct task_struct;
 
@@ -12,5 +12,6 @@ struct linux_binprm {
 };
 
 int load_elf_binary(struct linux_binprm *bprm);
+int kernel_execve(const char *kernel_filename);
 
-#endif
+#endif /* _LINUX_BINFMTS_H */

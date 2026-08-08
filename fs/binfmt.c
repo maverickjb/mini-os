@@ -9,7 +9,7 @@
 #include <asm/memory.h>
 #include <asm/ptrace.h>
 
-#include "binfmt.h"
+#include <linux/binfmts.h>
 #include <linux/mm.h>
 #include <linux/gfp.h>
 

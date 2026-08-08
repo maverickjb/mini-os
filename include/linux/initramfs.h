@@ -1,5 +1,5 @@
-#ifndef INITRAMFS_H
-#define INITRAMFS_H
+#ifndef _LINUX_INITRAMFS_H
+#define _LINUX_INITRAMFS_H
 
 /*
  * Unpack a cpio newc initramfs image into the ramfs root.
@@ -7,4 +7,4 @@
  */
 int unpack_to_rootfs(const void *data, unsigned long size);
 
-#endif
+#endif /* _LINUX_INITRAMFS_H */

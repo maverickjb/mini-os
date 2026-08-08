@@ -1,5 +1,5 @@
-#ifndef RAMFS_H
-#define RAMFS_H
+#ifndef _LINUX_RAMFS_H
+#define _LINUX_RAMFS_H
 
 /*
  * In-memory filesystem. Each ramfs_inode embeds a generic VFS inode.
@@ -49,4 +49,4 @@ const void *ramfs_data(struct inode *inode);
 extern struct file_ops ramfs_file_ops;
 extern struct file_ops ramfs_dir_ops;
 
-#endif
+#endif /* _LINUX_RAMFS_H */

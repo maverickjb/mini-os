@@ -12,7 +12,7 @@
 #include <linux/string.h>
 #include <linux/serial.h>
 
-#include "namei.h"
+#include <linux/namei.h>
 
 #define PATH_MAX 256
 

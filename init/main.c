@@ -10,9 +10,9 @@
 #include <asm/smp.h>
 
 #include <linux/gfp.h>
-#include "ramfs.h"
-#include "initramfs.h"
-#include "exec.h"
+#include <linux/ramfs.h>
+#include <linux/initramfs.h>
+#include <linux/binfmts.h>
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];

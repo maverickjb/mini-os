@@ -5,8 +5,8 @@
 #include <linux/fs.h>
 #include <linux/stddef.h>
 
-#include "namei.h"
-#include "ramfs.h"
+#include <linux/namei.h>
+#include <linux/ramfs.h>
 
 struct inode *vfs_lookup(const char *path)
 {
