@@ -151,6 +151,17 @@ struct dentry *d_lookup_path(const char *path)
             return NULL; /* component too long */
         p += i;
 
+        /* "." — stay on the current dentry */
+        if (name[0] == '.' && name[1] == '\0')
+            continue;
+
+        /* ".." — parent dentry; root stays at root */
+        if (name[0] == '.' && name[1] == '.' && name[2] == '\0') {
+            if (d->parent)
+                d = d->parent;
+            continue;
+        }
+
         child = d_find_child(d, name);
         if (!child) {
             inode = ramfs_lookup_child(d->inode, name);

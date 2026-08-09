@@ -128,9 +128,32 @@ int main(void)
         return 1;
     }
 
+    ret = chdir("./.");
+    if (ret < 0) {
+        printf("chdir ./. failed: %d\n", ret);
+        return 1;
+    }
+
+    {
+        char cwd[256];
+        long n;
+
+        n = getcwd(cwd, sizeof(cwd));
+        if (n < 0 || strcmp(cwd, "/cdtest") != 0) {
+            printf("chdir ./. cwd bad\n");
+            return 1;
+        }
+    }
+
     ret = chdir("..");
     if (ret < 0) {
         printf("chdir .. failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = stat("cdtest/../cdtest/here", &st);
+    if (ret < 0) {
+        printf("stat with .. failed: %d\n", ret);
         return 1;
     }
 

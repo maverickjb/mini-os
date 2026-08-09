@@ -14,6 +14,7 @@ struct ramfs_dentry;
 
 struct ramfs_inode {
     struct inode inode;
+    struct ramfs_inode *parent;
     struct ramfs_dentry *children;
     void *data;
     unsigned long capacity;

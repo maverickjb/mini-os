@@ -217,6 +217,7 @@ static void ramfs_inode_init(struct ramfs_inode *ri, int type)
         ri->inode.i_fop = &ramfs_dir_ops;
     }
     ri->inode.private_data = NULL;
+    ri->parent = NULL;
     ri->children = NULL;
     ri->data = NULL;
     ri->capacity = 0;
@@ -297,6 +298,7 @@ static int ramfs_add_child(struct ramfs_inode *dir, const char *name,
         d->name[i] = '\0';
     }
 
+    ri->parent = dir;
     d->inode = ri;
     d->next = dir->children;
     dir->children = d;
@@ -458,12 +460,29 @@ static struct ramfs_inode *ramfs_lookup_at(struct ramfs_inode *dir,
             name[i] = '\0';
         }
 
+        path += i;
+        path = ramfs_skip_slash(path);
+
+        /* "." — stay in the current directory */
+        if (name[0] == '.' && name[1] == '\0') {
+            if (!*path)
+                return dir;
+            continue;
+        }
+
+        /* ".." — walk to parent; root stays at root */
+        if (name[0] == '.' && name[1] == '.' && name[2] == '\0') {
+            if (dir->parent)
+                dir = dir->parent;
+            if (!*path)
+                return dir;
+            continue;
+        }
+
         d = ramfs_find_child(dir, name);
         if (!d)
             return NULL;
 
-        path += i;
-        path = ramfs_skip_slash(path);
         if (!*path)
             return d->inode;
 
@@ -504,6 +523,16 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
             for (j = 0; j < i && j < RAMFS_NAME_MAX; j++)
                 component[j] = p[j];
             component[j] = '\0';
+            p += i;
+
+            if (component[0] == '.' && component[1] == '\0')
+                continue;
+            if (component[0] == '.' && component[1] == '.' &&
+                component[2] == '\0') {
+                if (dir->parent)
+                    dir = dir->parent;
+                continue;
+            }
 
             d = ramfs_find_child(dir, component);
             if (!d)
@@ -511,7 +540,6 @@ static struct ramfs_inode *ramfs_lookup_parent(const char *path, char *name_out)
             if (d->inode->inode.type != S_IFDIR)
                 return NULL;
             dir = d->inode;
-            p += i;
         } else {
             break;
         }
