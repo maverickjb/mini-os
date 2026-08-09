@@ -563,6 +563,20 @@ struct inode *ramfs_lookup(const char *path)
     return &ri->inode;
 }
 
+struct inode *ramfs_lookup_child(struct inode *dir, const char *name)
+{
+    struct ramfs_dentry *d;
+
+    if (!dir || !inode_is_dir(dir) || !name || !name[0])
+        return NULL;
+
+    d = ramfs_find_child(RAMFS_I(dir), name);
+    if (!d)
+        return NULL;
+
+    return &d->inode->inode;
+}
+
 int ramfs_mkdir(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];

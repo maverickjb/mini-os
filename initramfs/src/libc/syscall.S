@@ -22,7 +22,9 @@
 .global unlinkat
 .global rmdir
 .global chdir
+.global getcwd
 
+#define __NR_getcwd 17
 #define __NR_mkdirat 34
 #define __NR_unlinkat 35
 #define __NR_chdir  49
@@ -157,5 +159,11 @@ rmdir:
 /* int chdir(const char *path) */
 chdir:
     mov     x8, #__NR_chdir
+    svc     #0
+    ret
+
+/* long getcwd(char *buf, unsigned long size) — returns length incl. NUL */
+getcwd:
+    mov     x8, #__NR_getcwd
     svc     #0
     ret

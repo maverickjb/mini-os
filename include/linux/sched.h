@@ -5,6 +5,8 @@
 #include <linux/fs.h>
 #include <asm/ptrace.h>
 
+struct dentry;
+
 #define INIT_STACK_SIZE   4096
 #define NR_OPEN           8
 #define SCHED_TIME_SLICE  10
@@ -55,8 +57,8 @@ struct task_struct {
     long exit_code;
     /* PSTATE.{D,A,I,F} — saved/restored across switch_to */
     unsigned long daif;
-    /* Absolute working directory path ("/" initially). */
-    char cwd[PATH_MAX];
+    /* Working directory dentry (NULL means root). */
+    struct dentry *cwd;
 };
 
 extern struct task_struct idle_tasks[];

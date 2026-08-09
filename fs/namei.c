@@ -11,6 +11,7 @@
 #include <linux/uaccess.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
+#include <linux/gfp.h>
 
 struct inode *vfs_lookup(const char *path)
 {
@@ -79,6 +80,13 @@ static void str_copy(char *dst, const char *src, unsigned long max)
     dst[i] = '\0';
 }
 
+static struct dentry *pwd_dentry(void)
+{
+    if (current && current->cwd)
+        return current->cwd;
+    return d_root();
+}
+
 /*
  * Resolve path against base (absolute cwd) into out.
  * Handles "." / ".." components; result is always absolute.
@@ -126,11 +134,10 @@ static int path_resolve(const char *base, const char *path, char *out)
         if (comp[0] == '.' && comp[1] == '\0')
             continue;
         if (comp[0] == '.' && comp[1] == '.' && comp[2] == '\0') {
-            /* pop last component */
             while (sp > 0 && stack[sp - 1] != '/')
                 sp--;
             if (sp > 0)
-                sp--; /* drop the slash */
+                sp--;
             stack[sp] = '\0';
             continue;
         }
@@ -157,8 +164,9 @@ static int path_resolve(const char *base, const char *path, char *out)
 long getname_from_user(char *buf, const char *filename)
 {
     char userpath[PATH_MAX];
-    const char *cwd;
+    char base[PATH_MAX];
     long n;
+    long plen;
     int err;
 
     if (!current || !current->is_user)
@@ -174,8 +182,11 @@ long getname_from_user(char *buf, const char *filename)
     if (n == 0)
         return -ENOENT;
 
-    cwd = current->cwd[0] ? current->cwd : "/";
-    err = path_resolve(cwd, userpath, buf);
+    plen = dentry_path(pwd_dentry(), base, PATH_MAX);
+    if (plen < 0)
+        return plen;
+
+    err = path_resolve(base, userpath, buf);
     if (err)
         return err;
 
@@ -184,7 +195,6 @@ long getname_from_user(char *buf, const char *filename)
 
 /*
  * Split "/a/b/c" into parent="/a/b" and name="c".
- * Root-only "/" has no creatable name.
  */
 static int path_parent_name(const char *path, char *parent, char *name)
 {
@@ -195,7 +205,6 @@ static int path_parent_name(const char *path, char *parent, char *name)
     if (!path || path[0] != '/')
         return -EINVAL;
 
-    /* Trim trailing slashes (not the root slash itself). */
     len = 0;
     while (path[len])
         len++;
@@ -214,7 +223,6 @@ static int path_parent_name(const char *path, char *parent, char *name)
     if (!slash)
         return -EINVAL;
 
-    /* Parent path: "/" or prefix through the last slash. */
     if (slash == path) {
         parent[0] = '/';
         parent[1] = '\0';
@@ -242,75 +250,85 @@ static int path_parent_name(const char *path, char *parent, char *name)
 
 static int do_mkdir(const char *path, umode_t mode)
 {
-    char parent[PATH_MAX];
-    struct dentry dentry;
-    struct inode *dir;
+    char parent_path[PATH_MAX];
+    char name[DNAME_INLINE_LEN];
+    struct dentry *parent;
+    struct dentry *d;
     int err;
 
-    err = path_parent_name(path, parent, dentry.name);
+    err = path_parent_name(path, parent_path, name);
     if (err)
         return err;
 
-    dir = vfs_lookup(parent);
-    if (!dir)
+    parent = d_lookup_path(parent_path);
+    if (!parent)
         return -ENOENT;
 
-    dentry.inode = NULL;
-    dentry.parent = NULL;
-    dentry.next = NULL;
+    if (d_lookup_path(path))
+        return -EEXIST;
 
-    return vfs_mkdir(dir, &dentry, mode);
-}
+    d = d_alloc(parent, name);
+    if (!d)
+        return -ENOMEM;
 
-static int lookup_parent_dentry(const char *path, struct inode **dir_out,
-                                struct dentry *dentry)
-{
-    char parent[PATH_MAX];
-    struct inode *dir;
-    int err;
-
-    err = path_parent_name(path, parent, dentry->name);
-    if (err)
+    err = vfs_mkdir(parent->inode, d, mode);
+    if (err) {
+        /* d not linked yet */
+        free_pages(d, 0);
         return err;
+    }
 
-    dir = vfs_lookup(parent);
-    if (!dir)
-        return -ENOENT;
-
-    dentry->inode = vfs_lookup(path);
-    if (!dentry->inode)
-        return -ENOENT;
-
-    dentry->parent = NULL;
-    dentry->next = NULL;
-    *dir_out = dir;
+    d_add(d);
     return 0;
 }
 
 static int do_unlink(const char *path)
 {
-    struct dentry dentry;
-    struct inode *dir;
+    char parent_path[PATH_MAX];
+    char name[DNAME_INLINE_LEN];
+    struct dentry *parent;
+    struct dentry tmp;
     int err;
+    unsigned long i;
 
-    err = lookup_parent_dentry(path, &dir, &dentry);
+    err = path_parent_name(path, parent_path, name);
     if (err)
         return err;
 
-    return vfs_unlink(dir, &dentry);
+    parent = d_lookup_path(parent_path);
+    if (!parent)
+        return -ENOENT;
+
+    for (i = 0; i < sizeof(tmp.name); i++)
+        tmp.name[i] = 0;
+    str_copy(tmp.name, name, sizeof(tmp.name));
+    tmp.inode = vfs_lookup(path);
+    if (!tmp.inode)
+        return -ENOENT;
+    tmp.parent = parent;
+    tmp.child = NULL;
+    tmp.next = NULL;
+
+    return vfs_unlink(parent->inode, &tmp);
 }
 
 static int do_rmdir(const char *path)
 {
-    struct dentry dentry;
-    struct inode *dir;
+    struct dentry *d;
+    struct dentry *parent;
     int err;
 
-    err = lookup_parent_dentry(path, &dir, &dentry);
+    d = d_lookup_path(path);
+    if (!d || !d->parent)
+        return -ENOENT;
+
+    parent = d->parent;
+    err = vfs_rmdir(parent->inode, d);
     if (err)
         return err;
 
-    return vfs_rmdir(dir, &dentry);
+    d_drop(d);
+    return 0;
 }
 
 long ksys_mkdirat(int dfd, const char *filename, umode_t mode)
@@ -362,19 +380,43 @@ long ksys_unlinkat(int dfd, const char *filename, int flag)
 long ksys_chdir(const char *filename)
 {
     char path[PATH_MAX];
-    struct inode *inode;
+    struct dentry *d;
     long err;
 
     err = getname_from_user(path, filename);
     if (err)
         return err;
 
-    inode = vfs_lookup(path);
-    if (!inode)
+    d = d_lookup_path(path);
+    if (!d)
         return -ENOENT;
-    if (!inode_is_dir(inode))
+    if (!d->inode || !inode_is_dir(d->inode))
         return -ENOTDIR;
 
-    str_copy(current->cwd, path, PATH_MAX);
+    current->cwd = d;
     return 0;
+}
+
+long ksys_getcwd(char *user_buf, unsigned long size)
+{
+    char tmp[PATH_MAX];
+    long len;
+
+    if (!current || !current->is_user)
+        return -EINVAL;
+    if (!user_buf)
+        return -EFAULT;
+    if (size == 0)
+        return -EINVAL;
+
+    len = dentry_path(pwd_dentry(), tmp, PATH_MAX);
+    if (len < 0)
+        return len;
+    if ((unsigned long)len > size)
+        return -ERANGE;
+
+    if (copy_to_user(user_buf, tmp, (unsigned long)len))
+        return -EFAULT;
+
+    return len;
 }

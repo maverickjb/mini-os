@@ -11,6 +11,7 @@
 
 #include <linux/gfp.h>
 #include <linux/ramfs.h>
+#include <linux/dcache.h>
 #include <linux/initramfs.h>
 #include <linux/binfmts.h>
 
@@ -62,6 +63,7 @@ void start_kernel(void)
         page_alloc_init();
 
         ramfs_init();
+        dcache_init();
 
         if ((unsigned long)__initramfs_end > (unsigned long)__initramfs_start) {
             unsigned long size = (unsigned long)(__initramfs_end -

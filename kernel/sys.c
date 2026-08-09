@@ -65,6 +65,9 @@ void syscall_handler(struct pt_regs *regs)
     case __NR_chdir:
         ret = ksys_chdir((const char *)regs->x0);
         break;
+    case __NR_getcwd:
+        ret = ksys_getcwd((char *)regs->x0, regs->x1);
+        break;
     case __NR_close:
         ret = ksys_close(regs->x0);
         break;

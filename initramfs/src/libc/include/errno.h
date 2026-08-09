@@ -15,6 +15,7 @@
 #define EISDIR          21
 #define EINVAL          22
 #define EMFILE          24
+#define ERANGE          34
 #define ENAMETOOLONG    36
 #define ENOSYS          38
 #define ENOTEMPTY       39

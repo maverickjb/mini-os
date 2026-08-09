@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
@@ -97,6 +98,21 @@ int main(void)
     if (ret < 0) {
         printf("chdir /cdtest failed: %d\n", ret);
         return 1;
+    }
+
+    {
+        char cwd[256];
+        long n;
+
+        n = getcwd(cwd, sizeof(cwd));
+        if (n < 0) {
+            printf("getcwd failed: %d\n", (int)n);
+            return 1;
+        }
+        if (strcmp(cwd, "/cdtest") != 0) {
+            printf("getcwd got '%s' expected /cdtest\n", cwd);
+            return 1;
+        }
     }
 
     fd = open("here", O_CREAT | O_RDWR, 0644);
