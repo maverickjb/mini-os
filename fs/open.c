@@ -141,7 +141,7 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
         return -ENOMEM;
 
     file->inode = inode;
-    file->f_op = inode->ops;
+    file->f_op = (struct file_ops *)inode->i_fop;
     file->private_data = inode->private_data;
     file->f_pos = 0;
     file->f_flags = flags;

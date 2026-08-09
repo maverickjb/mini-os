@@ -3,7 +3,7 @@
  */
 
 #include <asm/memory.h>
-#include <asm/asm-offsets.h>
+#include <asm/assembler.h>
 
 .section .text.boot, "ax"
 .align 11
@@ -92,8 +92,11 @@ sync_el0_entry:
     mov     x0, x19
     bl      syscall_handler
 
+    /*
+     * Do not raise SP before finish_eret: with IRQs enabled that would let
+     * an IRQ frame overlay the pt_regs at x19. finish_eret sets SP from x0.
+     */
     mov     x0, x19
-    add     sp, sp, #(PT_REGS_SIZE + SYNC_C_STACK)
     bl      finish_eret
 
 sync_el0_fault:
@@ -132,28 +135,36 @@ irq_entry:
     mov     x0, sp
     bl      handle_arch_irq
 
+    /*
+     * Stage ELR/SPSR and fix SP_EL1 for EL0 return before restoring user
+     * regs. A bl here would clobber user x30 (LR) — that sent EL0 ret into
+     * this eret and faulted with elr at the IRQ exit stub.
+     */
     ldp     x21, x22, [sp, #248]
     msr     elr_el1, x21
     msr     spsr_el1, x22
 
-    ldr     x30, [sp, #240]
-    ldp     x28, x29, [sp, #224]
-    ldp     x26, x27, [sp, #208]
-    ldp     x24, x25, [sp, #192]
-    ldp     x22, x23, [sp, #176]
-    ldp     x20, x21, [sp, #160]
-    ldp     x18, x19, [sp, #144]
-    ldp     x16, x17, [sp, #128]
-    ldp     x14, x15, [sp, #112]
-    ldp     x12, x13, [sp, #96]
-    ldp     x10, x11, [sp, #80]
-    ldp     x8, x9, [sp, #64]
-    ldp     x6, x7, [sp, #48]
-    ldp     x4, x5, [sp, #32]
-    ldp     x2, x3, [sp, #16]
-    ldp     x0, x1, [sp, #0]
+    mov     x21, sp
     add     sp, sp, #272
-    bl      prepare_return_to_el0
+    prepare_kstack_el0
+
+    ldr     x30, [x21, #240]
+    ldp     x28, x29, [x21, #224]
+    ldp     x26, x27, [x21, #208]
+    ldp     x24, x25, [x21, #192]
+    ldp     x22, x23, [x21, #176]
+    ldr     x20, [x21, #160]
+    ldp     x18, x19, [x21, #144]
+    ldp     x16, x17, [x21, #128]
+    ldp     x14, x15, [x21, #112]
+    ldp     x12, x13, [x21, #96]
+    ldp     x10, x11, [x21, #80]
+    ldp     x8, x9, [x21, #64]
+    ldp     x6, x7, [x21, #48]
+    ldp     x4, x5, [x21, #32]
+    ldp     x2, x3, [x21, #16]
+    ldp     x0, x1, [x21, #0]
+    ldr     x21, [x21, #168]
     eret
 
 .global vectors_init

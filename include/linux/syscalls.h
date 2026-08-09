@@ -2,6 +2,7 @@
 #define _LINUX_SYSCALLS_H
 
 #include <asm/ptrace.h>
+#include <linux/fs.h>
 
 struct stat;
 
@@ -9,6 +10,7 @@ long ksys_write(unsigned long fd, const char *buf, unsigned long count);
 long ksys_read(unsigned long fd, char *buf, unsigned long count);
 long ksys_open(const char *filename, int flags, unsigned long mode);
 long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode);
+long ksys_mkdirat(int dfd, const char *filename, umode_t mode);
 long ksys_close(unsigned long fd);
 long ksys_dup(unsigned long oldfd);
 long ksys_dup2(unsigned long oldfd, unsigned long newfd);

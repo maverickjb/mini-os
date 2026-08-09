@@ -26,7 +26,13 @@ ssize_t write(int fd, const void *buf, size_t count);
 ssize_t read(int fd, void *buf, size_t count);
 int open(const char *path, int flags, ...);
 int close(int fd);
+int mkdirat(int dirfd, const char *path, unsigned int mode);
 void _exit(int status) __attribute__((noreturn));
+
+static inline int mkdir(const char *path, unsigned int mode)
+{
+    return mkdirat(AT_FDCWD, path, mode);
+}
 
 pid_t fork(void);
 int execve(const char *path, char *const argv[], char *const envp[]);

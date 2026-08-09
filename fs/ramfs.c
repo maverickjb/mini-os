@@ -3,6 +3,7 @@
  */
 
 #include <linux/ramfs.h>
+#include <linux/dcache.h>
 #include <linux/gfp.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
@@ -146,6 +147,8 @@ struct file_ops ramfs_dir_ops = {
     .readdir = ramfs_dir_readdir,
 };
 
+static const struct inode_operations ramfs_dir_inode_ops;
+
 static int ramfs_streq(const char *a, const char *b)
 {
     while (*a && *a == *b) {
@@ -204,12 +207,14 @@ static void ramfs_inode_init(struct ramfs_inode *ri, int type)
     ri->inode.ino = next_ino++;
     ri->inode.size = 0;
     ri->inode.type = type;
-    if (type == S_IFREG)
-        ri->inode.ops = &ramfs_file_ops;
-    else if (type == S_IFDIR)
-        ri->inode.ops = &ramfs_dir_ops;
-    else
-        ri->inode.ops = NULL;
+    ri->inode.i_op = NULL;
+    ri->inode.i_fop = NULL;
+    if (type == S_IFREG) {
+        ri->inode.i_fop = &ramfs_file_ops;
+    } else if (type == S_IFDIR) {
+        ri->inode.i_op = &ramfs_dir_inode_ops;
+        ri->inode.i_fop = &ramfs_dir_ops;
+    }
     ri->inode.private_data = NULL;
     ri->children = NULL;
     ri->data = NULL;
@@ -296,6 +301,44 @@ static int ramfs_add_child(struct ramfs_inode *dir, const char *name,
     dir->children = d;
     return 0;
 }
+
+static struct ramfs_inode *ramfs_alloc_inode(int type);
+
+static int ramfs_inode_mkdir(struct inode *dir, struct dentry *dentry,
+                             umode_t mode)
+{
+    struct ramfs_inode *parent;
+    struct ramfs_inode *ri;
+    int err;
+
+    (void)mode;
+
+    if (!dir || !dentry || !dentry->name[0])
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+
+    parent = RAMFS_I(dir);
+    if (ramfs_find_child(parent, dentry->name))
+        return -EEXIST;
+
+    ri = ramfs_alloc_inode(S_IFDIR);
+    if (!ri)
+        return -ENOMEM;
+
+    err = ramfs_add_child(parent, dentry->name, ri);
+    if (err) {
+        ramfs_kfree(ri, sizeof(*ri));
+        return err;
+    }
+
+    dentry->inode = &ri->inode;
+    return 0;
+}
+
+static const struct inode_operations ramfs_dir_inode_ops = {
+    .mkdir = ramfs_inode_mkdir,
+};
 
 static int ramfs_remove_child(struct ramfs_inode *dir, const char *name,
                               struct ramfs_inode **out)
@@ -464,8 +507,8 @@ int ramfs_mkdir(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
-    struct ramfs_inode *ri;
-    int err;
+    struct dentry dentry;
+    unsigned long i;
 
     if (!path || path[0] != '/')
         return -EINVAL;
@@ -474,20 +517,19 @@ int ramfs_mkdir(const char *path)
     if (!parent)
         return -ENOENT;
 
-    if (ramfs_find_child(parent, name))
-        return -EEXIST;
+    for (i = 0; i < sizeof(dentry.name); i++)
+        dentry.name[i] = 0;
+    for (i = 0; name[i] && i + 1 < sizeof(dentry.name); i++)
+        dentry.name[i] = name[i];
+    dentry.name[i] = '\0';
+    dentry.inode = NULL;
+    dentry.parent = NULL;
+    dentry.next = NULL;
 
-    ri = ramfs_alloc_inode(S_IFDIR);
-    if (!ri)
-        return -ENOMEM;
+    if (!parent->inode.i_op || !parent->inode.i_op->mkdir)
+        return -EPERM;
 
-    err = ramfs_add_child(parent, name, ri);
-    if (err) {
-        ramfs_kfree(ri, sizeof(*ri));
-        return err;
-    }
-
-    return 0;
+    return parent->inode.i_op->mkdir(&parent->inode, &dentry, 0755);
 }
 
 int ramfs_create(const char *path)

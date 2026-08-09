@@ -2,13 +2,36 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <errno.h>
 
 int main(void)
 {
+    struct stat st;
     char buf[512];
     int fd;
     long n;
     long bpos;
+    int ret;
+
+    ret = mkdir("/testdir", 0755);
+    if (ret < 0) {
+        printf("mkdir /testdir failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = stat("/testdir", &st);
+    if (ret < 0 || !S_ISDIR(st.st_mode)) {
+        printf("stat /testdir failed: %d\n", ret);
+        return 1;
+    }
+    printf("mkdir /testdir ok ino=%d\n", (int)st.st_ino);
+
+    ret = mkdir("/testdir", 0755);
+    if (ret != -EEXIST) {
+        printf("mkdir again expected %d got %d\n", -EEXIST, ret);
+        return 1;
+    }
+    printf("mkdir EEXIST ok\n");
 
     fd = open("/", O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
@@ -30,13 +53,12 @@ int main(void)
         for (bpos = 0; bpos < n;) {
             struct linux_dirent64 *d = (struct linux_dirent64 *)(buf + bpos);
 
-            printf("  %s type=%d ino=%d\n",
-                   d->d_name, (int)d->d_type, (int)d->d_ino);
+            printf("  %s type=%d\n", d->d_name, (int)d->d_type);
             bpos += d->d_reclen;
         }
     }
 
     close(fd);
-    printf("getdents64 ok\n");
+    printf("mkdirat ok\n");
     return 0;
 }

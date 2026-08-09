@@ -4,6 +4,7 @@
 
 #include <linux/unistd.h>
 #include <linux/syscalls.h>
+#include <linux/fs.h>
 #include <linux/stat.h>
 #include <linux/errno.h>
 #include <linux/serial.h>
@@ -17,8 +18,9 @@ void report_el0_fault(struct pt_regs *regs, unsigned long ec)
 
     __asm__ volatile("mrs %0, far_el1" : "=r"(far));
 
-    uart_puts("EL0 fault ec=");
-    uart_putc('0' + (char)(ec % 10));
+    uart_puts("EL0 fault ec=0x");
+    uart_putc("0123456789abcdef"[(ec >> 4) & 0xf]);
+    uart_putc("0123456789abcdef"[ec & 0xf]);
     uart_puts(" elr=0x");
     for (int i = 60; i >= 0; i -= 4) {
         unsigned long nibble = (regs->elr_el1 >> i) & 0xfUL;
@@ -52,6 +54,10 @@ void syscall_handler(struct pt_regs *regs)
         ret = ksys_openat((int)regs->x0, (const char *)regs->x1,
                           (int)regs->x2, regs->x3);
         break;
+    case __NR_mkdirat:
+        ret = ksys_mkdirat((int)regs->x0, (const char *)regs->x1,
+                           (umode_t)regs->x2);
+        break;
     case __NR_close:
         ret = ksys_close(regs->x0);
         break;
@@ -79,11 +85,10 @@ void syscall_handler(struct pt_regs *regs)
         break;
     case __NR_sched_yield:
         ksys_sched_yield();
-        __asm__ volatile("msr daifclr, #3");
+        regs->x0 = 0;
         return;
     case __NR_exit:
         ksys_exit((long)regs->x0);
-        __asm__ volatile("msr daifclr, #3");
         return;
     case __NR_wait4:
         ret = ksys_wait4((long)regs->x0, (int *)regs->x1, (long)regs->x2);
@@ -108,6 +113,11 @@ void syscall_handler(struct pt_regs *regs)
         break;
     }
 
-    __asm__ volatile("msr daifclr, #3");
+    /*
+     * Keep IRQs masked until finish_eret. Unmasking here races with the
+     * return path: an IRQ can overlay the pt_regs frame or nest after
+     * ELR/SPSR are staged for EL0 and corrupt the eventual eret.
+     * User DAIF is restored from spsr_el1 on eret.
+     */
     regs->x0 = (unsigned long)ret;
 }

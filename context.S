@@ -2,30 +2,12 @@
  * Task context switch — Linux-style switch_to on struct cpu_context.
  */
 
-#include <asm/asm-offsets.h>
+#include <asm/assembler.h>
 
 .section .text
 .global switch_to
 .global task_trampoline
 .global finish_eret
-
-/*
- * Set SP_EL1 to current task kernel stack top when returning to EL0.
- * Uses only x9–x11; caller must have restored x0/x30 already.
- */
-.macro prepare_kstack_el0
-    mrs     x11, spsr_el1
-    and     x11, x11, #0xf
-    cbnz    x11, 999f
-    adr     x10, cpu_current_export
-    ldr     x10, [x10]
-    cbz     x10, 999f
-    ldr     x9, [x10, #TASK_stack]
-    cbz     x9, 999f
-    add     x9, x9, #INIT_STACK_SIZE
-    mov     sp, x9
-999:
-.endm
 
 /*
  * void switch_to(struct task_struct *prev, struct task_struct *next)
@@ -64,33 +46,30 @@ task_trampoline:
  * void finish_eret(struct pt_regs *regs) — restore frame and return to EL0.
  */
 finish_eret:
-    mov     sp, x0
+    mov     x21, x0
 
-    ldp     x21, x22, [sp, #248]
-    msr     elr_el1, x21
-    msr     spsr_el1, x22
+    ldp     x1, x2, [x21, #248]
+    msr     elr_el1, x1
+    msr     spsr_el1, x2
 
-    ldr     x30, [sp, #240]
-    ldp     x28, x29, [sp, #224]
-    ldp     x26, x27, [sp, #208]
-    ldp     x24, x25, [sp, #192]
-    ldp     x22, x23, [sp, #176]
-    ldp     x20, x21, [sp, #160]
-    ldp     x18, x19, [sp, #144]
-    ldp     x16, x17, [sp, #128]
-    ldp     x14, x15, [sp, #112]
-    ldp     x12, x13, [sp, #96]
-    ldp     x10, x11, [sp, #80]
-    ldp     x8, x9, [sp, #64]
-    ldp     x6, x7, [sp, #48]
-    ldp     x4, x5, [sp, #32]
-    ldp     x2, x3, [sp, #16]
-    ldp     x0, x1, [sp, #0]
-    add     sp, sp, #272
+    add     sp, x21, #272
     prepare_kstack_el0
+
+    ldr     x30, [x21, #240]
+    ldp     x28, x29, [x21, #224]
+    ldp     x26, x27, [x21, #208]
+    ldp     x24, x25, [x21, #192]
+    ldp     x22, x23, [x21, #176]
+    ldr     x20, [x21, #160]
+    ldp     x18, x19, [x21, #144]
+    ldp     x16, x17, [x21, #128]
+    ldp     x14, x15, [x21, #112]
+    ldp     x12, x13, [x21, #96]
+    ldp     x10, x11, [x21, #80]
+    ldp     x8, x9, [x21, #64]
+    ldp     x6, x7, [x21, #48]
+    ldp     x4, x5, [x21, #32]
+    ldp     x2, x3, [x21, #16]
+    ldp     x0, x1, [x21, #0]
+    ldr     x21, [x21, #168]
     eret
-
-.global prepare_return_to_el0
-prepare_return_to_el0:
-    prepare_kstack_el0
-    ret

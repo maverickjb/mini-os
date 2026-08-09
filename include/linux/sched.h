@@ -53,6 +53,8 @@ struct task_struct {
      */
     struct pt_regs *regs;
     long exit_code;
+    /* PSTATE.{D,A,I,F} — saved/restored across switch_to */
+    unsigned long daif;
 };
 
 extern struct task_struct idle_tasks[];

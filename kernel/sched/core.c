@@ -26,7 +26,7 @@ struct task_struct idle_tasks[NR_CPUS] = {
 static struct task_struct *cpu_current[NR_CPUS];
 struct task_struct *runqueue;
 
-/* Exported for prepare_return_to_el0 in context.S (UP: CPU0 only). */
+/* Exported for prepare_kstack_el0 in assembler (UP: CPU0 only). */
 struct task_struct *cpu_current_export;
 
 struct task_struct *get_current(void)
@@ -117,6 +117,7 @@ void sched_init(void)
 
 void sched_init_idle(unsigned int cpu)
 {
+    idle_tasks[cpu].daif = 0x3c0UL; /* masked until idle enables IRQs */
     cpu_current[cpu] = &idle_tasks[cpu];
     if (cpu == 0)
         cpu_current_export = &idle_tasks[cpu];
@@ -124,12 +125,23 @@ void sched_init_idle(unsigned int cpu)
 
 static void context_switch(struct task_struct *prev, struct task_struct *next)
 {
+    unsigned long daif;
+
     if (prev->is_user)
         __asm__ volatile("mrs %0, sp_el0" : "=r"(prev->user_sp));
+
+    /*
+     * DAIF is per-CPU PSTATE, not saved by switch_to. Without this, a task
+     * that local_irq_enable()'s before schedule() can resume another task
+     * mid-IRQ-exit with IRQs on, allowing a nested IRQ to clobber ELR/SPSR.
+     */
+    __asm__ volatile("mrs %0, daif" : "=r"(daif));
+    prev->daif = daif;
 
     next->time_slice = SCHED_TIME_SLICE;
 
     set_current(next);
+    __asm__ volatile("msr daif, %0" : : "r"(next->daif) : "memory");
 
     if (next->is_user && next->mm) {
         mm_install(next->mm);

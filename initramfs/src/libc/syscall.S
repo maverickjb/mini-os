@@ -18,7 +18,9 @@
 .global fstat
 .global fstatat
 .global getdents64
+.global mkdirat
 
+#define __NR_mkdirat 34
 #define __NR_close  57
 #define __NR_getdents64 61
 #define __NR_read   63
@@ -119,5 +121,11 @@ fstatat:
 /* long getdents64(int fd, void *dirp, unsigned long count) */
 getdents64:
     mov     x8, #__NR_getdents64
+    svc     #0
+    ret
+
+/* int mkdirat(int dirfd, const char *path, unsigned int mode) */
+mkdirat:
+    mov     x8, #__NR_mkdirat
     svc     #0
     ret

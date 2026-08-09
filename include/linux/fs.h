@@ -3,6 +3,10 @@
 
 struct file;
 struct task_struct;
+struct dentry;
+struct inode;
+
+typedef unsigned short umode_t;
 
 #define S_IFIFO         0010000
 #define S_IFCHR         0020000
@@ -17,11 +21,16 @@ struct file_ops {
     int (*release)(struct file *file);
 };
 
+struct inode_operations {
+    int (*mkdir)(struct inode *dir, struct dentry *dentry, umode_t mode);
+};
+
 struct inode {
     unsigned long ino;
     unsigned long size;
     int type;
-    struct file_ops *ops;
+    const struct inode_operations *i_op;
+    const struct file_ops *i_fop;
     void *private_data;
 };
 

@@ -46,7 +46,7 @@ void ret_from_fork(void)
     if (task->mm)
         mm_install(task->mm);
 
-    __asm__ volatile("msr daifclr, #3");
+    /* IRQs stay masked; spsr_el1 restores user DAIF on eret. */
     finish_eret(task->regs);
 }
 
@@ -76,6 +76,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->user_sp = 0;
     tsk->regs = NULL;
     tsk->exit_code = 0;
+    tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
 
     for (i = 0; i < NR_OPEN; i++)
         tsk->files[i] = NULL;
