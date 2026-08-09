@@ -4,6 +4,7 @@
 
 #include <linux/ramfs.h>
 #include <linux/dcache.h>
+#include <linux/namei.h>
 #include <linux/gfp.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
@@ -526,10 +527,7 @@ int ramfs_mkdir(const char *path)
     dentry.parent = NULL;
     dentry.next = NULL;
 
-    if (!parent->inode.i_op || !parent->inode.i_op->mkdir)
-        return -EPERM;
-
-    return parent->inode.i_op->mkdir(&parent->inode, &dentry, 0755);
+    return vfs_mkdir(&parent->inode, &dentry, 0755);
 }
 
 int ramfs_create(const char *path)
