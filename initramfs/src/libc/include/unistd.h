@@ -29,6 +29,7 @@ int close(int fd);
 int mkdirat(int dirfd, const char *path, unsigned int mode);
 int unlinkat(int dirfd, const char *path, int flags);
 int rmdir(const char *path);
+int chdir(const char *path);
 void _exit(int status) __attribute__((noreturn));
 
 #define AT_REMOVEDIR 0x200

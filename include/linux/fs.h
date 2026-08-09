@@ -8,6 +8,8 @@ struct inode;
 
 typedef unsigned short umode_t;
 
+#define PATH_MAX        256
+
 #define S_IFIFO         0010000
 #define S_IFCHR         0020000
 #define S_IFDIR         0040000

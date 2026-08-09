@@ -21,9 +21,11 @@
 .global mkdirat
 .global unlinkat
 .global rmdir
+.global chdir
 
 #define __NR_mkdirat 34
 #define __NR_unlinkat 35
+#define __NR_chdir  49
 #define __NR_close  57
 #define AT_REMOVEDIR 0x200
 #define __NR_getdents64 61
@@ -149,5 +151,11 @@ rmdir:
     mov     x0, #-100       /* AT_FDCWD */
     mov     x2, #AT_REMOVEDIR
     mov     x8, #__NR_unlinkat
+    svc     #0
+    ret
+
+/* int chdir(const char *path) */
+chdir:
+    mov     x8, #__NR_chdir
     svc     #0
     ret

@@ -14,8 +14,6 @@
 
 #include <linux/namei.h>
 
-#define PATH_MAX 256
-
 static void cp_inode_stat(struct inode *inode, struct stat *st)
 {
     memset(st, 0, sizeof(*st));
@@ -124,33 +122,33 @@ long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
     if (!filename)
         return -EFAULT;
 
-    err = strncpy_from_user(path, filename, PATH_MAX);
-    if (err < 0)
-        return err;
-    if (err >= PATH_MAX)
-        return -ENAMETOOLONG;
-
     /* AT_EMPTY_PATH: empty pathname refers to dfd. */
-    if (path[0] == '\0') {
-        struct file *file;
+    if (flag & AT_EMPTY_PATH) {
+        char empty[1];
+        long n;
 
-        if (!(flag & AT_EMPTY_PATH))
-            return -ENOENT;
+        n = strncpy_from_user(empty, filename, 1);
+        if (n < 0)
+            return n;
+        if (n == 0) {
+            struct file *file;
 
-        if (dfd < 0 || (unsigned long)dfd >= NR_OPEN)
-            return -EBADF;
+            if (dfd < 0 || (unsigned long)dfd >= NR_OPEN)
+                return -EBADF;
 
-        file = task->files[dfd];
-        if (!file)
-            return -EBADF;
+            file = task->files[dfd];
+            if (!file)
+                return -EBADF;
 
-        return do_stat_file(file, statbuf);
+            return do_stat_file(file, statbuf);
+        }
     }
 
-    /*
-     * Absolute paths only for now; dfd is ignored when path starts with '/'.
-     */
     (void)dfd;
+
+    err = getname_from_user(path, filename);
+    if (err)
+        return err;
 
     inode = vfs_lookup(path);
     if (!inode)

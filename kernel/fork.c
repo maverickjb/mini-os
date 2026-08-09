@@ -77,6 +77,8 @@ static void task_zero(struct task_struct *tsk)
     tsk->regs = NULL;
     tsk->exit_code = 0;
     tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
+    tsk->cwd[0] = '/';
+    tsk->cwd[1] = '\0';
 
     for (i = 0; i < NR_OPEN; i++)
         tsk->files[i] = NULL;
@@ -260,6 +262,15 @@ long ksys_fork(struct pt_regs *regs)
     copy_pt_regs(child->regs, regs);
     child->regs->x0 = 0;
     copy_task_files(child, parent);
+    {
+        unsigned long i;
+
+        for (i = 0; i < PATH_MAX; i++) {
+            child->cwd[i] = parent->cwd[i];
+            if (!parent->cwd[i])
+                break;
+        }
+    }
     task_user_ctx_init(child);
 
     enqueue_task(child);

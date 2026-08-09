@@ -87,6 +87,49 @@ int main(void)
         return 1;
     }
 
+    ret = mkdir("/cdtest", 0755);
+    if (ret < 0) {
+        printf("mkdir /cdtest failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = chdir("/cdtest");
+    if (ret < 0) {
+        printf("chdir /cdtest failed: %d\n", ret);
+        return 1;
+    }
+
+    fd = open("here", O_CREAT | O_RDWR, 0644);
+    if (fd < 0) {
+        printf("open relative here failed: %d\n", fd);
+        return 1;
+    }
+    close(fd);
+
+    ret = stat("/cdtest/here", &st);
+    if (ret < 0) {
+        printf("stat /cdtest/here failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = chdir("..");
+    if (ret < 0) {
+        printf("chdir .. failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = unlink("cdtest/here");
+    if (ret < 0) {
+        printf("unlink cdtest/here failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = rmdir("cdtest");
+    if (ret < 0) {
+        printf("rmdir cdtest failed: %d\n", ret);
+        return 1;
+    }
+
     ret = rmdir("/testdir");
     if (ret < 0) {
         printf("rmdir /testdir failed: %d\n", ret);
@@ -99,6 +142,6 @@ int main(void)
         return 1;
     }
 
-    printf("unlink/rmdir ok\n");
+    printf("unlink/rmdir/chdir ok\n");
     return 0;
 }

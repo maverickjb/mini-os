@@ -9,9 +9,8 @@
 #include <linux/fs.h>
 
 #include <linux/binfmts.h>
+#include <linux/namei.h>
 #include <linux/ramfs.h>
-
-#define PATH_MAX 256
 
 static int do_execve(const char *filename)
 {
@@ -21,7 +20,7 @@ static int do_execve(const char *filename)
     if (!filename || filename[0] == '\0')
         return -EINVAL;
 
-    inode = ramfs_lookup(filename);
+    inode = vfs_lookup(filename);
     if (!inode)
         return -ENOENT;
 
@@ -58,11 +57,9 @@ long ksys_execve(struct pt_regs *regs, const char *filename,
     if (!current || !current->is_user)
         return -EINVAL;
 
-    err = strncpy_from_user(path, filename, PATH_MAX);
-    if (err < 0)
+    err = getname_from_user(path, filename);
+    if (err)
         return err;
-    if (err >= PATH_MAX)
-        return -ENAMETOOLONG;
 
     return do_execve(path);
 }

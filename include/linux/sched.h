@@ -55,6 +55,8 @@ struct task_struct {
     long exit_code;
     /* PSTATE.{D,A,I,F} — saved/restored across switch_to */
     unsigned long daif;
+    /* Absolute working directory path ("/" initially). */
+    char cwd[PATH_MAX];
 };
 
 extern struct task_struct idle_tasks[];

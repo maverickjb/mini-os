@@ -14,8 +14,6 @@
 #include <linux/namei.h>
 #include <linux/ramfs.h>
 
-#define PATH_MAX 256
-
 void get_file(struct file *file)
 {
     if (file)
@@ -100,11 +98,9 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     if (!task || !task->is_user)
         return -EINVAL;
 
-    err = strncpy_from_user(path, filename, PATH_MAX);
-    if (err < 0)
+    err = getname_from_user(path, filename);
+    if (err)
         return err;
-    if (err >= PATH_MAX)
-        return -ENAMETOOLONG;
 
     inode = vfs_lookup(path);
     if (!inode) {

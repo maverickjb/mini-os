@@ -1,5 +1,5 @@
 /*
- * Pathname lookup / mkdir / unlink — VFS entry points over ramfs.
+ * Pathname lookup / mkdir / unlink / chdir — VFS entry points over ramfs.
  */
 
 #include <linux/fs.h>
@@ -11,8 +11,6 @@
 #include <linux/uaccess.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
-
-#define PATH_MAX 256
 
 struct inode *vfs_lookup(const char *path)
 {
@@ -57,6 +55,131 @@ int vfs_rmdir(struct inode *dir, struct dentry *dentry)
         return -ENOTDIR;
 
     return dir->i_op->rmdir(dir, dentry);
+}
+
+static unsigned long str_len(const char *s)
+{
+    unsigned long n = 0;
+
+    while (s[n])
+        n++;
+    return n;
+}
+
+static void str_copy(char *dst, const char *src, unsigned long max)
+{
+    unsigned long i = 0;
+
+    if (!max)
+        return;
+    while (src[i] && i + 1 < max) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
+/*
+ * Resolve path against base (absolute cwd) into out.
+ * Handles "." / ".." components; result is always absolute.
+ */
+static int path_resolve(const char *base, const char *path, char *out)
+{
+    char stack[PATH_MAX];
+    unsigned long sp = 0;
+    const char *p;
+    unsigned long i;
+
+    if (!path || !path[0] || !out)
+        return -ENOENT;
+
+    if (path[0] == '/') {
+        stack[0] = '\0';
+        sp = 0;
+        p = path;
+    } else {
+        if (!base || base[0] != '/')
+            return -EINVAL;
+        str_copy(stack, base, PATH_MAX);
+        sp = str_len(stack);
+        p = path;
+    }
+
+    while (*p) {
+        char comp[PATH_MAX];
+        unsigned long clen = 0;
+
+        while (*p == '/')
+            p++;
+        if (!*p)
+            break;
+
+        while (p[clen] && p[clen] != '/')
+            clen++;
+        if (clen >= PATH_MAX)
+            return -ENAMETOOLONG;
+        for (i = 0; i < clen; i++)
+            comp[i] = p[i];
+        comp[clen] = '\0';
+        p += clen;
+
+        if (comp[0] == '.' && comp[1] == '\0')
+            continue;
+        if (comp[0] == '.' && comp[1] == '.' && comp[2] == '\0') {
+            /* pop last component */
+            while (sp > 0 && stack[sp - 1] != '/')
+                sp--;
+            if (sp > 0)
+                sp--; /* drop the slash */
+            stack[sp] = '\0';
+            continue;
+        }
+
+        if (sp + 1 + clen >= PATH_MAX)
+            return -ENAMETOOLONG;
+        if (sp == 0 || stack[sp - 1] != '/')
+            stack[sp++] = '/';
+        for (i = 0; i < clen; i++)
+            stack[sp++] = comp[i];
+        stack[sp] = '\0';
+    }
+
+    if (sp == 0) {
+        out[0] = '/';
+        out[1] = '\0';
+    } else {
+        str_copy(out, stack, PATH_MAX);
+    }
+
+    return 0;
+}
+
+long getname_from_user(char *buf, const char *filename)
+{
+    char userpath[PATH_MAX];
+    const char *cwd;
+    long n;
+    int err;
+
+    if (!current || !current->is_user)
+        return -EINVAL;
+    if (!filename || !buf)
+        return -EFAULT;
+
+    n = strncpy_from_user(userpath, filename, PATH_MAX);
+    if (n < 0)
+        return n;
+    if (n >= PATH_MAX)
+        return -ENAMETOOLONG;
+    if (n == 0)
+        return -ENOENT;
+
+    cwd = current->cwd[0] ? current->cwd : "/";
+    err = path_resolve(cwd, userpath, buf);
+    if (err)
+        return err;
+
+    return 0;
 }
 
 /*
@@ -190,26 +313,6 @@ static int do_rmdir(const char *path)
     return vfs_rmdir(dir, &dentry);
 }
 
-static long copy_path_from_user(char *path, const char *filename)
-{
-    long n;
-
-    if (!current || !current->is_user)
-        return -EINVAL;
-    if (!filename)
-        return -EFAULT;
-
-    n = strncpy_from_user(path, filename, PATH_MAX);
-    if (n < 0)
-        return n;
-    if (n >= PATH_MAX)
-        return -ENAMETOOLONG;
-    if (path[0] != '/')
-        return -EINVAL;
-
-    return 0;
-}
-
 long ksys_mkdirat(int dfd, const char *filename, umode_t mode)
 {
     char path[PATH_MAX];
@@ -217,7 +320,7 @@ long ksys_mkdirat(int dfd, const char *filename, umode_t mode)
 
     (void)dfd;
 
-    err = copy_path_from_user(path, filename);
+    err = getname_from_user(path, filename);
     if (err)
         return err;
 
@@ -229,7 +332,7 @@ long ksys_rmdir(const char *pathname)
     char path[PATH_MAX];
     long err;
 
-    err = copy_path_from_user(path, pathname);
+    err = getname_from_user(path, pathname);
     if (err)
         return err;
 
@@ -246,7 +349,7 @@ long ksys_unlinkat(int dfd, const char *filename, int flag)
     if (flag & ~AT_REMOVEDIR)
         return -EINVAL;
 
-    err = copy_path_from_user(path, filename);
+    err = getname_from_user(path, filename);
     if (err)
         return err;
 
@@ -254,4 +357,24 @@ long ksys_unlinkat(int dfd, const char *filename, int flag)
         return do_rmdir(path);
 
     return do_unlink(path);
+}
+
+long ksys_chdir(const char *filename)
+{
+    char path[PATH_MAX];
+    struct inode *inode;
+    long err;
+
+    err = getname_from_user(path, filename);
+    if (err)
+        return err;
+
+    inode = vfs_lookup(path);
+    if (!inode)
+        return -ENOENT;
+    if (!inode_is_dir(inode))
+        return -ENOTDIR;
+
+    str_copy(current->cwd, path, PATH_MAX);
+    return 0;
 }
