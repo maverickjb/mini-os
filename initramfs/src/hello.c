@@ -60,5 +60,45 @@ int main(void)
 
     close(fd);
     printf("mkdirat ok\n");
+
+    fd = open("/tmpfile", O_CREAT | O_RDWR, 0644);
+    if (fd < 0) {
+        printf("create /tmpfile failed: %d\n", fd);
+        return 1;
+    }
+    close(fd);
+
+    ret = unlink("/tmpfile");
+    if (ret < 0) {
+        printf("unlink /tmpfile failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = stat("/tmpfile", &st);
+    if (ret != -ENOENT) {
+        printf("unlink expected ENOENT got %d\n", ret);
+        return 1;
+    }
+
+    /* unlink() is for files only; directories need rmdir(). */
+    ret = unlink("/testdir");
+    if (ret != -EISDIR) {
+        printf("unlink(/testdir) should fail with EISDIR, got %d\n", ret);
+        return 1;
+    }
+
+    ret = rmdir("/testdir");
+    if (ret < 0) {
+        printf("rmdir /testdir failed: %d\n", ret);
+        return 1;
+    }
+
+    ret = stat("/testdir", &st);
+    if (ret != -ENOENT) {
+        printf("rmdir expected ENOENT got %d\n", ret);
+        return 1;
+    }
+
+    printf("unlink/rmdir ok\n");
     return 0;
 }

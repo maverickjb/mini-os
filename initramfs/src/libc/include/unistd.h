@@ -27,11 +27,20 @@ ssize_t read(int fd, void *buf, size_t count);
 int open(const char *path, int flags, ...);
 int close(int fd);
 int mkdirat(int dirfd, const char *path, unsigned int mode);
+int unlinkat(int dirfd, const char *path, int flags);
+int rmdir(const char *path);
 void _exit(int status) __attribute__((noreturn));
+
+#define AT_REMOVEDIR 0x200
 
 static inline int mkdir(const char *path, unsigned int mode)
 {
     return mkdirat(AT_FDCWD, path, mode);
+}
+
+static inline int unlink(const char *path)
+{
+    return unlinkat(AT_FDCWD, path, 0);
 }
 
 pid_t fork(void);

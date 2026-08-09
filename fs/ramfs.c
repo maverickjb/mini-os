@@ -337,10 +337,6 @@ static int ramfs_inode_mkdir(struct inode *dir, struct dentry *dentry,
     return 0;
 }
 
-static const struct inode_operations ramfs_dir_inode_ops = {
-    .mkdir = ramfs_inode_mkdir,
-};
-
 static int ramfs_remove_child(struct ramfs_inode *dir, const char *name,
                               struct ramfs_inode **out)
 {
@@ -364,6 +360,69 @@ static int ramfs_remove_child(struct ramfs_inode *dir, const char *name,
 
     return -ENOENT;
 }
+
+static int ramfs_inode_unlink(struct inode *dir, struct dentry *dentry)
+{
+    struct ramfs_inode *parent;
+    struct ramfs_inode *ri;
+    int err;
+
+    if (!dir || !dentry || !dentry->name[0])
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+
+    parent = RAMFS_I(dir);
+    err = ramfs_remove_child(parent, dentry->name, &ri);
+    if (err)
+        return err;
+
+    if (ri->inode.type == S_IFDIR) {
+        ramfs_add_child(parent, dentry->name, ri);
+        return -EISDIR;
+    }
+
+    ramfs_free_inode(ri);
+    dentry->inode = NULL;
+    return 0;
+}
+
+static int ramfs_inode_rmdir(struct inode *dir, struct dentry *dentry)
+{
+    struct ramfs_inode *parent;
+    struct ramfs_inode *ri;
+    int err;
+
+    if (!dir || !dentry || !dentry->name[0])
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+
+    parent = RAMFS_I(dir);
+    err = ramfs_remove_child(parent, dentry->name, &ri);
+    if (err)
+        return err;
+
+    if (ri->inode.type != S_IFDIR) {
+        ramfs_add_child(parent, dentry->name, ri);
+        return -ENOTDIR;
+    }
+
+    if (ri->children) {
+        ramfs_add_child(parent, dentry->name, ri);
+        return -ENOTEMPTY;
+    }
+
+    ramfs_free_inode(ri);
+    dentry->inode = NULL;
+    return 0;
+}
+
+static const struct inode_operations ramfs_dir_inode_ops = {
+    .mkdir = ramfs_inode_mkdir,
+    .unlink = ramfs_inode_unlink,
+    .rmdir = ramfs_inode_rmdir,
+};
 
 static const char *ramfs_skip_slash(const char *path)
 {
@@ -564,8 +623,8 @@ int ramfs_unlink(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
-    struct ramfs_inode *ri;
-    int err;
+    struct dentry dentry;
+    unsigned long i;
 
     if (!path || path[0] != '/')
         return -EINVAL;
@@ -574,25 +633,25 @@ int ramfs_unlink(const char *path)
     if (!parent)
         return -ENOENT;
 
-    err = ramfs_remove_child(parent, name, &ri);
-    if (err)
-        return err;
+    for (i = 0; i < sizeof(dentry.name); i++)
+        dentry.name[i] = 0;
+    for (i = 0; name[i] && i + 1 < sizeof(dentry.name); i++)
+        dentry.name[i] = name[i];
+    dentry.name[i] = '\0';
+    dentry.inode = NULL;
+    dentry.parent = NULL;
+    dentry.next = NULL;
 
-    if (ri->inode.type == S_IFDIR) {
-        ramfs_add_child(parent, name, ri);
-        return -EISDIR;
-    }
-
-    ramfs_free_inode(ri);
-    return 0;
+    return vfs_unlink(&parent->inode, &dentry);
 }
 
 int ramfs_rmdir(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
-    struct ramfs_inode *ri;
-    int err;
+    struct ramfs_dentry *child;
+    struct dentry dentry;
+    unsigned long i;
 
     if (!path || path[0] != '/')
         return -EINVAL;
@@ -601,22 +660,20 @@ int ramfs_rmdir(const char *path)
     if (!parent)
         return -ENOENT;
 
-    err = ramfs_remove_child(parent, name, &ri);
-    if (err)
-        return err;
+    child = ramfs_find_child(parent, name);
+    if (!child)
+        return -ENOENT;
 
-    if (ri->inode.type != S_IFDIR) {
-        ramfs_add_child(parent, name, ri);
-        return -ENOTDIR;
-    }
+    for (i = 0; i < sizeof(dentry.name); i++)
+        dentry.name[i] = 0;
+    for (i = 0; name[i] && i + 1 < sizeof(dentry.name); i++)
+        dentry.name[i] = name[i];
+    dentry.name[i] = '\0';
+    dentry.inode = &child->inode->inode;
+    dentry.parent = NULL;
+    dentry.next = NULL;
 
-    if (ri->children) {
-        ramfs_add_child(parent, name, ri);
-        return -ENOTEMPTY;
-    }
-
-    ramfs_free_inode(ri);
-    return 0;
+    return vfs_rmdir(&parent->inode, &dentry);
 }
 
 static int ramfs_ensure_capacity(struct ramfs_inode *ri, unsigned long need)

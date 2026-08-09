@@ -19,9 +19,13 @@
 .global fstatat
 .global getdents64
 .global mkdirat
+.global unlinkat
+.global rmdir
 
 #define __NR_mkdirat 34
+#define __NR_unlinkat 35
 #define __NR_close  57
+#define AT_REMOVEDIR 0x200
 #define __NR_getdents64 61
 #define __NR_read   63
 #define __NR_write  64
@@ -127,5 +131,23 @@ getdents64:
 /* int mkdirat(int dirfd, const char *path, unsigned int mode) */
 mkdirat:
     mov     x8, #__NR_mkdirat
+    svc     #0
+    ret
+
+/* int unlinkat(int dirfd, const char *path, int flags) */
+unlinkat:
+    mov     x8, #__NR_unlinkat
+    svc     #0
+    ret
+
+/*
+ * int rmdir(const char *path)
+ * AArch64 has no __NR_rmdir; use unlinkat(AT_FDCWD, path, AT_REMOVEDIR).
+ */
+rmdir:
+    mov     x1, x0          /* path */
+    mov     x0, #-100       /* AT_FDCWD */
+    mov     x2, #AT_REMOVEDIR
+    mov     x8, #__NR_unlinkat
     svc     #0
     ret

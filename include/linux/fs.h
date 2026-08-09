@@ -23,6 +23,8 @@ struct file_ops {
 
 struct inode_operations {
     int (*mkdir)(struct inode *dir, struct dentry *dentry, umode_t mode);
+    int (*unlink)(struct inode *dir, struct dentry *dentry);
+    int (*rmdir)(struct inode *dir, struct dentry *dentry);
 };
 
 struct inode {
@@ -58,6 +60,7 @@ int install_fd(struct task_struct *task, struct file *file);
 #define O_DIRECTORY     0x10000
 
 #define AT_FDCWD        (-100)
+#define AT_REMOVEDIR    0x200
 
 static inline int inode_is_dir(const struct inode *inode)
 {
