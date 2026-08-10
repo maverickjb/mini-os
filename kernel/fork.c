@@ -6,6 +6,7 @@
 #include <linux/errno.h>
 #include <linux/stddef.h>
 #include <linux/uaccess.h>
+#include <linux/string.h>
 #include <asm/irqflags.h>
 #include <asm/memory.h>
 
@@ -79,6 +80,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
     tsk->cwd = NULL; /* NULL => root */
     tsk->pending = 0;
+    memset(tsk->actions, 0, sizeof(tsk->actions)); /* SIG_DFL */
 
     for (i = 0; i < NR_OPEN; i++)
         tsk->files[i] = NULL;
@@ -263,6 +265,12 @@ long ksys_fork(struct pt_regs *regs)
     child->regs->x0 = 0;
     copy_task_files(child, parent);
     child->cwd = parent->cwd;
+    {
+        unsigned int i;
+
+        for (i = 0; i < MAX_SIG; i++)
+            child->actions[i] = parent->actions[i];
+    }
     task_user_ctx_init(child);
 
     enqueue_task(child);

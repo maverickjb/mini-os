@@ -6,6 +6,12 @@
 #include <errno.h>
 #include <signal.h>
 
+static void sigusr1_exit42(int sig)
+{
+    (void)sig;
+    _exit(42);
+}
+
 int main(void)
 {
     struct stat st;
@@ -271,5 +277,80 @@ int main(void)
     }
 
     printf("kill ok\n");
+
+    {
+        struct sigaction sa, osa;
+        int fds[2];
+        int ready[2];
+        pid_t cpid;
+        pid_t w;
+        int status;
+        char c;
+        volatile int i;
+
+        sa.sa_handler = SIG_IGN;
+        sa.sa_flags = 0;
+        sa.sa_restorer = 0;
+        sa.sa_mask.sig[0] = 0;
+        if (sigaction(SIGUSR1, &sa, &osa) < 0) {
+            printf("sigaction IGN failed\n");
+            return 1;
+        }
+        if (osa.sa_handler != SIG_DFL) {
+            printf("sigaction oldact expected DFL\n");
+            return 1;
+        }
+        if (kill(getpid(), SIGUSR1) < 0) {
+            printf("self kill IGN failed\n");
+            return 1;
+        }
+
+        /* User handler: deliver while blocked in read. */
+        if (pipe(fds) < 0 || pipe(ready) < 0) {
+            printf("pipe for handler failed\n");
+            return 1;
+        }
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for sigaction handler failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            close(fds[1]);
+            close(ready[0]);
+            sa.sa_handler = sigusr1_exit42;
+            sa.sa_flags = 0;
+            sa.sa_restorer = 0;
+            sa.sa_mask.sig[0] = 0;
+            if (sigaction(SIGUSR1, &sa, NULL) < 0)
+                _exit(1);
+            write(ready[1], "r", 1);
+            close(ready[1]);
+            read(fds[0], &c, 1);
+            _exit(3);
+        }
+        close(fds[0]);
+        close(ready[1]);
+        if (read(ready[0], &c, 1) != 1) {
+            printf("ready sync failed\n");
+            return 1;
+        }
+        close(ready[0]);
+        /* Let the child reach interruptible sleep in read. */
+        for (i = 0; i < 100000; i++)
+            ;
+        if (kill(cpid, SIGUSR1) < 0) {
+            printf("kill handler child failed\n");
+            return 1;
+        }
+        w = waitpid(cpid, &status, 0);
+        close(fds[1]);
+        if (w != cpid || status != 42) {
+            printf("sigaction handler expected 42 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("rt_sigaction ok\n");
     return 0;
 }

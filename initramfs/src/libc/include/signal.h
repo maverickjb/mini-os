@@ -1,6 +1,12 @@
 #ifndef _LIBC_SIGNAL_H
 #define _LIBC_SIGNAL_H
 
+#include <stddef.h>
+
+#define _NSIG		64
+#define _NSIG_BPW	64
+#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
+
 #define SIGHUP		 1
 #define SIGINT		 2
 #define SIGQUIT		 3
@@ -18,7 +24,38 @@
 #define SIGALRM		14
 #define SIGTERM		15
 #define SIGCHLD		17
+#define SIGCONT		18
+#define SIGSTOP		19
+#define SIGTSTP		20
+#define SIGWINCH	28
+
+typedef struct {
+	unsigned long sig[_NSIG_WORDS];
+} sigset_t;
+
+typedef void (*sighandler_t)(int);
+
+#define SIG_DFL		((sighandler_t)0)
+#define SIG_IGN		((sighandler_t)1)
+
+#define SA_NOCLDSTOP	0x00000001
+#define SA_NOCLDWAIT	0x00000002
+#define SA_SIGINFO	0x00000004
+#define SA_ONSTACK	0x08000000
+#define SA_RESTART	0x10000000
+#define SA_NODEFER	0x40000000
+#define SA_RESETHAND	0x80000000
+
+struct sigaction {
+	sighandler_t sa_handler;
+	unsigned long sa_flags;
+	void (*sa_restorer)(void);
+	sigset_t sa_mask;
+};
 
 int kill(int pid, int sig);
+int rt_sigaction(int sig, const struct sigaction *act,
+                 struct sigaction *oldact, size_t sigsetsize);
+int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact);
 
 #endif /* _LIBC_SIGNAL_H */

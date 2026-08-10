@@ -26,6 +26,9 @@
 .global getcwd
 .global pipe
 .global kill
+.global rt_sigaction
+.global sigaction
+.global getpid
 
 #define __NR_getcwd 17
 #define __NR_mkdirat 34
@@ -42,6 +45,8 @@
 #define __NR_fstat  80
 #define __NR_exit   93
 #define __NR_kill   129
+#define __NR_rt_sigaction 134
+#define __NR_getpid 172
 #define __NR_brk    214
 #define __NR_openat 56
 #define __NR_clone  220
@@ -193,5 +198,27 @@ pipe:
 /* int kill(pid_t pid, int sig) */
 kill:
     mov     x8, #__NR_kill
+    svc     #0
+    ret
+
+/*
+ * int rt_sigaction(int sig, const struct sigaction *act,
+ *                  struct sigaction *oldact, size_t sigsetsize)
+ */
+rt_sigaction:
+    mov     x8, #__NR_rt_sigaction
+    svc     #0
+    ret
+
+/* int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) */
+sigaction:
+    mov     x3, #8          /* sizeof(sigset_t) */
+    mov     x8, #__NR_rt_sigaction
+    svc     #0
+    ret
+
+/* pid_t getpid(void) */
+getpid:
+    mov     x8, #__NR_getpid
     svc     #0
     ret

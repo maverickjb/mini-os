@@ -4,6 +4,7 @@
 #include <linux/mm_types.h>
 #include <linux/fs.h>
 #include <asm/ptrace.h>
+#include <asm/signal.h>
 
 struct dentry;
 
@@ -61,6 +62,7 @@ struct task_struct {
     struct dentry *cwd;
     /* Pending signals bitmask (bit N => signal N). */
     unsigned long pending;
+    struct sigaction actions[MAX_SIG];
 };
 
 extern struct task_struct idle_tasks[];

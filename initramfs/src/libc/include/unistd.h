@@ -37,6 +37,7 @@ long getcwd(char *buf, unsigned long size);
 int pipe(int pipefd[2]);
 int kill(int pid, int sig);
 void _exit(int status) __attribute__((noreturn));
+pid_t getpid(void);
 
 #define AT_REMOVEDIR 0x200
 

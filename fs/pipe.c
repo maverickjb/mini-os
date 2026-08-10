@@ -114,6 +114,11 @@ retry:
             return 0;
         }
 
+        if (current->pending) {
+            local_irq_enable();
+            return -EINTR;
+        }
+
         local_irq_enable();
         pipe_sleep(&p->read_wait);
         if (current->pending)
@@ -160,6 +165,11 @@ retry:
     }
 
     if (p->len == PIPE_SIZE) {
+        if (current->pending) {
+            local_irq_enable();
+            return -EINTR;
+        }
+
         local_irq_enable();
         pipe_sleep(&p->write_wait);
         if (current->pending)
