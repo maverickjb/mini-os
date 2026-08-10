@@ -15,7 +15,8 @@ LDFLAGS := -T linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
 
 SRCS    := kernel/head.S vectors.S context.S mmu_enable.S init/main.c kernel/smp.c \
            kernel/sched/core.c kernel/sched/idle.c \
-           kernel/fork.c kernel/exit.c kernel/sys.c kernel/irq.c kernel/time/tick.c \
+           kernel/fork.c kernel/exit.c kernel/sys.c kernel/signal.c \
+           kernel/irq.c kernel/time/tick.c \
            mm/page_alloc.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
            fs/binfmt.c fs/open.c fs/stat.c fs/readdir.c fs/pipe.c fs/namei.c \

@@ -59,6 +59,8 @@ struct task_struct {
     unsigned long daif;
     /* Working directory dentry (NULL means root). */
     struct dentry *cwd;
+    /* Pending signals bitmask (bit N => signal N). */
+    unsigned long pending;
 };
 
 extern struct task_struct idle_tasks[];

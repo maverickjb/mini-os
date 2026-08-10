@@ -24,6 +24,8 @@
 .global rmdir
 .global chdir
 .global getcwd
+.global pipe
+.global kill
 
 #define __NR_getcwd 17
 #define __NR_mkdirat 34
@@ -32,12 +34,14 @@
 #define __NR_chdir  49
 #define __NR_close  57
 #define AT_REMOVEDIR 0x200
+#define __NR_pipe2 59
 #define __NR_getdents64 61
 #define __NR_read   63
 #define __NR_write  64
 #define __NR_newfstatat 79
 #define __NR_fstat  80
 #define __NR_exit   93
+#define __NR_kill   129
 #define __NR_brk    214
 #define __NR_openat 56
 #define __NR_clone  220
@@ -176,5 +180,18 @@ chdir:
 /* long getcwd(char *buf, unsigned long size) — returns length incl. NUL */
 getcwd:
     mov     x8, #__NR_getcwd
+    svc     #0
+    ret
+
+/* int pipe(int pipefd[2]) — pipe2(pipefd, 0) */
+pipe:
+    mov     x1, xzr
+    mov     x8, #__NR_pipe2
+    svc     #0
+    ret
+
+/* int kill(pid_t pid, int sig) */
+kill:
+    mov     x8, #__NR_kill
     svc     #0
     ret

@@ -36,5 +36,6 @@ long ksys_brk(unsigned long brk);
 long ksys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
                unsigned long flags, unsigned long fd, unsigned long off);
 long ksys_munmap(unsigned long addr, unsigned long len);
+long ksys_kill(long pid, int sig);
 
 #endif	/* _LINUX_SYSCALLS_H */

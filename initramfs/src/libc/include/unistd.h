@@ -34,6 +34,8 @@ int rmdir(const char *path);
 int chdir(const char *path);
 /* Kernel ABI: returns bytes written including NUL, or -errno. */
 long getcwd(char *buf, unsigned long size);
+int pipe(int pipefd[2]);
+int kill(int pid, int sig);
 void _exit(int status) __attribute__((noreturn));
 
 #define AT_REMOVEDIR 0x200

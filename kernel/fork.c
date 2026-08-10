@@ -78,6 +78,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->exit_code = 0;
     tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
     tsk->cwd = NULL; /* NULL => root */
+    tsk->pending = 0;
 
     for (i = 0; i < NR_OPEN; i++)
         tsk->files[i] = NULL;

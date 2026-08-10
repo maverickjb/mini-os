@@ -43,6 +43,22 @@ static void add_wait_queue(struct wait_node **queue, struct task_struct *task)
     *queue = node;
 }
 
+static void remove_wait_queue(struct wait_node **queue, struct task_struct *task)
+{
+    struct wait_node **prev = queue;
+    struct wait_node *node;
+
+    while (*prev) {
+        if ((*prev)->task == task) {
+            node = *prev;
+            *prev = node->next;
+            free_pages(node, 0);
+            return;
+        }
+        prev = &(*prev)->next;
+    }
+}
+
 static void wake_wait_queue(struct wait_node **queue)
 {
     struct wait_node *node;
@@ -68,6 +84,10 @@ static void pipe_sleep(struct wait_node **queue)
     local_irq_enable();
 
     schedule();
+
+    local_irq_disable();
+    remove_wait_queue(queue, task);
+    local_irq_enable();
 
     task->state = TASK_RUNNING;
     task->time_slice = SCHED_TIME_SLICE;
@@ -96,6 +116,8 @@ retry:
 
         local_irq_enable();
         pipe_sleep(&p->read_wait);
+        if (current->pending)
+            return -EINTR;
         goto retry;
     }
 
@@ -140,6 +162,8 @@ retry:
     if (p->len == PIPE_SIZE) {
         local_irq_enable();
         pipe_sleep(&p->write_wait);
+        if (current->pending)
+            return -EINTR;
         goto retry;
     }
 

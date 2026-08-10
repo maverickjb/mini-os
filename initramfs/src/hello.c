@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
+#include <signal.h>
 
 int main(void)
 {
@@ -224,5 +225,51 @@ int main(void)
     }
 
     printf("unlink/rmdir/chdir ok\n");
+
+    {
+        int fds[2];
+        pid_t cpid;
+        pid_t w;
+        int status;
+        char c;
+
+        if (pipe(fds) < 0) {
+            printf("pipe failed\n");
+            return 1;
+        }
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for kill failed\n");
+            return 1;
+        }
+
+        if (cpid == 0) {
+            close(fds[1]);
+            read(fds[0], &c, 1);
+            _exit(0);
+        }
+
+        close(fds[0]);
+        close(fds[1]);
+
+        ret = kill(cpid, SIGTERM);
+        if (ret < 0) {
+            printf("kill failed: %d\n", ret);
+            return 1;
+        }
+
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid) {
+            printf("waitpid after kill failed\n");
+            return 1;
+        }
+        if (status != 128 + SIGTERM) {
+            printf("kill status expected %d got %d\n", 128 + SIGTERM, status);
+            return 1;
+        }
+    }
+
+    printf("kill ok\n");
     return 0;
 }
