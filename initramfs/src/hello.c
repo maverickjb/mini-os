@@ -69,6 +69,34 @@ int main(void)
     }
     close(fd);
 
+    ret = link("/tmpfile", "/tmpfile2");
+    if (ret < 0) {
+        printf("link failed: %d\n", ret);
+        return 1;
+    }
+
+    {
+        struct stat st2;
+        unsigned long ino;
+
+        ret = stat("/tmpfile", &st);
+        if (ret < 0) {
+            printf("stat /tmpfile after link failed: %d\n", ret);
+            return 1;
+        }
+        ino = st.st_ino;
+        if (st.st_nlink != 2) {
+            printf("link nlink expected 2 got %u\n", st.st_nlink);
+            return 1;
+        }
+
+        ret = stat("/tmpfile2", &st2);
+        if (ret < 0 || st2.st_ino != ino || st2.st_nlink != 2) {
+            printf("link /tmpfile2 mismatch\n");
+            return 1;
+        }
+    }
+
     ret = unlink("/tmpfile");
     if (ret < 0) {
         printf("unlink /tmpfile failed: %d\n", ret);
@@ -80,6 +108,20 @@ int main(void)
         printf("unlink expected ENOENT got %d\n", ret);
         return 1;
     }
+
+    ret = stat("/tmpfile2", &st);
+    if (ret < 0 || st.st_nlink != 1) {
+        printf("after unlink nlink expected 1\n");
+        return 1;
+    }
+
+    ret = unlink("/tmpfile2");
+    if (ret < 0) {
+        printf("unlink /tmpfile2 failed: %d\n", ret);
+        return 1;
+    }
+
+    printf("link ok\n");
 
     /* unlink() is for files only; directories need rmdir(). */
     ret = unlink("/testdir");

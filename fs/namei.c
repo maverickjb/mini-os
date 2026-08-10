@@ -58,6 +58,21 @@ int vfs_rmdir(struct inode *dir, struct dentry *dentry)
     return dir->i_op->rmdir(dir, dentry);
 }
 
+int vfs_link(struct dentry *old_dentry, struct inode *dir,
+             struct dentry *new_dentry)
+{
+    if (!old_dentry || !old_dentry->inode || !dir || !new_dentry)
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+    if (!dir->i_op || !dir->i_op->link)
+        return -EPERM;
+    if (inode_is_dir(old_dentry->inode))
+        return -EPERM;
+
+    return dir->i_op->link(old_dentry, dir, new_dentry);
+}
+
 static unsigned long str_len(const char *s)
 {
     unsigned long n = 0;
@@ -375,6 +390,72 @@ long ksys_unlinkat(int dfd, const char *filename, int flag)
         return do_rmdir(path);
 
     return do_unlink(path);
+}
+
+static int do_link(const char *oldpath, const char *newpath)
+{
+    char parent_path[PATH_MAX];
+    char name[DNAME_INLINE_LEN];
+    struct dentry *parent;
+    struct dentry old_dentry;
+    struct dentry new_dentry;
+    struct inode *old_inode;
+    int err;
+
+    old_inode = vfs_lookup(oldpath);
+    if (!old_inode)
+        return -ENOENT;
+    if (inode_is_dir(old_inode))
+        return -EPERM;
+
+    if (vfs_lookup(newpath))
+        return -EEXIST;
+
+    err = path_parent_name(newpath, parent_path, name);
+    if (err)
+        return err;
+
+    parent = d_lookup_path(parent_path);
+    if (!parent)
+        return -ENOENT;
+
+    old_dentry.name[0] = '\0';
+    old_dentry.inode = old_inode;
+    old_dentry.parent = NULL;
+    old_dentry.child = NULL;
+    old_dentry.next = NULL;
+
+    str_copy(new_dentry.name, name, sizeof(new_dentry.name));
+    new_dentry.inode = NULL;
+    new_dentry.parent = parent;
+    new_dentry.child = NULL;
+    new_dentry.next = NULL;
+
+    return vfs_link(&old_dentry, parent->inode, &new_dentry);
+}
+
+long ksys_linkat(int olddfd, const char *oldname, int newdfd,
+                 const char *newname, int flags)
+{
+    char oldpath[PATH_MAX];
+    char newpath[PATH_MAX];
+    long err;
+
+    (void)olddfd;
+    (void)newdfd;
+
+    if (flags)
+        return -EINVAL;
+
+    err = getname_from_user(oldpath, oldname);
+    if (err)
+        return err;
+
+    err = getname_from_user(newpath, newname);
+    if (err)
+        return err;
+
+    return do_link(oldpath, newpath);
 }
 
 long ksys_chdir(const char *filename)

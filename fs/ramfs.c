@@ -217,6 +217,8 @@ static void ramfs_inode_init(struct ramfs_inode *ri, int type)
         ri->inode.i_fop = &ramfs_dir_ops;
     }
     ri->inode.private_data = NULL;
+    /* Regular files start at 1; directories use 2 (traditional . and ..). */
+    ri->inode.nlink = (type == S_IFDIR) ? 2 : 1;
     ri->parent = NULL;
     ri->children = NULL;
     ri->data = NULL;
@@ -298,7 +300,9 @@ static int ramfs_add_child(struct ramfs_inode *dir, const char *name,
         d->name[i] = '\0';
     }
 
-    ri->parent = dir;
+    /* Only directories need a parent for ".." walks; hard links share inodes. */
+    if (ri->inode.type == S_IFDIR)
+        ri->parent = dir;
     d->inode = ri;
     d->next = dir->children;
     dir->children = d;
@@ -384,8 +388,41 @@ static int ramfs_inode_unlink(struct inode *dir, struct dentry *dentry)
         return -EISDIR;
     }
 
-    ramfs_free_inode(ri);
+    if (ri->inode.nlink > 0)
+        ri->inode.nlink--;
+    if (ri->inode.nlink == 0)
+        ramfs_free_inode(ri);
+
     dentry->inode = NULL;
+    return 0;
+}
+
+static int ramfs_inode_link(struct dentry *old_dentry, struct inode *dir,
+                            struct dentry *new_dentry)
+{
+    struct ramfs_inode *parent;
+    struct ramfs_inode *ri;
+    int err;
+
+    if (!old_dentry || !old_dentry->inode || !dir || !new_dentry ||
+        !new_dentry->name[0])
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+    if (inode_is_dir(old_dentry->inode))
+        return -EPERM;
+
+    parent = RAMFS_I(dir);
+    if (ramfs_find_child(parent, new_dentry->name))
+        return -EEXIST;
+
+    ri = RAMFS_I(old_dentry->inode);
+    err = ramfs_add_child(parent, new_dentry->name, ri);
+    if (err)
+        return err;
+
+    ri->inode.nlink++;
+    new_dentry->inode = old_dentry->inode;
     return 0;
 }
 
@@ -424,6 +461,7 @@ static const struct inode_operations ramfs_dir_inode_ops = {
     .mkdir = ramfs_inode_mkdir,
     .unlink = ramfs_inode_unlink,
     .rmdir = ramfs_inode_rmdir,
+    .link = ramfs_inode_link,
 };
 
 static const char *ramfs_skip_slash(const char *path)

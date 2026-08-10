@@ -28,6 +28,8 @@ int open(const char *path, int flags, ...);
 int close(int fd);
 int mkdirat(int dirfd, const char *path, unsigned int mode);
 int unlinkat(int dirfd, const char *path, int flags);
+int linkat(int olddirfd, const char *oldpath, int newdirfd,
+           const char *newpath, int flags);
 int rmdir(const char *path);
 int chdir(const char *path);
 /* Kernel ABI: returns bytes written including NUL, or -errno. */
@@ -44,6 +46,11 @@ static inline int mkdir(const char *path, unsigned int mode)
 static inline int unlink(const char *path)
 {
     return unlinkat(AT_FDCWD, path, 0);
+}
+
+static inline int link(const char *oldpath, const char *newpath)
+{
+    return linkat(AT_FDCWD, oldpath, AT_FDCWD, newpath, 0);
 }
 
 pid_t fork(void);

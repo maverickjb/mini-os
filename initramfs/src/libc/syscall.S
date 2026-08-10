@@ -20,6 +20,7 @@
 .global getdents64
 .global mkdirat
 .global unlinkat
+.global linkat
 .global rmdir
 .global chdir
 .global getcwd
@@ -27,6 +28,7 @@
 #define __NR_getcwd 17
 #define __NR_mkdirat 34
 #define __NR_unlinkat 35
+#define __NR_linkat 37
 #define __NR_chdir  49
 #define __NR_close  57
 #define AT_REMOVEDIR 0x200
@@ -141,6 +143,15 @@ mkdirat:
 /* int unlinkat(int dirfd, const char *path, int flags) */
 unlinkat:
     mov     x8, #__NR_unlinkat
+    svc     #0
+    ret
+
+/*
+ * int linkat(int olddirfd, const char *oldpath,
+ *            int newdirfd, const char *newpath, int flags)
+ */
+linkat:
+    mov     x8, #__NR_linkat
     svc     #0
     ret
 

@@ -62,6 +62,11 @@ void syscall_handler(struct pt_regs *regs)
         ret = ksys_unlinkat((int)regs->x0, (const char *)regs->x1,
                             (int)regs->x2);
         break;
+    case __NR_linkat:
+        ret = ksys_linkat((int)regs->x0, (const char *)regs->x1,
+                          (int)regs->x2, (const char *)regs->x3,
+                          (int)regs->x4);
+        break;
     case __NR_chdir:
         ret = ksys_chdir((const char *)regs->x0);
         break;

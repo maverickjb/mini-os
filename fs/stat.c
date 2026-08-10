@@ -34,7 +34,7 @@ static void cp_inode_stat(struct inode *inode, struct stat *st)
     else
         st->st_mode |= 0644;
 
-    st->st_nlink = 1;
+    st->st_nlink = inode->nlink ? inode->nlink : 1;
     st->st_size = (long)inode->size;
     st->st_blksize = 1024;
     st->st_blocks = (st->st_size + 511) / 512;

@@ -27,6 +27,8 @@ struct inode_operations {
     int (*mkdir)(struct inode *dir, struct dentry *dentry, umode_t mode);
     int (*unlink)(struct inode *dir, struct dentry *dentry);
     int (*rmdir)(struct inode *dir, struct dentry *dentry);
+    int (*link)(struct dentry *old_dentry, struct inode *dir,
+                 struct dentry *new_dentry);
 };
 
 struct inode {
@@ -36,6 +38,7 @@ struct inode {
     const struct inode_operations *i_op;
     const struct file_ops *i_fop;
     void *private_data;
+    unsigned int nlink;
 };
 
 struct file {
