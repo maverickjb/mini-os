@@ -27,7 +27,7 @@
 .global pipe
 .global kill
 .global rt_sigaction
-.global sigaction
+.global __restore_rt
 .global getpid
 
 #define __NR_getcwd 17
@@ -46,6 +46,7 @@
 #define __NR_exit   93
 #define __NR_kill   129
 #define __NR_rt_sigaction 134
+#define __NR_rt_sigreturn 139
 #define __NR_getpid 172
 #define __NR_brk    214
 #define __NR_openat 56
@@ -210,12 +211,11 @@ rt_sigaction:
     svc     #0
     ret
 
-/* int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) */
-sigaction:
-    mov     x3, #8          /* sizeof(sigset_t) */
-    mov     x8, #__NR_rt_sigaction
+/* Kernel trampoline: handler `ret` lands here, then rt_sigreturn. */
+__restore_rt:
+    mov     x8, #__NR_rt_sigreturn
     svc     #0
-    ret
+    b       __restore_rt
 
 /* pid_t getpid(void) */
 getpid:

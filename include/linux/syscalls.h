@@ -40,6 +40,7 @@ long ksys_munmap(unsigned long addr, unsigned long len);
 long ksys_kill(long pid, int sig);
 long ksys_rt_sigaction(int sig, const struct sigaction *act,
                        struct sigaction *oldact, unsigned long sigsetsize);
+long ksys_rt_sigreturn(struct pt_regs *regs);
 long ksys_getpid(void);
 
 #endif	/* _LINUX_SYSCALLS_H */

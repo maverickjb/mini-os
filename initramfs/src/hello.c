@@ -6,10 +6,12 @@
 #include <errno.h>
 #include <signal.h>
 
-static void sigusr1_exit42(int sig)
+static volatile int got_usr1;
+
+static void sigusr1_mark(int sig)
 {
     (void)sig;
-    _exit(42);
+    got_usr1 = 1;
 }
 
 int main(void)
@@ -305,7 +307,7 @@ int main(void)
             return 1;
         }
 
-        /* User handler: deliver while blocked in read. */
+        /* User handler: deliver while blocked in read, then sigreturn. */
         if (pipe(fds) < 0 || pipe(ready) < 0) {
             printf("pipe for handler failed\n");
             return 1;
@@ -316,17 +318,22 @@ int main(void)
             return 1;
         }
         if (cpid == 0) {
+            ssize_t n;
+
             close(fds[1]);
             close(ready[0]);
-            sa.sa_handler = sigusr1_exit42;
+            sa.sa_handler = sigusr1_mark;
             sa.sa_flags = 0;
             sa.sa_restorer = 0;
             sa.sa_mask.sig[0] = 0;
             if (sigaction(SIGUSR1, &sa, NULL) < 0)
                 _exit(1);
+            got_usr1 = 0;
             write(ready[1], "r", 1);
             close(ready[1]);
-            read(fds[0], &c, 1);
+            n = read(fds[0], &c, 1);
+            if (got_usr1 && n == -EINTR)
+                _exit(42);
             _exit(3);
         }
         close(fds[0]);
@@ -352,5 +359,6 @@ int main(void)
     }
 
     printf("rt_sigaction ok\n");
+    printf("rt_sigreturn ok\n");
     return 0;
 }

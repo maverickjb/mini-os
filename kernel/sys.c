@@ -119,6 +119,18 @@ void syscall_handler(struct pt_regs *regs)
     if (current)
         current->regs = regs;
 
+    /*
+     * rt_sigreturn restores the full interrupted frame, including x0.
+     * It must not go through the normal "regs->x0 = ret" path, and a
+     * failed restore must not eret back into __restore_rt (infinite loop).
+     */
+    if (regs->x8 == __NR_rt_sigreturn) {
+        if (ksys_rt_sigreturn(regs) < 0)
+            ksys_exit(128 + SIGSEGV);
+        do_signal(regs);
+        return;
+    }
+
     ret = handle_syscall(regs);
     regs->x0 = (unsigned long)ret;
 

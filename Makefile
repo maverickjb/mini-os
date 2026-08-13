@@ -43,7 +43,8 @@ $(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN)
 LIBC_DIR  := initramfs/src/libc
 LIBC_INC  := -I$(LIBC_DIR)/include
 LIBC_OBJS := $(LIBC_DIR)/crt0.o $(LIBC_DIR)/syscall.o $(LIBC_DIR)/string.o \
-             $(LIBC_DIR)/malloc.o $(LIBC_DIR)/stdio.o $(LIBC_DIR)/printf.o
+             $(LIBC_DIR)/malloc.o $(LIBC_DIR)/stdio.o $(LIBC_DIR)/printf.o \
+             $(LIBC_DIR)/signal.o
 
 LIBC_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
                -Wall -Wextra -O0 -g -fno-pie -fno-PIE $(LIBC_INC)

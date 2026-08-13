@@ -1,10 +1,10 @@
 /*
- * Minimal signals — kill(2) / rt_sigaction(2).
+ * Minimal signals — kill(2) / rt_sigaction(2) / rt_sigreturn(2).
  *
  * Pending bits are delivered in do_signal() on return to userspace:
  *   SIG_DFL  → terminate (exit status 128+sig)
  *   SIG_IGN  → drop
- *   handler  → set ELR to handler, x0=sig, x30=old PC (simple return)
+ *   handler  → user stack frame, ELR=handler, LR=sa_restorer (rt_sigreturn)
  */
 
 #include <linux/signal.h>
@@ -14,7 +14,8 @@
 #include <linux/errno.h>
 #include <linux/stddef.h>
 #include <linux/uaccess.h>
-#include <linux/string.h>
+#include <linux/gfp.h>
+#include <linux/mm.h>
 
 struct task_struct *find_task_by_pid(unsigned long pid)
 {
@@ -67,18 +68,83 @@ static int next_pending_signal(unsigned long pending)
     return 0;
 }
 
-static void handle_signal(struct pt_regs *regs, int sig, sighandler_t handler)
+static unsigned long read_user_sp(void)
+{
+    unsigned long sp;
+
+    __asm__ volatile("mrs %0, sp_el0" : "=r"(sp));
+    return sp;
+}
+
+static void write_user_sp(unsigned long sp)
+{
+    __asm__ volatile("msr sp_el0, %0" : : "r"(sp));
+    if (current)
+        current->user_sp = sp;
+}
+
+static int signal_frame_ok(unsigned long sp)
+{
+    unsigned long top;
+    unsigned long bot;
+
+    if (!sp || (sp & 15UL))
+        return 0;
+    if (sp > ~0UL - sizeof(struct signal_frame))
+        return 0;
+
+    if (!current || !current->mm || !current->mm->stack_top)
+        return 0;
+
+    top = current->mm->stack_top;
+    bot = top - PAGE_SIZE;
+    if (sp < bot || sp + sizeof(struct signal_frame) > top)
+        return 0;
+
+    return 1;
+}
+
+static int setup_signal_frame(struct pt_regs *regs, int sig,
+                              sighandler_t handler, void (*restorer)(void))
+{
+    struct signal_frame frame;
+    unsigned long sp;
+
+    if (!restorer)
+        return -EINVAL;
+
+    sp = read_user_sp();
+    if (sp < sizeof(frame) || (sp & 15UL))
+        return -EFAULT;
+
+    copy_pt_regs(&frame.regs, regs);
+    frame.user_sp = sp;
+
+    sp -= sizeof(frame);
+    sp &= ~15UL;
+
+    if (!signal_frame_ok(sp))
+        return -EFAULT;
+
+    if (copy_to_user((void *)sp, &frame, sizeof(frame)))
+        return -EFAULT;
+
+    write_user_sp(sp);
+
+    regs->x0 = (unsigned long)sig;
+    regs->x30 = (unsigned long)restorer;
+    regs->elr_el1 = (unsigned long)handler;
+    return 0;
+}
+
+static void handle_signal(struct pt_regs *regs, int sig, sighandler_t handler,
+                          void (*restorer)(void))
 {
     if (!regs || !handler || handler == SIG_DFL || handler == SIG_IGN)
         return;
 
-    /*
-     * Minimal delivery without a full sigframe: pass sig in x0 and set
-     * LR to the interrupted PC so a plain `ret` resumes user code.
-     */
-    regs->x0 = (unsigned long)sig;
-    regs->x30 = regs->elr_el1;
-    regs->elr_el1 = (unsigned long)handler;
+    if (setup_signal_frame(regs, sig, handler, restorer) < 0)
+        ksys_exit(128 + SIGSEGV);
 }
 
 /*
@@ -121,7 +187,7 @@ void do_signal(struct pt_regs *regs)
         if (task->actions[sig].sa_flags & SA_RESETHAND)
             task->actions[sig].sa_handler = SIG_DFL;
 
-        handle_signal(regs, sig, handler);
+        handle_signal(regs, sig, handler, task->actions[sig].sa_restorer);
         return;
     }
 }
@@ -182,5 +248,30 @@ long ksys_rt_sigaction(int sig, const struct sigaction *act,
         task->actions[sig] = new;
     }
 
+    return 0;
+}
+
+/*
+ * Restore the interrupted context from the user-stack signal frame.
+ * Returns 0 on success. The return value is not a user-visible syscall
+ * result — caller must not write it to regs->x0.
+ */
+long ksys_rt_sigreturn(struct pt_regs *regs)
+{
+    struct signal_frame frame;
+    unsigned long sp;
+
+    if (!regs)
+        return -EINVAL;
+
+    sp = read_user_sp();
+    if (!signal_frame_ok(sp))
+        return -EFAULT;
+
+    if (copy_from_user(&frame, (void *)sp, sizeof(frame)))
+        return -EFAULT;
+
+    copy_pt_regs(regs, &frame.regs);
+    write_user_sp(frame.user_sp);
     return 0;
 }
