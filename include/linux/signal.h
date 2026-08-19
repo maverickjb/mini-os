@@ -13,9 +13,14 @@ struct task_struct;
 struct signal_frame {
 	struct pt_regs regs;
 	unsigned long user_sp;
+	unsigned long blocked;
 };
 
+#define SIG_BIT(sig)		(1UL << (unsigned)(sig))
+#define SIG_UNBLOCKABLE		(SIG_BIT(SIGKILL) | SIG_BIT(SIGSTOP))
+
 struct task_struct *find_task_by_pid(unsigned long pid);
+int signal_pending(struct task_struct *task);
 void do_signal(struct pt_regs *regs);
 long ksys_kill(long pid, int sig);
 long ksys_rt_sigaction(int sig, const struct sigaction *act,

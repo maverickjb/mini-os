@@ -46,23 +46,40 @@ static void signal_queue(struct task_struct *task, int sig)
     if (!task || !signal_valid(sig) || sig == 0)
         return;
 
-    task->pending |= (1UL << sig);
+    task->pending |= SIG_BIT(sig);
 
-    if (task->state == TASK_SLEEPING)
+    if (task->state == TASK_SLEEPING && signal_pending(task))
         wake_up_process(task);
 }
 
-static int next_pending_signal(unsigned long pending)
+int signal_pending(struct task_struct *task)
 {
+    unsigned long blocked;
+    unsigned long ready;
+
+    if (!task)
+        return 0;
+
+    blocked = task->blocked & ~SIG_UNBLOCKABLE;
+    ready = task->pending & ~blocked;
+    return ready != 0;
+}
+
+static int next_pending_signal(unsigned long pending, unsigned long blocked)
+{
+    unsigned long ready;
     int sig;
 
-    if (pending & (1UL << SIGKILL))
+    blocked &= ~SIG_UNBLOCKABLE;
+    ready = pending & ~blocked;
+
+    if (ready & SIG_BIT(SIGKILL))
         return SIGKILL;
-    if (pending & (1UL << SIGSTOP))
+    if (ready & SIG_BIT(SIGSTOP))
         return SIGSTOP;
 
     for (sig = 1; sig < (int)_NSIG_BPW; sig++) {
-        if (pending & (1UL << sig))
+        if (ready & SIG_BIT(sig))
             return sig;
     }
     return 0;
@@ -105,7 +122,8 @@ static int signal_frame_ok(unsigned long sp)
 }
 
 static int setup_signal_frame(struct pt_regs *regs, int sig,
-                              sighandler_t handler, void (*restorer)(void))
+                              sighandler_t handler, void (*restorer)(void),
+                              unsigned long old_blocked)
 {
     struct signal_frame frame;
     unsigned long sp;
@@ -119,6 +137,7 @@ static int setup_signal_frame(struct pt_regs *regs, int sig,
 
     copy_pt_regs(&frame.regs, regs);
     frame.user_sp = sp;
+    frame.blocked = old_blocked;
 
     sp -= sizeof(frame);
     sp &= ~15UL;
@@ -137,14 +156,27 @@ static int setup_signal_frame(struct pt_regs *regs, int sig,
     return 0;
 }
 
-static void handle_signal(struct pt_regs *regs, int sig, sighandler_t handler,
-                          void (*restorer)(void))
+static void handle_signal(struct pt_regs *regs, int sig,
+                          struct sigaction *ka)
 {
-    if (!regs || !handler || handler == SIG_DFL || handler == SIG_IGN)
+    unsigned long old_blocked;
+    unsigned long new_blocked;
+
+    if (!regs || !ka || !ka->sa_handler ||
+        ka->sa_handler == SIG_DFL || ka->sa_handler == SIG_IGN)
         return;
 
-    if (setup_signal_frame(regs, sig, handler, restorer) < 0)
+    old_blocked = current->blocked;
+    new_blocked = old_blocked | ka->sa_mask.sig[0];
+    if (!(ka->sa_flags & SA_NODEFER))
+        new_blocked |= SIG_BIT(sig);
+    new_blocked &= ~SIG_UNBLOCKABLE;
+
+    if (setup_signal_frame(regs, sig, ka->sa_handler, ka->sa_restorer,
+                           old_blocked) < 0)
         ksys_exit(128 + SIGSEGV);
+
+    current->blocked = new_blocked;
 }
 
 /*
@@ -153,6 +185,7 @@ static void handle_signal(struct pt_regs *regs, int sig, sighandler_t handler,
 void do_signal(struct pt_regs *regs)
 {
     struct task_struct *task = current;
+    struct sigaction ka;
     int sig;
     sighandler_t handler;
 
@@ -160,18 +193,19 @@ void do_signal(struct pt_regs *regs)
         return;
 
     for (;;) {
-        sig = next_pending_signal(task->pending);
+        sig = next_pending_signal(task->pending, task->blocked);
         if (!sig)
             return;
 
-        task->pending &= ~(1UL << sig);
+        task->pending &= ~SIG_BIT(sig);
 
         if (sig == SIGKILL) {
             ksys_exit(128 + sig);
             return;
         }
 
-        handler = task->actions[sig].sa_handler;
+        ka = task->actions[sig];
+        handler = ka.sa_handler;
 
         if (handler == SIG_IGN)
             continue;
@@ -184,10 +218,10 @@ void do_signal(struct pt_regs *regs)
             return;
         }
 
-        if (task->actions[sig].sa_flags & SA_RESETHAND)
+        if (ka.sa_flags & SA_RESETHAND)
             task->actions[sig].sa_handler = SIG_DFL;
 
-        handle_signal(regs, sig, handler, task->actions[sig].sa_restorer);
+        handle_signal(regs, sig, &ka);
         return;
     }
 }
@@ -244,7 +278,7 @@ long ksys_rt_sigaction(int sig, const struct sigaction *act,
         if (copy_from_user(&new, act, sizeof(new)))
             return -EFAULT;
 
-        /* sa_mask is stored but not yet applied during delivery. */
+        new.sa_mask.sig[0] &= ~SIG_UNBLOCKABLE;
         task->actions[sig] = new;
     }
 
@@ -273,5 +307,7 @@ long ksys_rt_sigreturn(struct pt_regs *regs)
 
     copy_pt_regs(regs, &frame.regs);
     write_user_sp(frame.user_sp);
+    if (current)
+        current->blocked = frame.blocked & ~SIG_UNBLOCKABLE;
     return 0;
 }

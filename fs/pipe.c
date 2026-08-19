@@ -10,6 +10,7 @@
 #include <linux/errno.h>
 #include <linux/gfp.h>
 #include <linux/stddef.h>
+#include <linux/signal.h>
 #include <asm/irqflags.h>
 
 #define PIPE_SIZE 1024
@@ -114,14 +115,14 @@ retry:
             return 0;
         }
 
-        if (current->pending) {
+        if (signal_pending(current)) {
             local_irq_enable();
             return -EINTR;
         }
 
         local_irq_enable();
         pipe_sleep(&p->read_wait);
-        if (current->pending)
+        if (signal_pending(current))
             return -EINTR;
         goto retry;
     }
@@ -165,14 +166,14 @@ retry:
     }
 
     if (p->len == PIPE_SIZE) {
-        if (current->pending) {
+        if (signal_pending(current)) {
             local_irq_enable();
             return -EINTR;
         }
 
         local_irq_enable();
         pipe_sleep(&p->write_wait);
-        if (current->pending)
+        if (signal_pending(current))
             return -EINTR;
         goto retry;
     }

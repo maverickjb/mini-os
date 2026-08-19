@@ -7,11 +7,31 @@
 #include <signal.h>
 
 static volatile int got_usr1;
+static volatile int got_usr2;
+static volatile int in_usr1;
+static volatile int usr2_nested;
 
 static void sigusr1_mark(int sig)
 {
     (void)sig;
     got_usr1 = 1;
+}
+
+static void sigusr2_mark(int sig)
+{
+    (void)sig;
+    if (in_usr1)
+        usr2_nested = 1;
+    got_usr2 = 1;
+}
+
+static void sigusr1_mask_usr2(int sig)
+{
+    (void)sig;
+    in_usr1 = 1;
+    kill(getpid(), SIGUSR2);
+    got_usr1 = 1;
+    in_usr1 = 0;
 }
 
 int main(void)
@@ -360,5 +380,51 @@ int main(void)
 
     printf("rt_sigaction ok\n");
     printf("rt_sigreturn ok\n");
+
+    {
+        struct sigaction sa;
+        pid_t cpid;
+        pid_t w;
+        int status;
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for sa_mask failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            sa.sa_handler = sigusr2_mark;
+            sa.sa_flags = 0;
+            sa.sa_restorer = 0;
+            sigemptyset(&sa.sa_mask);
+            if (sigaction(SIGUSR2, &sa, NULL) < 0)
+                _exit(1);
+
+            sa.sa_handler = sigusr1_mask_usr2;
+            sa.sa_flags = 0;
+            sa.sa_restorer = 0;
+            sigemptyset(&sa.sa_mask);
+            sigaddset(&sa.sa_mask, SIGUSR2);
+            if (sigaction(SIGUSR1, &sa, NULL) < 0)
+                _exit(1);
+
+            got_usr1 = 0;
+            got_usr2 = 0;
+            usr2_nested = 0;
+            in_usr1 = 0;
+            if (kill(getpid(), SIGUSR1) < 0)
+                _exit(2);
+            if (got_usr1 && got_usr2 && !usr2_nested)
+                _exit(42);
+            _exit(3);
+        }
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || status != 42) {
+            printf("sa_mask expected 42 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("sa_mask ok\n");
     return 0;
 }

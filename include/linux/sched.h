@@ -62,6 +62,7 @@ struct task_struct {
     struct dentry *cwd;
     /* Pending signals bitmask (bit N => signal N). */
     unsigned long pending;
+    unsigned long blocked;
     struct sigaction actions[MAX_SIG];
 };
 

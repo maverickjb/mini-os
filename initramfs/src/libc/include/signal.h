@@ -60,4 +60,20 @@ int rt_sigaction(int sig, const struct sigaction *act,
 int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact);
 void __restore_rt(void);
 
+static inline int sigemptyset(sigset_t *set)
+{
+	if (!set)
+		return -1;
+	set->sig[0] = 0;
+	return 0;
+}
+
+static inline int sigaddset(sigset_t *set, int sig)
+{
+	if (!set || sig <= 0 || sig >= _NSIG)
+		return -1;
+	set->sig[0] |= (1UL << sig);
+	return 0;
+}
+
 #endif /* _LIBC_SIGNAL_H */
