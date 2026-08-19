@@ -20,3 +20,8 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {
     return rt_sigprocmask(how, set, oldset, sizeof(sigset_t));
 }
+
+int sigpending(sigset_t *set)
+{
+    return rt_sigpending(set, sizeof(sigset_t));
+}

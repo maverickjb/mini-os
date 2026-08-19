@@ -476,5 +476,41 @@ int main(void)
     }
 
     printf("rt_sigprocmask ok\n");
+
+    {
+        sigset_t set, pending;
+        pid_t cpid;
+        pid_t w;
+        int status;
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for sigpending failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            sigemptyset(&set);
+            sigaddset(&set, SIGUSR1);
+            if (sigprocmask(SIG_BLOCK, &set, NULL) < 0)
+                _exit(1);
+            if (kill(getpid(), SIGUSR1) < 0)
+                _exit(2);
+            sigemptyset(&pending);
+            if (sigpending(&pending) < 0)
+                _exit(3);
+            if (pending.sig[0] != 0)
+                _exit(4);
+            if (sigprocmask(SIG_UNBLOCK, &set, NULL) < 0)
+                _exit(5);
+            _exit(42);
+        }
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || status != 42) {
+            printf("sigpending expected 42 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("rt_sigpending ok\n");
     return 0;
 }

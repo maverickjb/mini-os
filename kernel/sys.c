@@ -108,6 +108,8 @@ static long handle_syscall(struct pt_regs *regs)
                                    (const sigset_t *)regs->x1,
                                    (sigset_t *)regs->x2,
                                    regs->x3);
+    case __NR_rt_sigpending:
+        return ksys_rt_sigpending((sigset_t *)regs->x0, regs->x1);
     case __NR_getpid:
         return ksys_getpid();
     default:

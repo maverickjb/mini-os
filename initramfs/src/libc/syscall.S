@@ -28,6 +28,7 @@
 .global kill
 .global rt_sigaction
 .global rt_sigprocmask
+.global rt_sigpending
 .global __restore_rt
 .global getpid
 
@@ -48,6 +49,7 @@
 #define __NR_kill   129
 #define __NR_rt_sigaction 134
 #define __NR_rt_sigprocmask 135
+#define __NR_rt_sigpending 136
 #define __NR_rt_sigreturn 139
 #define __NR_getpid 172
 #define __NR_brk    214
@@ -219,6 +221,14 @@ rt_sigaction:
  */
 rt_sigprocmask:
     mov     x8, #__NR_rt_sigprocmask
+    svc     #0
+    ret
+
+/*
+ * int rt_sigpending(sigset_t *set, size_t sigsetsize)
+ */
+rt_sigpending:
+    mov     x8, #__NR_rt_sigpending
     svc     #0
     ret
 

@@ -65,6 +65,8 @@ int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact);
 int rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset,
                    size_t sigsetsize);
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+int rt_sigpending(sigset_t *set, size_t sigsetsize);
+int sigpending(sigset_t *set);
 void __restore_rt(void);
 
 static inline int sigemptyset(sigset_t *set)

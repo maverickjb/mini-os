@@ -1,5 +1,6 @@
 /*
- * Minimal signals — kill / rt_sigaction / rt_sigprocmask / rt_sigreturn.
+ * Minimal signals — kill / rt_sigaction / rt_sigprocmask / rt_sigpending /
+ * rt_sigreturn.
  *
  * Pending bits are delivered in do_signal() on return to userspace:
  *   SIG_DFL  → terminate (exit status 128+sig)
@@ -355,6 +356,30 @@ long ksys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset,
         if (copy_to_user(oldset, &old, sizeof(old)))
             return -EFAULT;
     }
+
+    return 0;
+}
+
+long ksys_rt_sigpending(sigset_t *set, unsigned long sigsetsize)
+{
+    struct task_struct *task = current;
+    sigset_t pending;
+    unsigned long blocked;
+
+    if (!task || !task->is_user)
+        return -EINVAL;
+
+    if (sigsetsize != sizeof(sigset_t))
+        return -EINVAL;
+
+    if (!set)
+        return -EFAULT;
+
+    blocked = task->blocked & ~SIG_UNBLOCKABLE;
+    pending.sig[0] = task->pending & ~blocked;
+
+    if (copy_to_user(set, &pending, sizeof(pending)))
+        return -EFAULT;
 
     return 0;
 }

@@ -43,6 +43,7 @@ long ksys_rt_sigaction(int sig, const struct sigaction *act,
 long ksys_rt_sigreturn(struct pt_regs *regs);
 long ksys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset,
                          unsigned long sigsetsize);
+long ksys_rt_sigpending(sigset_t *set, unsigned long sigsetsize);
 long ksys_getpid(void);
 
 #endif	/* _LINUX_SYSCALLS_H */
