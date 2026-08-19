@@ -53,6 +53,11 @@ static void signal_queue(struct task_struct *task, int sig)
         wake_up_process(task);
 }
 
+void signal_send(struct task_struct *task, int sig)
+{
+    signal_queue(task, sig);
+}
+
 int signal_pending(struct task_struct *task)
 {
     unsigned long blocked;

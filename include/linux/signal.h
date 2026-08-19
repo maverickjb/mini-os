@@ -21,6 +21,7 @@ struct signal_frame {
 
 struct task_struct *find_task_by_pid(unsigned long pid);
 int signal_pending(struct task_struct *task);
+void signal_send(struct task_struct *task, int sig);
 void do_signal(struct pt_regs *regs);
 long ksys_kill(long pid, int sig);
 long ksys_rt_sigaction(int sig, const struct sigaction *act,

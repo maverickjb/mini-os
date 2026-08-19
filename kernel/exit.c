@@ -8,6 +8,7 @@
 #include <linux/stddef.h>
 #include <linux/errno.h>
 #include <linux/uaccess.h>
+#include <linux/signal.h>
 #include <asm/irqflags.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
@@ -32,6 +33,42 @@ static void exit_mm(struct task_struct *task)
 
     task->mm = NULL;
     mm_put(mm);
+}
+
+static void notify_parent_exit(struct task_struct *child)
+{
+    struct task_struct *parent = child->parent;
+
+    if (!parent)
+        return;
+
+    signal_send(parent, SIGCHLD);
+
+    /*
+     * waitpid() sleepers must wake even when SIGCHLD is blocked in the
+     * parent's signal mask.
+     */
+    if (parent->state == TASK_SLEEPING)
+        wake_up_process(parent);
+}
+
+static void do_exit(long code)
+{
+    struct task_struct *task = current;
+
+    task->exit_code = code;
+    exit_files(task);
+    exit_mm(task);
+    task->state = TASK_ZOMBIE;
+
+    notify_parent_exit(task);
+
+    local_irq_enable();
+    schedule();
+
+    uart_puts("do_exit: schedule returned (bug)\n");
+    for (;;)
+        __asm__ volatile("wfi");
 }
 
 static struct task_struct *find_child(struct task_struct *parent, long pid,
@@ -70,27 +107,10 @@ static void free_task(struct task_struct *task)
 
 void ksys_exit(long status)
 {
-    struct task_struct *task = current;
-    struct task_struct *parent;
-
-    if (!task || !task->is_user)
+    if (!current || !current->is_user)
         return;
 
-    task->exit_code = status;
-    exit_files(task);
-    exit_mm(task);
-    task->state = TASK_ZOMBIE;
-
-    parent = task->parent;
-    if (parent && parent->state == TASK_SLEEPING)
-        wake_up_process(parent);
-
-    local_irq_enable();
-    schedule();
-
-    uart_puts("ksys_exit: schedule returned (bug)\n");
-    for (;;)
-        __asm__ volatile("wfi");
+    do_exit(status);
 }
 
 long ksys_wait4(long pid, int *status, long options)
