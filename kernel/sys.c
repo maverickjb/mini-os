@@ -103,6 +103,11 @@ static long handle_syscall(struct pt_regs *regs)
                                  (const struct sigaction *)regs->x1,
                                  (struct sigaction *)regs->x2,
                                  regs->x3);
+    case __NR_rt_sigprocmask:
+        return ksys_rt_sigprocmask((int)regs->x0,
+                                   (const sigset_t *)regs->x1,
+                                   (sigset_t *)regs->x2,
+                                   regs->x3);
     case __NR_getpid:
         return ksys_getpid();
     default:

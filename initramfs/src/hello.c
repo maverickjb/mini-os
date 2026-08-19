@@ -426,5 +426,55 @@ int main(void)
     }
 
     printf("sa_mask ok\n");
+
+    {
+        struct sigaction sa;
+        sigset_t set, old, old2;
+        pid_t cpid;
+        pid_t w;
+        int status;
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for sigprocmask failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            sa.sa_handler = sigusr1_mark;
+            sa.sa_flags = 0;
+            sa.sa_restorer = 0;
+            sigemptyset(&sa.sa_mask);
+            if (sigaction(SIGUSR1, &sa, NULL) < 0)
+                _exit(1);
+
+            got_usr1 = 0;
+            sigemptyset(&set);
+            sigaddset(&set, SIGUSR1);
+            if (sigprocmask(SIG_BLOCK, &set, &old) < 0)
+                _exit(2);
+            if (old.sig[0] != 0)
+                _exit(3);
+            if (sigprocmask(SIG_SETMASK, NULL, &old2) < 0)
+                _exit(4);
+            if (!(old2.sig[0] & (1UL << SIGUSR1)))
+                _exit(5);
+            if (kill(getpid(), SIGUSR1) < 0)
+                _exit(6);
+            if (got_usr1)
+                _exit(7);
+            if (sigprocmask(SIG_UNBLOCK, &set, NULL) < 0)
+                _exit(8);
+            if (!got_usr1)
+                _exit(9);
+            _exit(42);
+        }
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || status != 42) {
+            printf("sigprocmask expected 42 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("rt_sigprocmask ok\n");
     return 0;
 }

@@ -54,6 +54,10 @@ typedef void (*sighandler_t)(int);
 #define SIG_DFL		((sighandler_t)0)
 #define SIG_IGN		((sighandler_t)1)
 
+#define SIG_BLOCK	0
+#define SIG_UNBLOCK	1
+#define SIG_SETMASK	2
+
 #define SA_NOCLDSTOP	0x00000001
 #define SA_NOCLDWAIT	0x00000002
 #define SA_SIGINFO	0x00000004

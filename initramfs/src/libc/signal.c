@@ -15,3 +15,8 @@ int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
 
     return rt_sigaction(sig, act, oldact, sizeof(sigset_t));
 }
+
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+    return rt_sigprocmask(how, set, oldset, sizeof(sigset_t));
+}

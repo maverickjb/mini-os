@@ -1,5 +1,5 @@
 /*
- * Minimal signals — kill(2) / rt_sigaction(2) / rt_sigreturn(2).
+ * Minimal signals — kill / rt_sigaction / rt_sigprocmask / rt_sigreturn.
  *
  * Pending bits are delivered in do_signal() on return to userspace:
  *   SIG_DFL  → terminate (exit status 128+sig)
@@ -309,5 +309,52 @@ long ksys_rt_sigreturn(struct pt_regs *regs)
     write_user_sp(frame.user_sp);
     if (current)
         current->blocked = frame.blocked & ~SIG_UNBLOCKABLE;
+    return 0;
+}
+
+long ksys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset,
+                         unsigned long sigsetsize)
+{
+    struct task_struct *task = current;
+    sigset_t old;
+    sigset_t newset;
+    unsigned long newmask;
+
+    if (!task || !task->is_user)
+        return -EINVAL;
+
+    if (sigsetsize != sizeof(sigset_t))
+        return -EINVAL;
+
+    old.sig[0] = task->blocked;
+
+    if (set) {
+        if (copy_from_user(&newset, set, sizeof(newset)))
+            return -EFAULT;
+
+        newset.sig[0] &= ~SIG_UNBLOCKABLE;
+
+        switch (how) {
+        case SIG_BLOCK:
+            newmask = old.sig[0] | newset.sig[0];
+            break;
+        case SIG_UNBLOCK:
+            newmask = old.sig[0] & ~newset.sig[0];
+            break;
+        case SIG_SETMASK:
+            newmask = newset.sig[0];
+            break;
+        default:
+            return -EINVAL;
+        }
+
+        task->blocked = newmask;
+    }
+
+    if (oldset) {
+        if (copy_to_user(oldset, &old, sizeof(old)))
+            return -EFAULT;
+    }
+
     return 0;
 }
