@@ -67,6 +67,8 @@ int rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset,
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 int rt_sigpending(sigset_t *set, size_t sigsetsize);
 int sigpending(sigset_t *set);
+int rt_sigsuspend(const sigset_t *unewset, size_t sigsetsize);
+int sigsuspend(const sigset_t *mask);
 void __restore_rt(void);
 
 static inline int sigemptyset(sigset_t *set)

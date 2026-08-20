@@ -110,6 +110,8 @@ static long handle_syscall(struct pt_regs *regs)
                                    regs->x3);
     case __NR_rt_sigpending:
         return ksys_rt_sigpending((sigset_t *)regs->x0, regs->x1);
+    case __NR_rt_sigsuspend:
+        return ksys_rt_sigsuspend((const sigset_t *)regs->x0, regs->x1);
     case __NR_getpid:
         return ksys_getpid();
     default:
@@ -135,6 +137,10 @@ void syscall_handler(struct pt_regs *regs)
         if (ksys_rt_sigreturn(regs) < 0)
             ksys_exit(128 + SIGSEGV);
         do_signal(regs);
+        if (current && current->restore_sigmask) {
+            current->blocked = current->saved_blocked & ~SIG_UNBLOCKABLE;
+            current->restore_sigmask = 0;
+        }
         return;
     }
 
@@ -146,4 +152,9 @@ void syscall_handler(struct pt_regs *regs)
      * enabling here races with staging ELR/SPSR for EL0.
      */
     do_signal(regs);
+
+    if (current && current->restore_sigmask) {
+        current->blocked = current->saved_blocked & ~SIG_UNBLOCKABLE;
+        current->restore_sigmask = 0;
+    }
 }

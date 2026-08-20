@@ -81,6 +81,8 @@ static void task_zero(struct task_struct *tsk)
     tsk->cwd = NULL; /* NULL => root */
     tsk->pending = 0;
     tsk->blocked = 0;
+    tsk->saved_blocked = 0;
+    tsk->restore_sigmask = 0;
     memset(tsk->actions, 0, sizeof(tsk->actions)); /* SIG_DFL */
 
     for (i = 0; i < NR_OPEN; i++)

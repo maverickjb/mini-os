@@ -30,5 +30,6 @@ long ksys_rt_sigreturn(struct pt_regs *regs);
 long ksys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset,
                          unsigned long sigsetsize);
 long ksys_rt_sigpending(sigset_t *set, unsigned long sigsetsize);
+long ksys_rt_sigsuspend(const sigset_t *unewset, unsigned long sigsetsize);
 
 #endif /* _LINUX_SIGNAL_H */

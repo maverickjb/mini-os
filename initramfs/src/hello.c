@@ -512,5 +512,74 @@ int main(void)
     }
 
     printf("rt_sigpending ok\n");
+
+    {
+        struct sigaction sa;
+        sigset_t block, wait, old;
+        int ready[2];
+        pid_t cpid;
+        pid_t w;
+        int status;
+        char c;
+        volatile int i;
+
+        if (pipe(ready) < 0) {
+            printf("pipe for sigsuspend failed\n");
+            return 1;
+        }
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for sigsuspend failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            close(ready[0]);
+            sa.sa_handler = sigusr1_mark;
+            sa.sa_flags = 0;
+            sa.sa_restorer = 0;
+            sigemptyset(&sa.sa_mask);
+            if (sigaction(SIGUSR1, &sa, NULL) < 0)
+                _exit(1);
+
+            got_usr1 = 0;
+            sigemptyset(&block);
+            sigaddset(&block, SIGUSR1);
+            if (sigprocmask(SIG_BLOCK, &block, NULL) < 0)
+                _exit(2);
+
+            write(ready[1], "r", 1);
+            close(ready[1]);
+
+            sigemptyset(&wait);
+            if (sigsuspend(&wait) != -EINTR)
+                _exit(3);
+            if (!got_usr1)
+                _exit(4);
+            if (sigprocmask(SIG_SETMASK, NULL, &old) < 0)
+                _exit(5);
+            if (!(old.sig[0] & (1UL << SIGUSR1)))
+                _exit(6);
+            _exit(42);
+        }
+        close(ready[1]);
+        if (read(ready[0], &c, 1) != 1) {
+            printf("sigsuspend ready sync failed\n");
+            return 1;
+        }
+        close(ready[0]);
+        for (i = 0; i < 100000; i++)
+            ;
+        if (kill(cpid, SIGUSR1) < 0) {
+            printf("kill sigsuspend child failed\n");
+            return 1;
+        }
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || status != 42) {
+            printf("sigsuspend expected 42 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("rt_sigsuspend ok\n");
     return 0;
 }

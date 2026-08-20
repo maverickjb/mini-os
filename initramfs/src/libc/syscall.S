@@ -29,6 +29,7 @@
 .global rt_sigaction
 .global rt_sigprocmask
 .global rt_sigpending
+.global rt_sigsuspend
 .global __restore_rt
 .global getpid
 
@@ -47,6 +48,7 @@
 #define __NR_fstat  80
 #define __NR_exit   93
 #define __NR_kill   129
+#define __NR_rt_sigsuspend 133
 #define __NR_rt_sigaction 134
 #define __NR_rt_sigprocmask 135
 #define __NR_rt_sigpending 136
@@ -229,6 +231,14 @@ rt_sigprocmask:
  */
 rt_sigpending:
     mov     x8, #__NR_rt_sigpending
+    svc     #0
+    ret
+
+/*
+ * int rt_sigsuspend(const sigset_t *unewset, size_t sigsetsize)
+ */
+rt_sigsuspend:
+    mov     x8, #__NR_rt_sigsuspend
     svc     #0
     ret
 

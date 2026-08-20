@@ -1,6 +1,6 @@
 /*
  * Minimal signals — kill / rt_sigaction / rt_sigprocmask / rt_sigpending /
- * rt_sigreturn.
+ * rt_sigsuspend / rt_sigreturn.
  *
  * Pending bits are delivered in do_signal() on return to userspace:
  *   SIG_DFL  → terminate (exit status 128+sig)
@@ -17,6 +17,7 @@
 #include <linux/uaccess.h>
 #include <linux/gfp.h>
 #include <linux/mm.h>
+#include <asm/irqflags.h>
 
 struct task_struct *find_task_by_pid(unsigned long pid)
 {
@@ -173,7 +174,11 @@ static void handle_signal(struct pt_regs *regs, int sig,
         return;
 
     old_blocked = current->blocked;
-    new_blocked = old_blocked | ka->sa_mask.sig[0];
+    if (current->restore_sigmask) {
+        old_blocked = current->saved_blocked;
+        current->restore_sigmask = 0;
+    }
+    new_blocked = current->blocked | ka->sa_mask.sig[0];
     if (!(ka->sa_flags & SA_NODEFER))
         new_blocked |= SIG_BIT(sig);
     new_blocked &= ~SIG_UNBLOCKABLE;
@@ -387,4 +392,37 @@ long ksys_rt_sigpending(sigset_t *set, unsigned long sigsetsize)
         return -EFAULT;
 
     return 0;
+}
+
+long ksys_rt_sigsuspend(const sigset_t *unewset, unsigned long sigsetsize)
+{
+    struct task_struct *task = current;
+    sigset_t newset;
+
+    if (!task || !task->is_user)
+        return -EINVAL;
+
+    if (sigsetsize != sizeof(sigset_t))
+        return -EINVAL;
+
+    if (!unewset)
+        return -EFAULT;
+
+    if (copy_from_user(&newset, unewset, sizeof(newset)))
+        return -EFAULT;
+
+    task->saved_blocked = task->blocked;
+    task->restore_sigmask = 1;
+    task->blocked = newset.sig[0] & ~SIG_UNBLOCKABLE;
+
+    while (!signal_pending(task)) {
+        task->state = TASK_SLEEPING;
+        local_irq_enable();
+        schedule();
+        local_irq_disable();
+        task->state = TASK_RUNNING;
+        task->time_slice = SCHED_TIME_SLICE;
+    }
+
+    return -EINTR;
 }

@@ -25,3 +25,8 @@ int sigpending(sigset_t *set)
 {
     return rt_sigpending(set, sizeof(sigset_t));
 }
+
+int sigsuspend(const sigset_t *mask)
+{
+    return rt_sigsuspend(mask, sizeof(sigset_t));
+}

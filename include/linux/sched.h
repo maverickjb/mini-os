@@ -63,6 +63,9 @@ struct task_struct {
     /* Pending signals bitmask (bit N => signal N). */
     unsigned long pending;
     unsigned long blocked;
+    /* Pre-rt_sigsuspend mask; restored after delivery / syscall return. */
+    unsigned long saved_blocked;
+    int restore_sigmask;
     struct sigaction actions[MAX_SIG];
 };
 
