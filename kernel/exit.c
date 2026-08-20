@@ -9,6 +9,7 @@
 #include <linux/errno.h>
 #include <linux/uaccess.h>
 #include <linux/signal.h>
+#include <linux/wait.h>
 #include <asm/irqflags.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
@@ -118,8 +119,6 @@ long ksys_wait4(long pid, int *status, long options)
     struct task_struct *parent = current;
     struct task_struct *child;
 
-    (void)options;
-
     if (!parent || !parent->is_user)
         return -EINVAL;
 
@@ -127,7 +126,7 @@ long ksys_wait4(long pid, int *status, long options)
         return -EINVAL;
 
     for (;;) {
-        child = find_child(current, pid, TASK_ZOMBIE);
+        child = find_child(parent, pid, TASK_ZOMBIE);
         if (child) {
             long ret = (long)child->pid;
 
@@ -142,14 +141,17 @@ long ksys_wait4(long pid, int *status, long options)
             return ret;
         }
 
-        if (!find_child(current, pid, -1))
+        if (!find_child(parent, pid, -1))
             return -ECHILD;
 
-        current->state = TASK_SLEEPING;
+        if (options & WNOHANG)
+            return 0;
+
+        parent->state = TASK_SLEEPING;
         local_irq_enable();
         schedule();
         local_irq_disable();
-        current->state = TASK_RUNNING;
-        current->time_slice = SCHED_TIME_SLICE;
+        parent->state = TASK_RUNNING;
+        parent->time_slice = SCHED_TIME_SLICE;
     }
 }

@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/wait.h>
 
 static volatile int got_usr1;
 static volatile int got_usr2;
@@ -581,5 +582,42 @@ int main(void)
     }
 
     printf("rt_sigsuspend ok\n");
+
+    {
+        int fds[2];
+        pid_t cpid;
+        pid_t w;
+        int status;
+        char c;
+
+        if (pipe(fds) < 0) {
+            printf("pipe for WNOHANG failed\n");
+            return 1;
+        }
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for WNOHANG failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            close(fds[1]);
+            read(fds[0], &c, 1);
+            _exit(7);
+        }
+        close(fds[0]);
+        w = waitpid(cpid, &status, WNOHANG);
+        if (w != 0) {
+            printf("WNOHANG expected 0 got %d\n", (int)w);
+            return 1;
+        }
+        close(fds[1]);
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || status != 7) {
+            printf("wait after WNOHANG expected 7 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("WNOHANG ok\n");
     return 0;
 }
