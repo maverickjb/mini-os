@@ -135,7 +135,7 @@ void syscall_handler(struct pt_regs *regs)
      */
     if (regs->x8 == __NR_rt_sigreturn) {
         if (ksys_rt_sigreturn(regs) < 0)
-            ksys_exit(128 + SIGSEGV);
+            do_exit(SIGSEGV);
         do_signal(regs);
         if (current && current->restore_sigmask) {
             current->blocked = current->saved_blocked & ~SIG_UNBLOCKABLE;

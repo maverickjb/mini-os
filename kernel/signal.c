@@ -3,7 +3,7 @@
  * rt_sigsuspend / rt_sigreturn.
  *
  * Pending bits are delivered in do_signal() on return to userspace:
- *   SIG_DFL  → terminate (exit status 128+sig)
+ *   SIG_DFL  → terminate (wait status = signal number)
  *   SIG_IGN  → drop
  *   handler  → user stack frame, ELR=handler, LR=sa_restorer (rt_sigreturn)
  */
@@ -185,7 +185,7 @@ static void handle_signal(struct pt_regs *regs, int sig,
 
     if (setup_signal_frame(regs, sig, ka->sa_handler, ka->sa_restorer,
                            old_blocked) < 0)
-        ksys_exit(128 + SIGSEGV);
+        do_exit(SIGSEGV);
 
     current->blocked = new_blocked;
 }
@@ -211,7 +211,7 @@ void do_signal(struct pt_regs *regs)
         task->pending &= ~SIG_BIT(sig);
 
         if (sig == SIGKILL) {
-            ksys_exit(128 + sig);
+            do_exit(SIGKILL);
             return;
         }
 
@@ -225,7 +225,7 @@ void do_signal(struct pt_regs *regs)
             /* Default: terminate (ignore stop/cont for now). */
             if (sig == SIGCHLD || sig == SIGURG || sig == SIGWINCH)
                 continue;
-            ksys_exit(128 + sig);
+            do_exit(sig & 0x7f);
             return;
         }
 

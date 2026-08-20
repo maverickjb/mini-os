@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 int main(void)
 {
@@ -33,7 +34,10 @@ int main(void)
         exit(1);
     }
 
-    printf("child exited status=%d\n", status);
+    if (WIFEXITED(status))
+        printf("child exited status=%d\n", WEXITSTATUS(status));
+    else
+        printf("child exited status=%d\n", status);
 
     for (;;)
         ;

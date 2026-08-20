@@ -53,7 +53,7 @@ static void notify_parent_exit(struct task_struct *child)
         wake_up_process(parent);
 }
 
-static void do_exit(long code)
+void do_exit(long code)
 {
     struct task_struct *task = current;
 
@@ -113,7 +113,8 @@ void ksys_exit(long status)
     if (!current || !current->is_user)
         return;
 
-    do_exit(status);
+    /* Linux wait status: (exit_code & 0xff) << 8 */
+    do_exit((status & 0xff) << 8);
 }
 
 long ksys_wait4(long pid, int *status, long options)

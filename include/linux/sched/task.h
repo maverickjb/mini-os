@@ -18,5 +18,6 @@ void switch_to(struct task_struct *prev, struct task_struct *next);
 void task_user_ctx_init(struct task_struct *task);
 void ret_from_fork(void) __attribute__((noreturn));
 void finish_eret(struct pt_regs *regs) __attribute__((noreturn));
+void do_exit(long code) __attribute__((noreturn));
 
 #endif /* _LINUX_SCHED_TASK_H */

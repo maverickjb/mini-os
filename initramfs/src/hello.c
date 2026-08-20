@@ -293,8 +293,8 @@ int main(void)
             printf("waitpid after kill failed\n");
             return 1;
         }
-        if (status != 128 + SIGTERM) {
-            printf("kill status expected %d got %d\n", 128 + SIGTERM, status);
+        if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGTERM) {
+            printf("kill status expected SIGTERM got %d\n", status);
             return 1;
         }
     }
@@ -373,7 +373,7 @@ int main(void)
         }
         w = waitpid(cpid, &status, 0);
         close(fds[1]);
-        if (w != cpid || status != 42) {
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
             printf("sigaction handler expected 42 got %d\n", status);
             return 1;
         }
@@ -420,7 +420,7 @@ int main(void)
             _exit(3);
         }
         w = waitpid(cpid, &status, 0);
-        if (w != cpid || status != 42) {
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
             printf("sa_mask expected 42 got %d\n", status);
             return 1;
         }
@@ -470,7 +470,7 @@ int main(void)
             _exit(42);
         }
         w = waitpid(cpid, &status, 0);
-        if (w != cpid || status != 42) {
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
             printf("sigprocmask expected 42 got %d\n", status);
             return 1;
         }
@@ -506,7 +506,7 @@ int main(void)
             _exit(42);
         }
         w = waitpid(cpid, &status, 0);
-        if (w != cpid || status != 42) {
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
             printf("sigpending expected 42 got %d\n", status);
             return 1;
         }
@@ -575,7 +575,7 @@ int main(void)
             return 1;
         }
         w = waitpid(cpid, &status, 0);
-        if (w != cpid || status != 42) {
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
             printf("sigsuspend expected 42 got %d\n", status);
             return 1;
         }
@@ -612,7 +612,7 @@ int main(void)
         }
         close(fds[1]);
         w = waitpid(cpid, &status, 0);
-        if (w != cpid || status != 7) {
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 7) {
             printf("wait after WNOHANG expected 7 got %d\n", status);
             return 1;
         }
@@ -645,9 +645,9 @@ int main(void)
             _exit(22);
 
         w = waitpid(-1, &status, 0);
-        if (w == a && status == 11)
+        if (w == a && WIFEXITED(status) && WEXITSTATUS(status) == 11)
             got_a = 1;
-        else if (w == b && status == 22)
+        else if (w == b && WIFEXITED(status) && WEXITSTATUS(status) == 22)
             got_b = 1;
         else {
             printf("wait(-1) first unexpected pid=%d status=%d\n", (int)w, status);
@@ -655,9 +655,9 @@ int main(void)
         }
 
         w = waitpid(-1, &status, 0);
-        if (w == a && status == 11)
+        if (w == a && WIFEXITED(status) && WEXITSTATUS(status) == 11)
             got_a = 1;
-        else if (w == b && status == 22)
+        else if (w == b && WIFEXITED(status) && WEXITSTATUS(status) == 22)
             got_b = 1;
         else {
             printf("wait(-1) second unexpected pid=%d status=%d\n", (int)w, status);
