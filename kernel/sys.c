@@ -84,7 +84,7 @@ static long handle_syscall(struct pt_regs *regs)
         ksys_exit((long)regs->x0);
         return 0; /* not reached */
     case __NR_wait4:
-        return ksys_wait4((long)regs->x0, (int *)regs->x1, (long)regs->x2);
+        return ksys_wait4((int)regs->x0, (int *)regs->x1, (long)regs->x2);
     case __NR_execve:
         return ksys_execve(regs, (const char *)regs->x0,
                            (char *const *)regs->x1,

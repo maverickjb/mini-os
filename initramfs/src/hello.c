@@ -619,5 +619,63 @@ int main(void)
     }
 
     printf("WNOHANG ok\n");
+
+    {
+        pid_t a;
+        pid_t b;
+        pid_t w;
+        int status;
+        int got_a = 0;
+        int got_b = 0;
+
+        a = fork();
+        if (a < 0) {
+            printf("fork a for wait(-1) failed\n");
+            return 1;
+        }
+        if (a == 0)
+            _exit(11);
+
+        b = fork();
+        if (b < 0) {
+            printf("fork b for wait(-1) failed\n");
+            return 1;
+        }
+        if (b == 0)
+            _exit(22);
+
+        w = waitpid(-1, &status, 0);
+        if (w == a && status == 11)
+            got_a = 1;
+        else if (w == b && status == 22)
+            got_b = 1;
+        else {
+            printf("wait(-1) first unexpected pid=%d status=%d\n", (int)w, status);
+            return 1;
+        }
+
+        w = waitpid(-1, &status, 0);
+        if (w == a && status == 11)
+            got_a = 1;
+        else if (w == b && status == 22)
+            got_b = 1;
+        else {
+            printf("wait(-1) second unexpected pid=%d status=%d\n", (int)w, status);
+            return 1;
+        }
+
+        if (!got_a || !got_b) {
+            printf("wait(-1) missed a child\n");
+            return 1;
+        }
+
+        w = waitpid(-1, &status, WNOHANG);
+        if (w > 0) {
+            printf("wait(-1) extra child pid=%d\n", (int)w);
+            return 1;
+        }
+    }
+
+    printf("wait(-1) ok\n");
     return 0;
 }

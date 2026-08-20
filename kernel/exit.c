@@ -73,23 +73,25 @@ static void do_exit(long code)
 }
 
 static struct task_struct *find_child(struct task_struct *parent, long pid,
-                                      int want_state)
+                                      int state)
 {
-    struct task_struct *walk;
-    struct task_struct *start;
+    struct task_struct *child;
 
-    if (!runqueue || !parent)
+    if (!parent)
         return NULL;
 
-    walk = start = runqueue;
+    for (child = runqueue; child; child = child->next) {
+        if (child->parent != parent)
+            continue;
 
-    do {
-        if (walk->parent == parent && walk->pid == (unsigned long)pid) {
-            if (want_state < 0 || walk->state == (enum task_state)want_state)
-                return walk;
-        }
-        walk = walk->next ? walk->next : runqueue;
-    } while (walk != start);
+        if (pid != -1 && child->pid != (unsigned long)pid)
+            continue;
+
+        if (state != -1 && child->state != (enum task_state)state)
+            continue;
+
+        return child;
+    }
 
     return NULL;
 }
@@ -122,7 +124,7 @@ long ksys_wait4(long pid, int *status, long options)
     if (!parent || !parent->is_user)
         return -EINVAL;
 
-    if (pid <= 0)
+    if (pid < -1 || pid == 0)
         return -EINVAL;
 
     for (;;) {

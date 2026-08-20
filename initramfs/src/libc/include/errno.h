@@ -8,6 +8,7 @@
 #define E2BIG            7
 #define ENOEXEC          8
 #define EBADF            9
+#define ECHILD          10
 #define ENOMEM          12
 #define EFAULT          14
 #define EEXIST          17
