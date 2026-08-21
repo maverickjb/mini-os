@@ -18,7 +18,6 @@
 #include <linux/uaccess.h>
 #include <linux/gfp.h>
 #include <linux/mm.h>
-#include <linux/wait.h>
 #include <asm/irqflags.h>
 
 struct task_struct *find_task_by_pid(unsigned long pid)
@@ -59,8 +58,9 @@ static void signal_queue(struct task_struct *task, int sig)
         task->pending &= ~SIG_BIT(SIGCONT);
 
     if (task->state == TASK_STOPPED && sig == SIGCONT) {
-        task->exit_code = W_CONTINUED;
-        do_notify_parent(task);
+        task->state = TASK_RUNNING;
+        task->wait_event = CHILD_EVENT_CONTINUED;
+        notify_parent_continue(task);
         wake_up_process(task);
     } else if (task->state == TASK_SLEEPING && signal_pending(task)) {
         wake_up_process(task);
@@ -186,9 +186,10 @@ static void do_signal_stop(void)
 {
     struct task_struct *task = current;
 
-    task->exit_code = W_STOPCODE(SIGSTOP);
+    task->stop_signal = SIGSTOP;
+    task->wait_event = CHILD_EVENT_STOPPED;
     task->state = TASK_STOPPED;
-    do_notify_parent(task);
+    notify_parent_stop(task);
     local_irq_enable();
     schedule();
     local_irq_disable();

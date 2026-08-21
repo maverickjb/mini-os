@@ -19,6 +19,7 @@ void task_user_ctx_init(struct task_struct *task);
 void ret_from_fork(void) __attribute__((noreturn));
 void finish_eret(struct pt_regs *regs) __attribute__((noreturn));
 void do_exit(long code) __attribute__((noreturn));
-void do_notify_parent(struct task_struct *child);
+void notify_parent_stop(struct task_struct *child);
+void notify_parent_continue(struct task_struct *child);
 
 #endif /* _LINUX_SCHED_TASK_H */

@@ -21,6 +21,12 @@ enum task_state {
     TASK_DEAD,
 };
 
+enum child_event {
+    CHILD_EVENT_NONE,
+    CHILD_EVENT_STOPPED,
+    CHILD_EVENT_CONTINUED,
+};
+
 struct cpu_context {
     unsigned long x19;
     unsigned long x20;
@@ -56,7 +62,10 @@ struct task_struct {
      * or a fabricated frame at stack top for a newly forked/exec'd task.
      */
     struct pt_regs *regs;
-    long exit_code;
+    int exit_code;
+    int exit_signal;
+    int stop_signal;
+    enum child_event wait_event;
     /* PSTATE.{D,A,I,F} — saved/restored across switch_to */
     unsigned long daif;
     /* Working directory dentry (NULL means root). */

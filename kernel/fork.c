@@ -77,6 +77,9 @@ static void task_zero(struct task_struct *tsk)
     tsk->user_sp = 0;
     tsk->regs = NULL;
     tsk->exit_code = 0;
+    tsk->exit_signal = 0;
+    tsk->stop_signal = 0;
+    tsk->wait_event = CHILD_EVENT_NONE;
     tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
     tsk->cwd = NULL; /* NULL => root */
     tsk->pending = 0;
@@ -248,6 +251,7 @@ long ksys_fork(struct pt_regs *regs)
     child->is_user = 1;
     child->stack = stack;
     child->parent = parent;
+    child->exit_signal = SIGCHLD;
     child->mm = dup_mm(parent->mm);
     if (!child->mm) {
         free_pages(stack, 0);

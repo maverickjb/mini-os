@@ -36,9 +36,10 @@ static void exit_mm(struct task_struct *task)
     mm_put(mm);
 }
 
-void do_notify_parent(struct task_struct *child)
+static void notify_parent(struct task_struct *child)
 {
     struct task_struct *parent;
+    int sig;
 
     if (!child)
         return;
@@ -47,7 +48,10 @@ void do_notify_parent(struct task_struct *child)
     if (!parent)
         return;
 
-    signal_send(parent, SIGCHLD);
+    sig = child->exit_signal;
+    if (!sig)
+        sig = SIGCHLD;
+    signal_send(parent, sig);
 
     /*
      * waitpid() sleepers must wake even when SIGCHLD is blocked in the
@@ -57,16 +61,27 @@ void do_notify_parent(struct task_struct *child)
         wake_up_process(parent);
 }
 
+void notify_parent_stop(struct task_struct *child)
+{
+    notify_parent(child);
+}
+
+void notify_parent_continue(struct task_struct *child)
+{
+    notify_parent(child);
+}
+
 void do_exit(long code)
 {
     struct task_struct *task = current;
 
-    task->exit_code = code;
+    task->exit_code = (int)code;
+    task->wait_event = CHILD_EVENT_NONE;
     exit_files(task);
     exit_mm(task);
     task->state = TASK_ZOMBIE;
 
-    do_notify_parent(task);
+    notify_parent(task);
 
     local_irq_enable();
     schedule();
@@ -138,7 +153,7 @@ long ksys_wait4(long pid, int *status, long options)
             long ret = (long)child->pid;
 
             if (status) {
-                int code = (int)child->exit_code;
+                int code = child->exit_code;
 
                 if (copy_to_user(status, &code, sizeof(code)))
                     return -EFAULT;
@@ -156,16 +171,14 @@ long ksys_wait4(long pid, int *status, long options)
                     continue;
                 if (pid != -1 && child->pid != (unsigned long)pid)
                     continue;
-                if (child->state != TASK_STOPPED)
-                    continue;
-                if ((child->exit_code & 0xff) != 0x7f)
+                if (child->wait_event != CHILD_EVENT_STOPPED)
                     continue;
 
-                code = (int)child->exit_code;
+                code = (child->stop_signal << 8) | 0x7f;
                 if (status &&
                     copy_to_user(status, &code, sizeof(code)))
                     return -EFAULT;
-                child->exit_code = 0;
+                child->wait_event = CHILD_EVENT_NONE;
                 return (long)child->pid;
             }
         }
@@ -178,17 +191,14 @@ long ksys_wait4(long pid, int *status, long options)
                     continue;
                 if (pid != -1 && child->pid != (unsigned long)pid)
                     continue;
-                if (child->state == TASK_ZOMBIE ||
-                    child->state == TASK_DEAD)
-                    continue;
-                if (child->exit_code != W_CONTINUED)
+                if (child->wait_event != CHILD_EVENT_CONTINUED)
                     continue;
 
                 code = W_CONTINUED;
                 if (status &&
                     copy_to_user(status, &code, sizeof(code)))
                     return -EFAULT;
-                child->exit_code = 0;
+                child->wait_event = CHILD_EVENT_NONE;
                 return (long)child->pid;
             }
         }
