@@ -18,6 +18,26 @@ long ksys_getpgrp(void)
     return (long)current->pgid;
 }
 
+static int pgid_exists(unsigned long pgid)
+{
+    struct task_struct *walk;
+    struct task_struct *start;
+
+    if (!runqueue || pgid == 0)
+        return 0;
+
+    walk = start = runqueue;
+    do {
+        if (walk->is_user &&
+            walk->state != TASK_ZOMBIE && walk->state != TASK_DEAD &&
+            walk->pgid == pgid)
+            return 1;
+        walk = walk->next ? walk->next : runqueue;
+    } while (walk != start);
+
+    return 0;
+}
+
 long ksys_setpgid(pid_t pid, pid_t pgid)
 {
     struct task_struct *task;
@@ -46,10 +66,10 @@ long ksys_setpgid(pid_t pid, pid_t pgid)
         return -ESRCH;
 
     /*
-     * First version: only allow creating a group
-     * whose PGID equals the target PID.
+     * Create a new group (pgid == pid) or join an existing one
+     * (some live task already has that pgid), e.g. setpgid(102, 101).
      */
-    if (pgid != pid)
+    if (pgid != pid && !pgid_exists((unsigned long)pgid))
         return -EPERM;
 
     task->pgid = (unsigned long)pgid;

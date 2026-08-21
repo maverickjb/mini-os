@@ -301,8 +301,8 @@ int main(void)
             printf("setpgid expected pgid %d got %d\n", (int)me, (int)getpgrp());
             return 1;
         }
-        if (setpgid(0, 1) != -EPERM) {
-            printf("setpgid(0, 1) expected EPERM\n");
+        if (setpgid(0, 99999) != -EPERM) {
+            printf("setpgid nonexistent group expected EPERM\n");
             return 1;
         }
 
@@ -322,6 +322,53 @@ int main(void)
         if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             printf("setpgid child expected 0 got %d\n", status);
             return 1;
+        }
+
+        /* Join: child leaves, parent puts it into the parent's group. */
+        {
+            int ready[2];
+            int go[2];
+            char c;
+
+            if (pipe(ready) < 0 || pipe(go) < 0) {
+                printf("pipe for setpgid join failed\n");
+                return 1;
+            }
+            cpid = fork();
+            if (cpid < 0) {
+                printf("fork for setpgid join failed\n");
+                return 1;
+            }
+            if (cpid == 0) {
+                close(ready[0]);
+                close(go[1]);
+                if (setpgid(0, 0) != 0)
+                    _exit(1);
+                write(ready[1], "r", 1);
+                if (read(go[0], &c, 1) != 1)
+                    _exit(2);
+                if (getpgrp() != me)
+                    _exit(3);
+                _exit(0);
+            }
+            close(ready[1]);
+            close(go[0]);
+            if (read(ready[0], &c, 1) != 1) {
+                printf("setpgid join ready failed\n");
+                return 1;
+            }
+            if (setpgid(cpid, me) != 0) {
+                printf("setpgid join failed\n");
+                return 1;
+            }
+            write(go[1], "g", 1);
+            w = waitpid(cpid, &status, 0);
+            close(ready[0]);
+            close(go[1]);
+            if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+                printf("setpgid join expected 0 got %d\n", status);
+                return 1;
+            }
         }
     }
 
