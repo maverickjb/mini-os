@@ -287,6 +287,47 @@ int main(void)
     printf("getpgrp ok\n");
 
     {
+        pid_t me;
+        pid_t cpid;
+        pid_t w;
+        int status;
+
+        me = getpid();
+        if (setpgid(0, 0) != 0) {
+            printf("setpgid(0, 0) failed\n");
+            return 1;
+        }
+        if (getpgrp() != me) {
+            printf("setpgid expected pgid %d got %d\n", (int)me, (int)getpgrp());
+            return 1;
+        }
+        if (setpgid(0, 1) != -EPERM) {
+            printf("setpgid(0, 1) expected EPERM\n");
+            return 1;
+        }
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for setpgid failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            if (setpgid(0, 0) != 0)
+                _exit(1);
+            if (getpgrp() != getpid())
+                _exit(2);
+            _exit(0);
+        }
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            printf("setpgid child expected 0 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("setpgid ok\n");
+
+    {
         int fds[2];
         pid_t cpid;
         pid_t w;

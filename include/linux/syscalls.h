@@ -47,5 +47,6 @@ long ksys_rt_sigpending(sigset_t *set, unsigned long sigsetsize);
 long ksys_rt_sigsuspend(const sigset_t *unewset, unsigned long sigsetsize);
 long ksys_getpid(void);
 long ksys_getpgrp(void);
+long ksys_setpgid(int pid, int pgid);
 
 #endif	/* _LINUX_SYSCALLS_H */

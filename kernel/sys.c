@@ -118,6 +118,8 @@ static long handle_syscall(struct pt_regs *regs)
         if ((long)regs->x0 != 0)
             return -EINVAL;
         return ksys_getpgrp();
+    case __NR_setpgid:
+        return ksys_setpgid((int)regs->x0, (int)regs->x1);
     default:
         return -ENOSYS;
     }
