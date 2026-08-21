@@ -64,7 +64,7 @@ Headers live under `include/linux` and `include/asm` so files look like kernel c
 - `kernel/head.S` — EL1 entry, early stack, jump to C.
 - `mmu_enable.S` — identity and high-half maps so the kernel can run at `0xffff800080000000` while QEMU loads the image at `0x40000000`.
 - `vectors.S` — exception vector table. EL0 `svc #0` builds a `pt_regs` frame and calls `syscall_handler`. IRQs save the same frame layout.
-- `context.S` — `switch_to` (callee-saved regs + SP) and `finish_eret` (return to EL0).
+- `kernel/entry.S` — `switch_to`, `task_trampoline`, and `finish_eret` (return to EL0).
 - `init/main.c` — `start_kernel()`: UART, timer, SMP, page allocator, ramfs, unpack initramfs, scheduler, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.

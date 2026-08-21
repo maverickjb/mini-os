@@ -1,5 +1,5 @@
 /*
- * Task context switch — Linux-style switch_to on struct cpu_context.
+ * Low-level kernel entry — switch_to, trampoline, return to EL0.
  */
 
 #include <asm/assembler.h>
