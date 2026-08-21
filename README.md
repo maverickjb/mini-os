@@ -83,7 +83,7 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
 - `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table.
 - `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`).
-- `kernel/pid.c` — `getpid`.
+- `kernel/pid.c` — `getpid`, `getpgrp`.
 
 States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
 
@@ -95,7 +95,7 @@ Implemented (subset):
 
 - I/O and files: `read`, `write`, `openat`, `close`, `dup`/`dup3`, `pipe2`, `fstat`, `newfstatat`, `getdents64`
 - Paths: `mkdirat`, `unlinkat`, `linkat`, `chdir`, `getcwd`
-- Processes: `clone` (fork), `execve`, `exit`, `wait4`, `getpid`, `sched_yield`
+- Processes: `clone` (fork), `execve`, `exit`, `wait4`, `getpid`, `getpgrp`, `sched_yield`
 - Memory: `brk`, `mmap`, `munmap`
 - Signals: `kill`, `rt_sigaction`, `rt_sigprocmask`, `rt_sigpending`, `rt_sigsuspend`, `rt_sigreturn`
 

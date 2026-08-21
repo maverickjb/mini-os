@@ -38,6 +38,7 @@ int pipe(int pipefd[2]);
 int kill(int pid, int sig);
 void _exit(int status) __attribute__((noreturn));
 pid_t getpid(void);
+pid_t getpgrp(void);
 
 #define AT_REMOVEDIR 0x200
 

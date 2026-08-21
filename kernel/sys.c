@@ -114,6 +114,10 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_rt_sigsuspend((const sigset_t *)regs->x0, regs->x1);
     case __NR_getpid:
         return ksys_getpid();
+    case __NR_getpgid:
+        if ((long)regs->x0 != 0)
+            return -EINVAL;
+        return ksys_getpgrp();
     default:
         return -ENOSYS;
     }

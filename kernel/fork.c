@@ -35,7 +35,7 @@ void copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src)
  */
 void task_user_ctx_init(struct task_struct *task)
 {
-    task->ctx.sp = (unsigned long)task->regs;
+    task->ctx.sp = (unsigned long)task->stack + INIT_STACK_SIZE;
     task->ctx.pc = (unsigned long)ret_from_fork;
 }
 
@@ -80,6 +80,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->exit_signal = 0;
     tsk->stop_signal = 0;
     tsk->wait_event = CHILD_EVENT_NONE;
+    tsk->pgid = 0;
     tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
     tsk->cwd = NULL; /* NULL => root */
     tsk->pending = 0;
@@ -207,6 +208,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
     task_zero(tsk);
     tsk->pid = next_pid++;
+    tsk->pgid = tsk->pid;
     tsk->state = TASK_SLEEPING;
     tsk->thread_fn = fn;
     tsk->thread_arg = arg;
@@ -246,6 +248,7 @@ long ksys_fork(struct pt_regs *regs)
     __asm__ volatile("mrs %0, sp_el0" : "=r"(parent->user_sp));
 
     child->pid = next_pid++;
+    child->pgid = parent->pgid;
     child->state = TASK_RUNNING;
     child->time_slice = SCHED_TIME_SLICE;
     child->is_user = 1;

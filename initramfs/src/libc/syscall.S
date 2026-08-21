@@ -32,6 +32,7 @@
 .global rt_sigsuspend
 .global __restore_rt
 .global getpid
+.global getpgrp
 
 #define __NR_getcwd 17
 #define __NR_mkdirat 34
@@ -53,6 +54,7 @@
 #define __NR_rt_sigprocmask 135
 #define __NR_rt_sigpending 136
 #define __NR_rt_sigreturn 139
+#define __NR_getpgid 155
 #define __NR_getpid 172
 #define __NR_brk    214
 #define __NR_openat 56
@@ -251,5 +253,12 @@ __restore_rt:
 /* pid_t getpid(void) */
 getpid:
     mov     x8, #__NR_getpid
+    svc     #0
+    ret
+
+/* pid_t getpgrp(void) — AArch64: getpgid(0) */
+getpgrp:
+    mov     x0, xzr
+    mov     x8, #__NR_getpgid
     svc     #0
     ret

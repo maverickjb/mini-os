@@ -256,6 +256,37 @@ int main(void)
     printf("unlink/rmdir/chdir ok\n");
 
     {
+        pid_t pg;
+        pid_t cpid;
+        pid_t w;
+        int status;
+
+        pg = getpgrp();
+        if (pg <= 0) {
+            printf("getpgrp failed: %d\n", (int)pg);
+            return 1;
+        }
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for getpgrp failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            if (getpgrp() != pg)
+                _exit(1);
+            _exit(0);
+        }
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            printf("getpgrp child mismatch\n");
+            return 1;
+        }
+    }
+
+    printf("getpgrp ok\n");
+
+    {
         int fds[2];
         pid_t cpid;
         pid_t w;

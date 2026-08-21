@@ -8,3 +8,11 @@ long ksys_getpid(void)
         return -EINVAL;
     return (long)current->pid;
 }
+
+long ksys_getpgrp(void)
+{
+    if (!current)
+        return -ESRCH;
+
+    return (long)current->pgid;
+}
