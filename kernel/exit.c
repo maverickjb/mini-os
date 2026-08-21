@@ -36,10 +36,14 @@ static void exit_mm(struct task_struct *task)
     mm_put(mm);
 }
 
-static void notify_parent_exit(struct task_struct *child)
+void do_notify_parent(struct task_struct *child)
 {
-    struct task_struct *parent = child->parent;
+    struct task_struct *parent;
 
+    if (!child)
+        return;
+
+    parent = child->parent;
     if (!parent)
         return;
 
@@ -62,7 +66,7 @@ void do_exit(long code)
     exit_mm(task);
     task->state = TASK_ZOMBIE;
 
-    notify_parent_exit(task);
+    do_notify_parent(task);
 
     local_irq_enable();
     schedule();
@@ -142,6 +146,51 @@ long ksys_wait4(long pid, int *status, long options)
 
             free_task(child);
             return ret;
+        }
+
+        if (options & WUNTRACED) {
+            for (child = runqueue; child; child = child->next) {
+                int code;
+
+                if (child->parent != parent)
+                    continue;
+                if (pid != -1 && child->pid != (unsigned long)pid)
+                    continue;
+                if (child->state != TASK_STOPPED)
+                    continue;
+                if ((child->exit_code & 0xff) != 0x7f)
+                    continue;
+
+                code = (int)child->exit_code;
+                if (status &&
+                    copy_to_user(status, &code, sizeof(code)))
+                    return -EFAULT;
+                child->exit_code = 0;
+                return (long)child->pid;
+            }
+        }
+
+        if (options & WCONTINUED) {
+            for (child = runqueue; child; child = child->next) {
+                int code;
+
+                if (child->parent != parent)
+                    continue;
+                if (pid != -1 && child->pid != (unsigned long)pid)
+                    continue;
+                if (child->state == TASK_ZOMBIE ||
+                    child->state == TASK_DEAD)
+                    continue;
+                if (child->exit_code != W_CONTINUED)
+                    continue;
+
+                code = W_CONTINUED;
+                if (status &&
+                    copy_to_user(status, &code, sizeof(code)))
+                    return -EFAULT;
+                child->exit_code = 0;
+                return (long)child->pid;
+            }
         }
 
         if (!find_child(parent, pid, -1))

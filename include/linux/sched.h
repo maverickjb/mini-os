@@ -16,6 +16,7 @@ enum task_state {
     TASK_RUNNING,
     TASK_IDLE,
     TASK_SLEEPING,
+    TASK_STOPPED,
     TASK_ZOMBIE,
     TASK_DEAD,
 };

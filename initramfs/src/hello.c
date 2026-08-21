@@ -302,6 +302,82 @@ int main(void)
     printf("kill ok\n");
 
     {
+        int fds[2];
+        int ready[2];
+        pid_t cpid;
+        pid_t w;
+        int status;
+        char c;
+        volatile int i;
+
+        if (pipe(fds) < 0 || pipe(ready) < 0) {
+            printf("pipe for SIGSTOP failed\n");
+            return 1;
+        }
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for SIGSTOP failed\n");
+            return 1;
+        }
+
+        if (cpid == 0) {
+            ssize_t n;
+
+            close(fds[1]);
+            close(ready[0]);
+            write(ready[1], "r", 1);
+            close(ready[1]);
+            n = read(fds[0], &c, 1);
+            if (n == -EINTR)
+                _exit(42);
+            _exit(3);
+        }
+
+        close(fds[0]);
+        close(ready[1]);
+        if (read(ready[0], &c, 1) != 1) {
+            printf("SIGSTOP ready sync failed\n");
+            return 1;
+        }
+        close(ready[0]);
+        for (i = 0; i < 100000; i++)
+            ;
+        if (kill(cpid, SIGSTOP) < 0) {
+            printf("kill SIGSTOP failed\n");
+            return 1;
+        }
+        w = waitpid(cpid, &status, WUNTRACED);
+        if (w != cpid || !WIFSTOPPED(status) || WSTOPSIG(status) != SIGSTOP) {
+            printf("WIFSTOPPED expected SIGSTOP got %d\n", status);
+            return 1;
+        }
+        w = waitpid(cpid, &status, WNOHANG);
+        if (w != 0) {
+            printf("stopped child should not be a zombie\n");
+            return 1;
+        }
+        if (kill(cpid, SIGCONT) < 0) {
+            printf("kill SIGCONT failed\n");
+            return 1;
+        }
+        w = waitpid(cpid, &status, WCONTINUED);
+        if (w != cpid || !WIFCONTINUED(status)) {
+            printf("WIFCONTINUED expected, status %d\n", status);
+            return 1;
+        }
+        w = waitpid(cpid, &status, 0);
+        close(fds[1]);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
+            printf("SIGSTOP/SIGCONT expected 42 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("SIGSTOP ok\n");
+    printf("SIGCONT ok\n");
+
+    {
         struct sigaction sa, osa;
         int fds[2];
         int ready[2];

@@ -82,10 +82,10 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 - `kernel/sched/core.c` — runqueue, round-robin `pick_next_task()`, `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
 - `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table.
-- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (including `WNOHANG`).
+- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`).
 - `kernel/pid.c` — `getpid`.
 
-States are the usual teaching set: `RUNNING`, `SLEEPING`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
+States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
 
 ### System calls
 
@@ -107,12 +107,12 @@ Unknown numbers return `-ENOSYS`.
 
 - Each task has `pending` and `blocked` bitmasks (signals 1–63).
 - `kill` queues a bit and wakes a sleeper if the signal is unblocked.
-- `do_signal` on syscall return: default terminate (except ignored signals like `SIGCHLD`), `SIG_IGN` drop, or user handler.
+- `do_signal` on syscall return: `SIGSTOP` parks the task in `TASK_STOPPED` (not a zombie); default terminate (except ignored signals like `SIGCHLD` / `SIGCONT`); `SIG_IGN` drop; or user handler.
 - A handler gets a **signal frame** on the user stack; libc `__restore_rt` issues `rt_sigreturn` to restore registers and the old mask.
 - `sa_mask` is applied while the handler runs.
 - `rt_sigprocmask` / `rt_sigpending` / `rt_sigsuspend` match the Linux “replace mask and sleep until a signal” idea.
 
-`SIGKILL` / `SIGSTOP` cannot be caught or blocked.
+`SIGKILL` / `SIGSTOP` cannot be caught or blocked. `SIGCONT` (or `SIGKILL`) resumes a stopped task. `waitpid` with `WUNTRACED` / `WCONTINUED` reports `WIFSTOPPED` / `WIFCONTINUED`.
 
 ### Virtual memory
 
