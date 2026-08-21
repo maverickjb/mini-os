@@ -106,7 +106,7 @@ Unknown numbers return `-ENOSYS`.
 `kernel/signal.c` is a small Linux rt-signal path:
 
 - Each task has `pending` and `blocked` bitmasks (signals 1–63).
-- `kill` queues a bit and wakes a sleeper if the signal is unblocked.
+- `kill` queues a bit (`pid > 0` one task, `pid < 0` process group `-pid`) and wakes a sleeper if the signal is unblocked.
 - `do_signal` on syscall return: `SIGSTOP` parks the task in `TASK_STOPPED` (not a zombie); default terminate (except ignored signals like `SIGCHLD` / `SIGCONT`); `SIG_IGN` drop; or user handler.
 - A handler gets a **signal frame** on the user stack; libc `__restore_rt` issues `rt_sigreturn` to restore registers and the old mask.
 - `sa_mask` is applied while the handler runs.

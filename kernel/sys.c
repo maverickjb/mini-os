@@ -97,7 +97,7 @@ static long handle_syscall(struct pt_regs *regs)
     case __NR_munmap:
         return ksys_munmap(regs->x0, regs->x1);
     case __NR_kill:
-        return ksys_kill((long)regs->x0, (int)regs->x1);
+        return ksys_kill((int)regs->x0, (int)regs->x1);
     case __NR_rt_sigaction:
         return ksys_rt_sigaction((int)regs->x0,
                                  (const struct sigaction *)regs->x1,

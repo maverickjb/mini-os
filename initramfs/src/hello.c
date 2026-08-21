@@ -423,6 +423,86 @@ int main(void)
     {
         int fds[2];
         int ready[2];
+        pid_t a;
+        pid_t b;
+        pid_t w;
+        int status;
+        int got_a = 0;
+        int got_b = 0;
+        char c;
+
+        if (pipe(fds) < 0 || pipe(ready) < 0) {
+            printf("pipe for kill pgrp failed\n");
+            return 1;
+        }
+
+        a = fork();
+        if (a < 0) {
+            printf("fork a for kill pgrp failed\n");
+            return 1;
+        }
+        if (a == 0) {
+            close(fds[1]);
+            close(ready[0]);
+            if (setpgid(0, 0) != 0)
+                _exit(1);
+            write(ready[1], "a", 1);
+            read(fds[0], &c, 1);
+            _exit(11);
+        }
+
+        if (read(ready[0], &c, 1) != 1) {
+            printf("kill pgrp ready a failed\n");
+            return 1;
+        }
+
+        b = fork();
+        if (b < 0) {
+            printf("fork b for kill pgrp failed\n");
+            return 1;
+        }
+        if (b == 0) {
+            close(fds[1]);
+            close(ready[0]);
+            if (setpgid(0, a) != 0)
+                _exit(2);
+            write(ready[1], "b", 1);
+            read(fds[0], &c, 1);
+            _exit(12);
+        }
+
+        if (read(ready[0], &c, 1) != 1) {
+            printf("kill pgrp ready b failed\n");
+            return 1;
+        }
+        close(ready[0]);
+        close(ready[1]);
+        close(fds[0]);
+
+        if (kill(-a, SIGTERM) < 0) {
+            printf("kill pgrp failed\n");
+            return 1;
+        }
+
+        w = waitpid(a, &status, 0);
+        if (w == a && WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM)
+            got_a = 1;
+        w = waitpid(b, &status, 0);
+        if (w == b && WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM)
+            got_b = 1;
+
+        close(fds[1]);
+        if (!got_a || !got_b) {
+            printf("kill pgrp expected SIGTERM on both children\n");
+            return 1;
+        }
+    }
+
+    printf("kill pgrp ok\n");
+
+    {
+        int fds[2];
+        int ready[2];
         pid_t cpid;
         pid_t w;
         int status;

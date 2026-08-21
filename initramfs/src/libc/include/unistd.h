@@ -35,7 +35,7 @@ int chdir(const char *path);
 /* Kernel ABI: returns bytes written including NUL, or -errno. */
 long getcwd(char *buf, unsigned long size);
 int pipe(int pipefd[2]);
-int kill(int pid, int sig);
+int kill(pid_t pid, int sig);
 void _exit(int status) __attribute__((noreturn));
 pid_t getpid(void);
 pid_t getpgrp(void);

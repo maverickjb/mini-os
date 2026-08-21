@@ -18,6 +18,7 @@
 #include <linux/uaccess.h>
 #include <linux/gfp.h>
 #include <linux/mm.h>
+#include <linux/pid.h>
 #include <asm/irqflags.h>
 
 struct task_struct *find_task_by_pid(unsigned long pid)
@@ -72,6 +73,44 @@ static void signal_queue(struct task_struct *task, int sig)
 void signal_send(struct task_struct *task, int sig)
 {
     signal_queue(task, sig);
+}
+
+static int signal_one_process(pid_t pid, int sig)
+{
+    struct task_struct *task;
+
+    task = find_task_by_pid((unsigned long)pid);
+    if (!task)
+        return -ESRCH;
+
+    if (sig == 0)
+        return 0;
+
+    signal_send(task, sig);
+    return 0;
+}
+
+static int signal_process_group(pid_t pgid, int sig)
+{
+    struct task_struct *task;
+    int found = 0;
+
+    if (pgid <= 0)
+        return -ESRCH;
+
+    for (task = runqueue; task; task = task->next) {
+        if (!task->is_user ||
+            task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
+            continue;
+        if (task->pgid != (unsigned long)pgid)
+            continue;
+
+        found = 1;
+        if (sig != 0)
+            signal_send(task, sig);
+    }
+
+    return found ? 0 : -ESRCH;
 }
 
 int signal_pending(struct task_struct *task)
@@ -280,24 +319,15 @@ void do_signal(struct pt_regs *regs)
 
 long ksys_kill(long pid, int sig)
 {
-    struct task_struct *task;
-
     if (!signal_valid(sig))
         return -EINVAL;
 
-    if (pid <= 0)
-        return -EINVAL;
+    if (pid > 0)
+        return signal_one_process((pid_t)pid, sig);
+    if (pid < 0)
+        return signal_process_group((pid_t)(-pid), sig);
 
-    task = find_task_by_pid((unsigned long)pid);
-    if (!task)
-        return -ESRCH;
-
-    /* sig == 0: existence check only */
-    if (sig == 0)
-        return 0;
-
-    signal_queue(task, sig);
-    return 0;
+    return -ESRCH;
 }
 
 long ksys_rt_sigaction(int sig, const struct sigaction *act,
