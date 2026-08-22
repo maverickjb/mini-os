@@ -34,6 +34,8 @@
 .global getpid
 .global getpgrp
 .global setpgid
+.global getsid
+.global setsid
 
 #define __NR_getcwd 17
 #define __NR_mkdirat 34
@@ -57,6 +59,8 @@
 #define __NR_rt_sigreturn 139
 #define __NR_setpgid 154
 #define __NR_getpgid 155
+#define __NR_getsid 156
+#define __NR_setsid 157
 #define __NR_getpid 172
 #define __NR_brk    214
 #define __NR_openat 56
@@ -268,5 +272,17 @@ getpgrp:
 /* int setpgid(pid_t pid, pid_t pgid) */
 setpgid:
     mov     x8, #__NR_setpgid
+    svc     #0
+    ret
+
+/* pid_t getsid(pid_t pid) */
+getsid:
+    mov     x8, #__NR_getsid
+    svc     #0
+    ret
+
+/* pid_t setsid(void) */
+setsid:
+    mov     x8, #__NR_setsid
     svc     #0
     ret

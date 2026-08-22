@@ -120,6 +120,10 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_getpgrp();
     case __NR_setpgid:
         return ksys_setpgid((pid_t)regs->x0, (pid_t)regs->x1);
+    case __NR_getsid:
+        return ksys_getsid((pid_t)regs->x0);
+    case __NR_setsid:
+        return ksys_setsid();
     default:
         return -ENOSYS;
     }

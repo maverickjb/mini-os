@@ -399,6 +399,67 @@ int main(void)
     printf("setpgid ok\n");
 
     {
+        pid_t me;
+        pid_t cpid;
+        pid_t w;
+        pid_t sid;
+        int status;
+
+        me = getpid();
+        sid = getsid(0);
+        if (sid <= 0) {
+            printf("getsid(0) failed: %d\n", (int)sid);
+            return 1;
+        }
+        if (getsid(me) != sid) {
+            printf("getsid(self) mismatch\n");
+            return 1;
+        }
+        if (getsid(99999) != -ESRCH) {
+            printf("getsid missing expected ESRCH\n");
+            return 1;
+        }
+
+        /* hello already called setpgid(0, 0); group leader cannot setsid. */
+        if (setsid() != -EPERM) {
+            printf("setsid as pgrp leader expected EPERM\n");
+            return 1;
+        }
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for setsid failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            pid_t newsid;
+
+            if (getsid(0) != sid)
+                _exit(1);
+            newsid = setsid();
+            if (newsid != getpid())
+                _exit(2);
+            if (getpgrp() != newsid || getsid(0) != newsid)
+                _exit(3);
+            if (setsid() != -EPERM)
+                _exit(4);
+            _exit(0);
+        }
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            printf("setsid child expected 0 got %d\n", status);
+            return 1;
+        }
+        if (getsid(cpid) != -ESRCH) {
+            printf("getsid after child exit expected ESRCH\n");
+            return 1;
+        }
+    }
+
+    printf("setsid ok\n");
+    printf("getsid ok\n");
+
+    {
         int fds[2];
         pid_t cpid;
         pid_t w;

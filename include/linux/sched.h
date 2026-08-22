@@ -69,6 +69,7 @@ struct task_struct {
     int stop_signal;
     enum child_event wait_event;
     pid_t pgid;
+    pid_t sid;
     /* PSTATE.{D,A,I,F} — saved/restored across switch_to */
     unsigned long daif;
     /* Working directory dentry (NULL means root). */

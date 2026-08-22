@@ -40,6 +40,8 @@ void _exit(int status) __attribute__((noreturn));
 pid_t getpid(void);
 pid_t getpgrp(void);
 int setpgid(pid_t pid, pid_t pgid);
+pid_t getsid(pid_t pid);
+pid_t setsid(void);
 
 #define AT_REMOVEDIR 0x200
 

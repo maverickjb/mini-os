@@ -82,6 +82,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->stop_signal = 0;
     tsk->wait_event = CHILD_EVENT_NONE;
     tsk->pgid = 0;
+    tsk->sid = 0;
     tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
     tsk->cwd = NULL; /* NULL => root */
     tsk->pending = 0;
@@ -211,6 +212,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     tsk->pid = next_pid++;
     tsk->tgid = tsk->pid;
     tsk->pgid = tsk->pid;
+    tsk->sid = tsk->pid;
     tsk->state = TASK_SLEEPING;
     tsk->thread_fn = fn;
     tsk->thread_arg = arg;
@@ -252,6 +254,7 @@ long ksys_fork(struct pt_regs *regs)
     child->pid = next_pid++;
     child->tgid = child->pid;
     child->pgid = parent->pgid;
+    child->sid = parent->sid;
     child->state = TASK_RUNNING;
     child->time_slice = SCHED_TIME_SLICE;
     child->is_user = 1;

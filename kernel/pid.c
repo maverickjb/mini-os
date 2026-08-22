@@ -72,7 +72,51 @@ long ksys_setpgid(pid_t pid, pid_t pgid)
     if (pgid != pid && !pgid_exists(pgid))
         return -EPERM;
 
+    /* Session leader cannot change process group. */
+    if (task->sid == task->pid)
+        return -EPERM;
+
+    /* Can only join a group in the same session. */
+    if (task->sid != current->sid)
+        return -EPERM;
+
     task->pgid = pgid;
 
     return 0;
+}
+
+long ksys_getsid(pid_t pid)
+{
+    struct task_struct *task;
+
+    if (!current || !current->is_user)
+        return -ESRCH;
+
+    if (pid == 0)
+        return (long)current->sid;
+
+    task = find_task_by_pid(pid);
+    if (!task)
+        return -ESRCH;
+
+    return (long)task->sid;
+}
+
+long ksys_setsid(void)
+{
+    struct task_struct *task = current;
+
+    if (!task || !task->is_user)
+        return -EINVAL;
+
+    /*
+     * Fail if this pid is already a process-group id (session leader
+     * or group leader). Same rule as Linux.
+     */
+    if (pgid_exists(task->pid))
+        return -EPERM;
+
+    task->sid = task->pid;
+    task->pgid = task->pid;
+    return (long)task->sid;
 }
