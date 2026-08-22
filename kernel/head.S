@@ -140,3 +140,11 @@ secondary_cont:
 secondary_hang:
     wfe
     b       secondary_hang
+
+.global vectors_init
+vectors_init:
+    ldr     x0, =vectors
+    msr     vbar_el1, x0
+    isb
+    ret
+

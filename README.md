@@ -9,7 +9,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Linux idea | What mini-os does |
 | --- | --- |
 | Privilege levels | Kernel at EL1, user programs at EL0 |
-| Exception vectors | SVC syscalls and IRQs in `vectors.S` |
+| Exception vectors | SVC syscalls and IRQs in `kernel/entry.S` |
 | Tasks / `task_struct` | Round-robin user and kernel threads |
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
@@ -63,8 +63,7 @@ Headers live under `include/linux` and `include/asm` so files look like kernel c
 
 - `kernel/head.S` — EL1 entry, early stack, jump to C.
 - `mmu_enable.S` — identity and high-half maps so the kernel can run at `0xffff800080000000` while QEMU loads the image at `0x40000000`.
-- `vectors.S` — exception vector table. EL0 `svc #0` builds a `pt_regs` frame and calls `syscall_handler`. IRQs save the same frame layout.
-- `kernel/entry.S` — `switch_to`, `task_trampoline`, and `finish_eret` (return to EL0).
+- `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
 - `init/main.c` — `start_kernel()`: UART, timer, SMP, page allocator, ramfs, unpack initramfs, scheduler, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
@@ -169,7 +168,7 @@ No syscall restart (`SA_RESTART`), no `siginfo`, no process groups, no `ptrace`,
 ## Reading order
 
 1. `kernel/head.S` → `init/main.c`
-2. `vectors.S` → `kernel/sys.c`
+2. `kernel/entry.S` → `kernel/sys.c`
 3. `kernel/sched/core.c` → `kernel/fork.c` → `kernel/exit.c`
 4. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
 5. `kernel/signal.c`
