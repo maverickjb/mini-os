@@ -35,6 +35,30 @@ static void sigusr1_mask_usr2(int sig)
     in_usr1 = 0;
 }
 
+static volatile int got_tstp;
+
+static void sigtstp_mark(int sig)
+{
+    (void)sig;
+    got_tstp = 1;
+}
+
+static int wait_stopped(pid_t pid, int sig)
+{
+    int status;
+    pid_t w = waitpid(pid, &status, WUNTRACED);
+
+    return w == pid && WIFSTOPPED(status) && WSTOPSIG(status) == sig;
+}
+
+static int wait_continued(pid_t pid)
+{
+    int status;
+    pid_t w = waitpid(pid, &status, WCONTINUED);
+
+    return w == pid && WIFCONTINUED(status);
+}
+
 int main(void)
 {
     struct stat st;
@@ -575,6 +599,219 @@ int main(void)
 
     printf("SIGSTOP ok\n");
     printf("SIGCONT ok\n");
+
+    {
+        int fds[2];
+        int ready[2];
+        pid_t cpid;
+        pid_t w;
+        int status;
+        char c;
+        volatile int i;
+        struct sigaction sa;
+
+        if (pipe(fds) < 0 || pipe(ready) < 0) {
+            printf("pipe for SIGTSTP failed\n");
+            return 1;
+        }
+
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for SIGTSTP failed\n");
+            return 1;
+        }
+
+        if (cpid == 0) {
+            ssize_t n;
+
+            close(fds[1]);
+            close(ready[0]);
+            write(ready[1], "r", 1);
+            close(ready[1]);
+            n = read(fds[0], &c, 1);
+            if (n == -EINTR)
+                _exit(42);
+            _exit(3);
+        }
+
+        close(fds[0]);
+        close(ready[1]);
+        if (read(ready[0], &c, 1) != 1) {
+            printf("SIGTSTP ready sync failed\n");
+            return 1;
+        }
+        close(ready[0]);
+        for (i = 0; i < 100000; i++)
+            ;
+        if (kill(cpid, SIGTSTP) < 0) {
+            printf("kill SIGTSTP failed\n");
+            return 1;
+        }
+        if (!wait_stopped(cpid, SIGTSTP)) {
+            printf("WIFSTOPPED expected SIGTSTP\n");
+            return 1;
+        }
+        if (kill(cpid, SIGCONT) < 0) {
+            printf("kill SIGCONT after SIGTSTP failed\n");
+            return 1;
+        }
+        if (!wait_continued(cpid)) {
+            printf("WIFCONTINUED after SIGTSTP expected\n");
+            return 1;
+        }
+        w = waitpid(cpid, &status, 0);
+        close(fds[1]);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
+            printf("SIGTSTP/SIGCONT expected 42 got %d\n", status);
+            return 1;
+        }
+
+        /* SIGTSTP is catchable, unlike SIGSTOP. */
+        if (pipe(fds) < 0 || pipe(ready) < 0) {
+            printf("pipe for SIGTSTP handler failed\n");
+            return 1;
+        }
+        cpid = fork();
+        if (cpid < 0) {
+            printf("fork for SIGTSTP handler failed\n");
+            return 1;
+        }
+        if (cpid == 0) {
+            close(fds[1]);
+            close(ready[0]);
+            sa.sa_handler = sigtstp_mark;
+            sa.sa_flags = 0;
+            sa.sa_restorer = 0;
+            sa.sa_mask.sig[0] = 0;
+            if (sigaction(SIGTSTP, &sa, NULL) < 0)
+                _exit(1);
+            got_tstp = 0;
+            write(ready[1], "r", 1);
+            close(ready[1]);
+            (void)read(fds[0], &c, 1);
+            _exit(got_tstp ? 0 : 3);
+        }
+        close(fds[0]);
+        close(ready[1]);
+        if (read(ready[0], &c, 1) != 1) {
+            printf("SIGTSTP handler ready failed\n");
+            return 1;
+        }
+        close(ready[0]);
+        for (i = 0; i < 100000; i++)
+            ;
+        if (kill(cpid, SIGTSTP) < 0) {
+            printf("kill SIGTSTP handler failed\n");
+            return 1;
+        }
+        w = waitpid(cpid, &status, WUNTRACED);
+        close(fds[1]);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            printf("SIGTSTP handler expected 0 got %d\n", status);
+            return 1;
+        }
+    }
+
+    printf("SIGTSTP ok\n");
+
+    {
+        int fds[2];
+        int ready[2];
+        pid_t a;
+        pid_t b;
+        pid_t w;
+        int status;
+        char c;
+        volatile int i;
+        int stop_sig;
+        int round;
+
+        for (round = 0; round < 2; round++) {
+            stop_sig = (round == 0) ? SIGSTOP : SIGTSTP;
+
+            if (pipe(fds) < 0 || pipe(ready) < 0) {
+                printf("pipe for job pgrp failed\n");
+                return 1;
+            }
+
+            a = fork();
+            if (a < 0) {
+                printf("fork a for job pgrp failed\n");
+                return 1;
+            }
+            if (a == 0) {
+                close(fds[1]);
+                close(ready[0]);
+                if (setpgid(0, 0) != 0)
+                    _exit(1);
+                write(ready[1], "a", 1);
+                read(fds[0], &c, 1);
+                _exit(11);
+            }
+
+            if (read(ready[0], &c, 1) != 1) {
+                printf("job pgrp ready a failed\n");
+                return 1;
+            }
+
+            b = fork();
+            if (b < 0) {
+                printf("fork b for job pgrp failed\n");
+                return 1;
+            }
+            if (b == 0) {
+                close(fds[1]);
+                close(ready[0]);
+                if (setpgid(0, a) != 0)
+                    _exit(2);
+                write(ready[1], "b", 1);
+                read(fds[0], &c, 1);
+                _exit(12);
+            }
+
+            if (read(ready[0], &c, 1) != 1) {
+                printf("job pgrp ready b failed\n");
+                return 1;
+            }
+            close(ready[0]);
+            close(ready[1]);
+            for (i = 0; i < 100000; i++)
+                ;
+
+            if (kill(-a, stop_sig) < 0) {
+                printf("kill pgrp stop failed sig=%d\n", stop_sig);
+                return 1;
+            }
+            if (!wait_stopped(a, stop_sig) || !wait_stopped(b, stop_sig)) {
+                printf("kill pgrp expected both stopped sig=%d\n", stop_sig);
+                return 1;
+            }
+
+            if (kill(-a, SIGCONT) < 0) {
+                printf("kill pgrp SIGCONT failed\n");
+                return 1;
+            }
+            if (!wait_continued(a) || !wait_continued(b)) {
+                printf("kill pgrp expected both continued\n");
+                return 1;
+            }
+
+            close(fds[0]);
+            close(fds[1]);
+            w = waitpid(a, &status, 0);
+            if (w != a || !WIFEXITED(status) || WEXITSTATUS(status) != 11) {
+                printf("job pgrp child a expected 11 got %d\n", status);
+                return 1;
+            }
+            w = waitpid(b, &status, 0);
+            if (w != b || !WIFEXITED(status) || WEXITSTATUS(status) != 12) {
+                printf("job pgrp child b expected 12 got %d\n", status);
+                return 1;
+            }
+        }
+    }
+
+    printf("job pgrp ok\n");
 
     {
         struct sigaction sa, osa;

@@ -3,8 +3,10 @@
  * rt_sigsuspend / rt_sigreturn.
  *
  * Pending bits are delivered in do_signal() on return to userspace:
- *   SIGSTOP  → TASK_STOPPED (not a zombie); resume on SIGCONT / SIGKILL
- *   SIG_DFL  → terminate (wait status = signal number)
+ *   SIGSTOP  → TASK_STOPPED (not a zombie); cannot catch/block
+ *   SIGTSTP / SIGTTIN / SIGTTOU → stop if SIG_DFL; else handler or ignore
+ *   SIGCONT  → resume TASK_STOPPED; drops pending stop signals
+ *   SIG_DFL  → terminate (wait status = signal number), except ignored
  *   SIG_IGN  → drop
  *   handler  → user stack frame, ELR=handler, LR=sa_restorer (rt_sigreturn)
  */
@@ -45,6 +47,15 @@ static int signal_valid(int sig)
     return sig >= 0 && sig < NSIG;
 }
 
+static int sig_kernel_stop(int sig)
+{
+    return sig == SIGSTOP || sig == SIGTSTP ||
+           sig == SIGTTIN || sig == SIGTTOU;
+}
+
+#define SIG_STOP_MASK (SIG_BIT(SIGSTOP) | SIG_BIT(SIGTSTP) | \
+                       SIG_BIT(SIGTTIN) | SIG_BIT(SIGTTOU))
+
 static void signal_queue(struct task_struct *task, int sig)
 {
     if (!task || !signal_valid(sig) || sig == 0)
@@ -54,8 +65,8 @@ static void signal_queue(struct task_struct *task, int sig)
 
     /* Stop and continue cancel each other, like Linux. */
     if (sig == SIGCONT)
-        task->pending &= ~SIG_BIT(SIGSTOP);
-    else if (sig == SIGSTOP)
+        task->pending &= ~SIG_STOP_MASK;
+    else if (sig_kernel_stop(sig))
         task->pending &= ~SIG_BIT(SIGCONT);
 
     if (task->state == TASK_STOPPED && sig == SIGCONT) {
@@ -221,11 +232,11 @@ static int setup_signal_frame(struct pt_regs *regs, int sig,
  * Park current in TASK_STOPPED until SIGCONT or SIGKILL. The task stays
  * on the runqueue so waitpid can still see it; pick_next_task skips it.
  */
-static void do_signal_stop(void)
+static void do_signal_stop(int sig)
 {
     struct task_struct *task = current;
 
-    task->stop_signal = SIGSTOP;
+    task->stop_signal = sig;
     task->wait_event = CHILD_EVENT_STOPPED;
     task->state = TASK_STOPPED;
     notify_parent_stop(task);
@@ -290,7 +301,7 @@ void do_signal(struct pt_regs *regs)
         }
 
         if (sig == SIGSTOP) {
-            do_signal_stop();
+            do_signal_stop(SIGSTOP);
             continue;
         }
 
@@ -301,6 +312,10 @@ void do_signal(struct pt_regs *regs)
             continue;
 
         if (handler == SIG_DFL) {
+            if (sig_kernel_stop(sig)) {
+                do_signal_stop(sig);
+                continue;
+            }
             /* Default: terminate, except job-control / ignored signals. */
             if (sig == SIGCHLD || sig == SIGCONT ||
                 sig == SIGURG || sig == SIGWINCH)
