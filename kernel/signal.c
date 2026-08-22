@@ -23,12 +23,12 @@
 #include <linux/pid.h>
 #include <asm/irqflags.h>
 
-struct task_struct *find_task_by_pid(unsigned long pid)
+struct task_struct *find_task_by_pid(pid_t pid)
 {
     struct task_struct *walk;
     struct task_struct *start;
 
-    if (!runqueue || pid == 0)
+    if (!runqueue || pid <= 0)
         return NULL;
 
     walk = start = runqueue;
@@ -90,7 +90,7 @@ static int signal_one_process(pid_t pid, int sig)
 {
     struct task_struct *task;
 
-    task = find_task_by_pid((unsigned long)pid);
+    task = find_task_by_pid(pid);
     if (!task)
         return -ESRCH;
 
@@ -113,7 +113,7 @@ static int signal_process_group(pid_t pgid, int sig)
         if (!task->is_user ||
             task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
             continue;
-        if (task->pgid != (unsigned long)pgid)
+        if (task->pgid != pgid)
             continue;
 
         found = 1;

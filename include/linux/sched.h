@@ -1,6 +1,7 @@
 #ifndef __LINUX_SCHED_H
 #define __LINUX_SCHED_H
 
+#include <linux/types.h>
 #include <linux/mm_types.h>
 #include <linux/fs.h>
 #include <asm/ptrace.h>
@@ -44,7 +45,8 @@ struct cpu_context {
 };
 
 struct task_struct {
-    unsigned long pid;
+    pid_t pid;
+    pid_t tgid; /* thread-group id; same as pid until CLONE_THREAD */
     enum task_state state;
     struct cpu_context ctx;
     void (*thread_fn)(void *);
@@ -66,7 +68,7 @@ struct task_struct {
     int exit_signal;
     int stop_signal;
     enum child_event wait_event;
-    unsigned long pgid;
+    pid_t pgid;
     /* PSTATE.{D,A,I,F} — saved/restored across switch_to */
     unsigned long daif;
     /* Working directory dentry (NULL means root). */

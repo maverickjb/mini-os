@@ -1,7 +1,7 @@
 #ifndef _LINUX_PID_H
 #define _LINUX_PID_H
 
-typedef int pid_t;
+#include <linux/types.h>
 
 long ksys_getpid(void);
 long ksys_getpgrp(void);

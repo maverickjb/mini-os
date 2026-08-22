@@ -103,7 +103,7 @@ static struct task_struct *find_child(struct task_struct *parent, long pid,
         if (child->parent != parent)
             continue;
 
-        if (pid != -1 && child->pid != (unsigned long)pid)
+        if (pid != -1 && child->pid != (pid_t)pid)
             continue;
 
         if (state != -1 && child->state != (enum task_state)state)
@@ -169,7 +169,7 @@ long ksys_wait4(long pid, int *status, long options)
 
                 if (child->parent != parent)
                     continue;
-                if (pid != -1 && child->pid != (unsigned long)pid)
+                if (pid != -1 && child->pid != (pid_t)pid)
                     continue;
                 if (child->wait_event != CHILD_EVENT_STOPPED)
                     continue;
@@ -189,7 +189,7 @@ long ksys_wait4(long pid, int *status, long options)
 
                 if (child->parent != parent)
                     continue;
-                if (pid != -1 && child->pid != (unsigned long)pid)
+                if (pid != -1 && child->pid != (pid_t)pid)
                     continue;
                 if (child->wait_event != CHILD_EVENT_CONTINUED)
                     continue;

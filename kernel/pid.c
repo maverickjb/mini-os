@@ -7,7 +7,7 @@ long ksys_getpid(void)
 {
     if (!current)
         return -EINVAL;
-    return (long)current->pid;
+    return (long)current->tgid;
 }
 
 long ksys_getpgrp(void)
@@ -18,12 +18,12 @@ long ksys_getpgrp(void)
     return (long)current->pgid;
 }
 
-static int pgid_exists(unsigned long pgid)
+static int pgid_exists(pid_t pgid)
 {
     struct task_struct *walk;
     struct task_struct *start;
 
-    if (!runqueue || pgid == 0)
+    if (!runqueue || pgid <= 0)
         return 0;
 
     walk = start = runqueue;
@@ -46,9 +46,9 @@ long ksys_setpgid(pid_t pid, pid_t pgid)
         return -EINVAL;
 
     if (pid == 0)
-        pid = (pid_t)current->pid;
+        pid = current->pid;
 
-    task = find_task_by_pid((unsigned long)pid);
+    task = find_task_by_pid(pid);
     if (!task)
         return -ESRCH;
 
@@ -69,10 +69,10 @@ long ksys_setpgid(pid_t pid, pid_t pgid)
      * Create a new group (pgid == pid) or join an existing one
      * (some live task already has that pgid), e.g. setpgid(102, 101).
      */
-    if (pgid != pid && !pgid_exists((unsigned long)pgid))
+    if (pgid != pid && !pgid_exists(pgid))
         return -EPERM;
 
-    task->pgid = (unsigned long)pgid;
+    task->pgid = pgid;
 
     return 0;
 }

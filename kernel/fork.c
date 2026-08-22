@@ -16,7 +16,7 @@
 
 extern void task_trampoline(void);
 
-static unsigned long next_pid = 1;
+static pid_t next_pid = 1;
 
 void copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src)
 {
@@ -65,6 +65,7 @@ static void task_zero(struct task_struct *tsk)
     unsigned int i;
 
     tsk->pid = 0;
+    tsk->tgid = 0;
     tsk->state = TASK_SLEEPING;
     tsk->thread_fn = NULL;
     tsk->thread_arg = NULL;
@@ -208,6 +209,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
     task_zero(tsk);
     tsk->pid = next_pid++;
+    tsk->tgid = tsk->pid;
     tsk->pgid = tsk->pid;
     tsk->state = TASK_SLEEPING;
     tsk->thread_fn = fn;
@@ -248,6 +250,7 @@ long ksys_fork(struct pt_regs *regs)
     __asm__ volatile("mrs %0, sp_el0" : "=r"(parent->user_sp));
 
     child->pid = next_pid++;
+    child->tgid = child->pid;
     child->pgid = parent->pgid;
     child->state = TASK_RUNNING;
     child->time_slice = SCHED_TIME_SLICE;

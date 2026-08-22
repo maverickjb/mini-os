@@ -3,6 +3,7 @@
 
 #include <asm/signal.h>
 #include <asm/ptrace.h>
+#include <linux/types.h>
 
 struct task_struct;
 
@@ -19,7 +20,7 @@ struct signal_frame {
 #define SIG_BIT(sig)		(1UL << (unsigned)(sig))
 #define SIG_UNBLOCKABLE		(SIG_BIT(SIGKILL) | SIG_BIT(SIGSTOP))
 
-struct task_struct *find_task_by_pid(unsigned long pid);
+struct task_struct *find_task_by_pid(pid_t pid);
 int signal_pending(struct task_struct *task);
 void signal_send(struct task_struct *task, int sig);
 void do_signal(struct pt_regs *regs);
