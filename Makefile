@@ -13,7 +13,7 @@ ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
            -Wl,--entry=0x40000000
 
-SRCS    := kernel/head.S kernel/entry.S mmu_enable.S init/main.c kernel/smp.c \
+SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            kernel/sched/core.c kernel/sched/idle.c \
            kernel/fork.c kernel/exit.c kernel/sys.c kernel/signal.c \
            kernel/pid.c kernel/irq.c kernel/time/tick.c \
