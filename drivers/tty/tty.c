@@ -35,16 +35,27 @@ static unsigned int tty_rx_count(void)
     return n;
 }
 
-static int tty_rx_has_newline(void)
+static unsigned int tty_rx_line_length(void)
 {
+    unsigned int n = 0;
     unsigned int i;
 
     i = tty0.rx_tail;
     while (i != tty0.rx_head) {
+        n++;
         if (tty0.rx_buf[i] == '\n')
-            return 1;
+            return n;
         i = tty_rx_next(i);
     }
+    return 0;
+}
+
+static int input_not_ready(void)
+{
+    if (tty_rx_count() == 0)
+        return 1;
+    if (tty0.canonical && tty_rx_line_length() == 0)
+        return 1;
     return 0;
 }
 
@@ -98,41 +109,40 @@ long tty_read(char *buf, unsigned long count)
 retry:
     local_irq_disable();
 
-    if (tty_rx_count() == 0 ||
-        (tty0.canonical && !tty_rx_has_newline())) {
+    if (input_not_ready()) {
         if (signal_pending(current)) {
             local_irq_enable();
             return -EINTR;
         }
 
+        /* Atomically prepare to sleep. */
         tty0.read_wait = current;
         current->state = TASK_SLEEPING;
+
         local_irq_enable();
         schedule();
+
+        local_irq_disable();
+
         tty0.read_wait = NULL;
         current->state = TASK_RUNNING;
         current->time_slice = SCHED_TIME_SLICE;
+
+        local_irq_enable();
+
         if (signal_pending(current))
             return -EINTR;
+
         goto retry;
     }
 
-    n = tty_rx_count();
+    if (tty0.canonical)
+        n = tty_rx_line_length();
+    else
+        n = tty_rx_count();
+
     if (n > count)
         n = count;
-
-    if (tty0.canonical) {
-        unsigned long line = 0;
-
-        i = tty0.rx_tail;
-        while (line < n) {
-            line++;
-            if (tty0.rx_buf[i] == '\n')
-                break;
-            i = tty_rx_next(i);
-        }
-        n = line;
-    }
 
     for (i = 0; i < n; i++) {
         buf[i] = tty0.rx_buf[tty0.rx_tail];
