@@ -42,6 +42,22 @@ pid_t getpgrp(void);
 int setpgid(pid_t pid, pid_t pgid);
 pid_t getsid(pid_t pid);
 pid_t setsid(void);
+int ioctl(int fd, unsigned long request, ...);
+
+static inline pid_t tcgetpgrp(int fd)
+{
+    pid_t pg = 0;
+    long r = ioctl(fd, 0x540F, &pg);
+
+    if (r < 0)
+        return (pid_t)r;
+    return pg;
+}
+
+static inline int tcsetpgrp(int fd, pid_t pgrp)
+{
+    return ioctl(fd, 0x5410, &pgrp);
+}
 
 #define AT_REMOVEDIR 0x200
 

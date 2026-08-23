@@ -399,6 +399,32 @@ int main(void)
     printf("setpgid ok\n");
 
     {
+        pid_t pg;
+        pid_t tpg;
+
+        pg = getpgrp();
+        tpg = tcgetpgrp(0);
+        if (tpg <= 0) {
+            printf("tcgetpgrp failed: %d\n", (int)tpg);
+            return 1;
+        }
+        if (tcsetpgrp(0, pg) != 0) {
+            printf("tcsetpgrp failed\n");
+            return 1;
+        }
+        if (tcgetpgrp(0) != pg) {
+            printf("tcgetpgrp expected %d got %d\n", (int)pg, (int)tcgetpgrp(0));
+            return 1;
+        }
+        if (tcsetpgrp(0, 99999) != -ESRCH) {
+            printf("tcsetpgrp missing expected ESRCH\n");
+            return 1;
+        }
+    }
+
+    printf("tty pgrp ok\n");
+
+    {
         pid_t me;
         pid_t cpid;
         pid_t w;

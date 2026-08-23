@@ -25,6 +25,7 @@
 .global chdir
 .global getcwd
 .global pipe
+.global ioctl
 .global kill
 .global rt_sigaction
 .global rt_sigprocmask
@@ -44,6 +45,7 @@
 #define __NR_chdir  49
 #define __NR_close  57
 #define AT_REMOVEDIR 0x200
+#define __NR_ioctl 29
 #define __NR_pipe2 59
 #define __NR_getdents64 61
 #define __NR_read   63
@@ -207,6 +209,12 @@ getcwd:
 pipe:
     mov     x1, xzr
     mov     x8, #__NR_pipe2
+    svc     #0
+    ret
+
+/* int ioctl(int fd, unsigned long request, unsigned long arg) */
+ioctl:
+    mov     x8, #__NR_ioctl
     svc     #0
     ret
 

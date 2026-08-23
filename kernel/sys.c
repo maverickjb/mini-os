@@ -41,6 +41,8 @@ static long handle_syscall(struct pt_regs *regs)
     switch (regs->x8) {
     case __NR_write:
         return ksys_write(regs->x0, (const char *)regs->x1, regs->x2);
+    case __NR_ioctl:
+        return ksys_ioctl(regs->x0, (unsigned int)regs->x1, regs->x2);
     case __NR_read:
         return ksys_read(regs->x0, (char *)regs->x1, regs->x2);
     case __NR_openat:

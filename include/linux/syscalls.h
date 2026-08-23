@@ -51,5 +51,6 @@ long ksys_getpgrp(void);
 long ksys_setpgid(pid_t pid, pid_t pgid);
 long ksys_getsid(pid_t pid);
 long ksys_setsid(void);
+long ksys_ioctl(unsigned long fd, unsigned int cmd, unsigned long arg);
 
 #endif	/* _LINUX_SYSCALLS_H */

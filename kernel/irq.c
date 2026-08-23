@@ -6,6 +6,7 @@
 #include <linux/errno.h>
 #include <linux/tick.h>
 #include <linux/sched/task.h>
+#include <linux/serial.h>
 #include <asm/ptrace.h>
 #include <asm/memory.h>
 
@@ -15,8 +16,10 @@
 #define GICR_STRIDE     0x20000UL
 
 #define GICD_CTLR       (*(volatile unsigned int *)(GICD_VIRT + 0x0000))
+#define GICD_IGROUPR    ((volatile unsigned int *)(GICD_VIRT + 0x0080))
 #define GICD_ISENABLER  ((volatile unsigned int *)(GICD_VIRT + 0x0100))
 #define GICD_IPRIORITYR ((volatile unsigned char *)(GICD_VIRT + 0x0400))
+#define GICD_IROUTER    ((volatile unsigned long *)(GICD_VIRT + 0x6000))
 #define GICD_PIDR2      (*(volatile unsigned int *)(GICD_VIRT + 0xFFE8))
 
 #define GICC_CTLR       (*(volatile unsigned int *)(GICC_VIRT + 0x0000))
@@ -127,6 +130,19 @@ void init_IRQ(void)
         gic_v2_init();
 }
 
+void irq_enable(unsigned int irq)
+{
+    unsigned int word = irq / 32U;
+    unsigned int bit = irq % 32U;
+
+    GICD_IPRIORITYR[irq] = 0x80;
+    if (gic_is_v3) {
+        GICD_IGROUPR[word] |= (1U << bit);
+        GICD_IROUTER[irq] = 0;
+    }
+    GICD_ISENABLER[word] = 1U << bit;
+}
+
 void handle_arch_irq(struct pt_regs *regs)
 {
     unsigned int irq;
@@ -145,6 +161,8 @@ void handle_arch_irq(struct pt_regs *regs)
 
     if (irq == (unsigned int)IRQ_TIMER)
         handle_arch_tick(regs);
+    else if (irq == (unsigned int)IRQ_UART)
+        serial_irq();
 
     if (gic_is_v3) {
         __asm__ volatile("msr ICC_EOIR1_EL1, %0" : : "r"((unsigned long)irq));

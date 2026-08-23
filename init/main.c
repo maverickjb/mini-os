@@ -5,6 +5,7 @@
 #include <linux/sched.h>
 #include <linux/sched/task.h>
 #include <linux/serial.h>
+#include <linux/tty.h>
 #include <linux/tick.h>
 #include <linux/fs.h>
 #include <asm/smp.h>
@@ -49,6 +50,7 @@ void start_kernel(void)
     if (id == 0) {
         serial_init();
         time_init();
+        tty_init();
 
         uart_puts("Hello from CPU0\n");
         smp_init();
@@ -107,9 +109,13 @@ void initramfs_show(void)
 static void init_stdio(struct task_struct *task)
 {
     get_file(&uart_file);
+    task->files[0] = &uart_file;
+    get_file(&uart_file);
     task->files[1] = &uart_file;
     get_file(&uart_file);
     task->files[2] = &uart_file;
+
+    tty_attach_session(task->sid, task->pgid);
 }
 
 void kernel_init(void *arg)

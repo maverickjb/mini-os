@@ -76,3 +76,21 @@ long ksys_read(unsigned long fd, char *buf, unsigned long count)
 
     return vfs_read(file, buf, count);
 }
+
+long ksys_ioctl(unsigned long fd, unsigned int cmd, unsigned long arg)
+{
+    struct task_struct *task = get_current();
+    struct file *file;
+
+    if (!task || fd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[fd];
+    if (!file)
+        return -EBADF;
+
+    if (!file->f_op || !file->f_op->ioctl)
+        return -ENOTTY;
+
+    return file->f_op->ioctl(file, cmd, arg);
+}

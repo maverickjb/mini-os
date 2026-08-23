@@ -20,6 +20,7 @@ struct file_ops {
     long (*write)(struct file *file, const char *buf, unsigned long count,
                   long *pos);
     long (*readdir)(struct file *file, void *dirp, unsigned long count);
+    long (*ioctl)(struct file *file, unsigned int cmd, unsigned long arg);
     int (*release)(struct file *file);
 };
 
