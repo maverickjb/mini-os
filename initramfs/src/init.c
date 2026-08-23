@@ -39,6 +39,10 @@ int main(void)
     else
         printf("child exited status=%d\n", status);
 
+    argv[0] = "echo";
+    execve("/bin/echo", argv, envp);
+    printf("exec /bin/echo failed\n");
+
     for (;;)
         ;
 }

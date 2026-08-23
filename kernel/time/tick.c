@@ -78,6 +78,9 @@ void handle_arch_tick(struct pt_regs *regs)
 {
     do_timer();
 
+    /* Pick up RX if the PL011 IRQ was missed (FIFO watermark / GIC). */
+    serial_irq();
+
     if ((jiffies % HZ) == 0) {
         unsigned long sec = jiffies / HZ;
 

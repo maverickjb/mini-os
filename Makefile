@@ -36,8 +36,9 @@ initramfs: $(INITRAMFS_CPIO)
 
 INIT_BIN  := initramfs/root/init
 HELLO_BIN := initramfs/root/bin/hello
+ECHO_BIN  := initramfs/root/bin/echo
 
-$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN)
+$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN)
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
 
 LIBC_DIR  := initramfs/src/libc
@@ -65,6 +66,10 @@ $(HELLO_BIN): initramfs/src/hello.c $(LIBC_OBJS)
 	mkdir -p initramfs/root/bin
 	$(CC) $(USER_CFLAGS) -o $@ $< $(LIBC_OBJS)
 	printf 'hello from open\n' > initramfs/root/msg.txt
+
+$(ECHO_BIN): initramfs/src/echo.c $(LIBC_OBJS)
+	mkdir -p initramfs/root/bin
+	$(CC) $(USER_CFLAGS) -o $@ $< $(LIBC_OBJS)
 
 fs/initramfs_blob.o: $(INITRAMFS_CPIO)
 

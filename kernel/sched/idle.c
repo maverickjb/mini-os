@@ -8,8 +8,6 @@
 
 #include <asm/smp.h>
 
-extern struct task_struct *runqueue;
-
 void cpu_idle(void)
 {
     unsigned int cpu = smp_processor_id();
@@ -25,9 +23,9 @@ void cpu_idle(void)
     }
 
     for (;;) {
-        if (cpu == 0 && runqueue && runqueue->state == TASK_RUNNING)
+        if (cpu == 0)
             schedule();
-        else
+        if (get_current() == idle)
             __asm__ volatile("wfi");
     }
 }

@@ -139,6 +139,7 @@ void irq_enable(unsigned int irq)
     if (gic_is_v3) {
         GICD_IGROUPR[word] |= (1U << bit);
         GICD_IROUTER[irq] = 0;
+        __asm__ volatile("dsb sy");
     }
     GICD_ISENABLER[word] = 1U << bit;
 }

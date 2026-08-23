@@ -13,6 +13,7 @@
 
 #define UART_DR         (*(volatile unsigned int *)(UART0_VIRT + 0x00))
 #define UART_FR         (*(volatile unsigned int *)(UART0_VIRT + 0x18))
+#define UART_LCRH       (*(volatile unsigned int *)(UART0_VIRT + 0x2c))
 #define UART_CR         (*(volatile unsigned int *)(UART0_VIRT + 0x30))
 #define UART_IMSC       (*(volatile unsigned int *)(UART0_VIRT + 0x38))
 #define UART_ICR        (*(volatile unsigned int *)(UART0_VIRT + 0x44))
@@ -21,7 +22,9 @@
 #define UART_CR_UARTEN  (1u << 0)
 #define UART_CR_TXE     (1u << 8)
 #define UART_CR_RXE     (1u << 9)
+#define UART_LCRH_WLEN8 (3u << 5)
 #define UART_IMSC_RXIM  (1u << 4)
+#define UART_IMSC_RTIM  (1u << 6)
 
 void serial_putc(char c)
 {
@@ -55,7 +58,17 @@ void serial_rx_enable(void)
     while (serial_rx_ready())
         (void)serial_getc();
     UART_ICR = 0x7ff;
-    UART_IMSC = UART_IMSC_RXIM;
+    /* RXIM plus receive-timeout: a 1-byte FIFO fill does not raise RXIM. */
+    UART_IMSC = UART_IMSC_RXIM | UART_IMSC_RTIM;
+}
+
+void serial_init(void)
+{
+    UART_CR = 0;
+    UART_ICR = 0x7ff;
+    /* 8N1, FIFOs off so each byte raises an RX interrupt. */
+    UART_LCRH = UART_LCRH_WLEN8;
+    UART_CR = UART_CR_UARTEN | UART_CR_TXE | UART_CR_RXE;
 }
 
 void uart_putc(char c)
@@ -99,6 +112,3 @@ struct file uart_file = {
     .f_flags = 0,
 };
 
-void serial_init(void)
-{
-}
