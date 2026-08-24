@@ -12,6 +12,9 @@
 #include <linux/binfmts.h>
 #include <linux/mm.h>
 #include <linux/gfp.h>
+#include <linux/auxvec.h>
+#include <linux/string.h>
+#include <linux/tick.h>
 
 #define EI_MAG0         0
 #define EI_MAG1         1
@@ -91,7 +94,8 @@ static unsigned long elf_prot(unsigned long p_flags)
     return prot;
 }
 
-static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out)
+static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out,
+                       void **kpage_out)
 {
     void *stack = alloc_pages(0);
     unsigned long stack_phys;
@@ -101,6 +105,7 @@ static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out)
     if (!stack)
         return -ENOMEM;
 
+    kmemset(stack, 0, PAGE_SIZE);
     stack_phys = __virt_to_phys((unsigned long)stack);
     map_base = (USER_STACK_TOP - PAGE_SIZE) & ~(PAGE_SIZE - 1UL);
 
@@ -109,7 +114,125 @@ static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out)
     if (err)
         return err;
 
+    *kpage_out = stack;
     *stack_top_out = map_base + PAGE_SIZE;
+    return 0;
+}
+
+static int stack_put_string(char *kpage, unsigned long map_base,
+                            unsigned long *sp, const char *s,
+                            unsigned long *uaddr)
+{
+    unsigned long len = strlen(s) + 1;
+
+    if (*sp < map_base + len)
+        return -E2BIG;
+    *sp -= len;
+    memcpy(kpage + (*sp - map_base), s, len);
+    *uaddr = *sp;
+    return 0;
+}
+
+/*
+ * Linux user stack at exec (SP at the low end, stack grows down):
+ *
+ *   high: strings, AT_RANDOM bytes
+ *         auxv … AT_NULL
+ *         envp[] NULL
+ *         argv[] NULL
+ *   SP  : argc
+ */
+static int create_elf_tables(char *kpage, unsigned long map_base,
+                             unsigned long stack_top, struct linux_binprm *bprm,
+                             const Elf64_Ehdr *ehdr, const Elf64_Phdr *phdrs,
+                             unsigned long *user_sp)
+{
+    unsigned long sp = stack_top;
+    unsigned long argv_u[MAX_EXEC_ARGS];
+    unsigned long envp_u[MAX_EXEC_ARGS];
+    unsigned long random_u;
+    unsigned long execfn_u;
+    unsigned long phdr_addr = 0;
+    unsigned long *slot;
+    unsigned int i;
+    unsigned int naux = 17;
+    unsigned long table_bytes;
+    int err;
+
+    for (i = 0; i < ehdr->e_phnum; i++) {
+        const Elf64_Phdr *ph = &phdrs[i];
+
+        if (ph->p_type != PT_LOAD)
+            continue;
+        if (ph->p_offset <= ehdr->e_phoff &&
+            ehdr->e_phoff < ph->p_offset + ph->p_filesz) {
+            phdr_addr = ph->p_vaddr + (ehdr->e_phoff - ph->p_offset);
+            break;
+        }
+    }
+
+    err = stack_put_string(kpage, map_base, &sp,
+                           bprm->filename ? bprm->filename : bprm->argv[0],
+                           &execfn_u);
+    if (err)
+        return err;
+
+    for (i = (unsigned int)bprm->envc; i-- > 0; ) {
+        err = stack_put_string(kpage, map_base, &sp, bprm->envp[i], &envp_u[i]);
+        if (err)
+            return err;
+    }
+    for (i = (unsigned int)bprm->argc; i-- > 0; ) {
+        err = stack_put_string(kpage, map_base, &sp, bprm->argv[i], &argv_u[i]);
+        if (err)
+            return err;
+    }
+
+    if (sp < map_base + 16)
+        return -E2BIG;
+    sp -= 16;
+    random_u = sp;
+    for (i = 0; i < 16; i++)
+        kpage[sp - map_base + i] = (char)(0xa5 ^ (int)i ^ (int)sp);
+
+    table_bytes = (1UL + (unsigned long)bprm->argc + 1UL +
+                   (unsigned long)bprm->envc + 1UL +
+                   (unsigned long)naux * 2UL) * sizeof(unsigned long);
+    if (sp < map_base + table_bytes + 16)
+        return -E2BIG;
+    sp -= table_bytes;
+    sp &= ~15UL;
+
+    slot = (unsigned long *)(kpage + (sp - map_base));
+    *slot++ = (unsigned long)bprm->argc;
+    for (i = 0; i < (unsigned int)bprm->argc; i++)
+        *slot++ = argv_u[i];
+    *slot++ = 0;
+    for (i = 0; i < (unsigned int)bprm->envc; i++)
+        *slot++ = envp_u[i];
+    *slot++ = 0;
+
+#define AUX(t, v) do { *slot++ = (unsigned long)(t); *slot++ = (v); } while (0)
+    AUX(AT_PHDR, phdr_addr);
+    AUX(AT_PHENT, sizeof(Elf64_Phdr));
+    AUX(AT_PHNUM, ehdr->e_phnum);
+    AUX(AT_PAGESZ, PAGE_SIZE);
+    AUX(AT_BASE, 0);
+    AUX(AT_FLAGS, 0);
+    AUX(AT_ENTRY, ehdr->e_entry);
+    AUX(AT_UID, 0);
+    AUX(AT_EUID, 0);
+    AUX(AT_GID, 0);
+    AUX(AT_EGID, 0);
+    AUX(AT_HWCAP, 0);
+    AUX(AT_CLKTCK, HZ);
+    AUX(AT_SECURE, 0);
+    AUX(AT_RANDOM, random_u);
+    AUX(AT_EXECFN, execfn_u);
+    AUX(AT_NULL, 0);
+#undef AUX
+
+    *user_sp = sp;
     return 0;
 }
 
@@ -172,6 +295,8 @@ int load_elf_binary(struct linux_binprm *bprm)
     const Elf64_Phdr *phdrs;
     struct mm_struct *mm;
     struct mm_struct *old_mm;
+    void *kstack;
+    unsigned long user_sp;
     unsigned int i;
     int err;
 
@@ -225,7 +350,14 @@ int load_elf_binary(struct linux_binprm *bprm)
     mm->start_brk = (mm->start_brk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
     mm->brk = mm->start_brk;
 
-    err = setup_stack(mm, &bprm->stack_top);
+    err = setup_stack(mm, &bprm->stack_top, &kstack);
+    if (err) {
+        mm_put(mm);
+        return err;
+    }
+
+    err = create_elf_tables(kstack, bprm->stack_top - PAGE_SIZE,
+                            bprm->stack_top, bprm, ehdr, phdrs, &user_sp);
     if (err) {
         mm_put(mm);
         return err;
@@ -241,7 +373,7 @@ int load_elf_binary(struct linux_binprm *bprm)
         mm_put(old_mm);
 
     bprm->task->is_user = 1;
-    bprm->task->user_sp = mm->stack_top;
+    bprm->task->user_sp = user_sp;
     {
         struct pt_regs *regs = (struct pt_regs *)bprm->task->stack;
 
