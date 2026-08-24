@@ -31,12 +31,6 @@ SECTIONS
         *(.rodata .rodata.*)
     } :text
 
-    .init.ramfs : AT(KERNEL_PHYS_BASE + (ADDR(.init.ramfs) - KERNEL_VIRT_BASE)) {
-        __initramfs_start = .;
-        KEEP(*(.init.ramfs))
-        __initramfs_end = .;
-    } :text
-
     .databoot : AT(KERNEL_PHYS_BASE + (ADDR(.databoot) - KERNEL_VIRT_BASE)) {
         *(.data.boot)
     } :data
@@ -50,6 +44,12 @@ SECTIONS
         *(.bss .bss.*)
         *(COMMON)
         __bss_end = .;
+    } :data
+
+    .init.ramfs : AT(KERNEL_PHYS_BASE + (ADDR(.init.ramfs) - KERNEL_VIRT_BASE)) {
+        __initramfs_start = .;
+        KEEP(*(.init.ramfs))
+        __initramfs_end = .;
     } :data
 
     .stack (NOLOAD) : {

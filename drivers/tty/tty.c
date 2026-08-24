@@ -227,6 +227,16 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
     (void)file;
 
     switch (cmd) {
+    case TCGETS: {
+        unsigned char termios[60];
+        unsigned int i;
+
+        for (i = 0; i < sizeof(termios); i++)
+            termios[i] = 0;
+        if (!arg || copy_to_user((void *)arg, termios, sizeof(termios)))
+            return -EFAULT;
+        return 0;
+    }
     case TIOCGPGRP:
         pgid = tty_getpgrp();
         if (copy_to_user((pid_t *)arg, &pgid, sizeof(pgid)))

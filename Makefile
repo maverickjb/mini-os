@@ -34,6 +34,10 @@ all: initramfs mini-os.elf mini-os.bin
 
 initramfs: $(INITRAMFS_CPIO)
 
+USER_CC      ?= aarch64-unknown-linux-musl-gcc
+USER_CFLAGS  := -Wall -Wextra -O0 -g -static -fno-pie -no-pie
+USER_PATH    := $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
+
 INIT_BIN  := initramfs/root/init
 HELLO_BIN := initramfs/root/bin/hello
 ECHO_BIN  := initramfs/root/bin/echo
@@ -41,35 +45,18 @@ ECHO_BIN  := initramfs/root/bin/echo
 $(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN)
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
 
-LIBC_DIR  := initramfs/src/libc
-LIBC_INC  := -I$(LIBC_DIR)/include
-LIBC_OBJS := $(LIBC_DIR)/crt0.o $(LIBC_DIR)/syscall.o $(LIBC_DIR)/string.o \
-             $(LIBC_DIR)/malloc.o $(LIBC_DIR)/stdio.o $(LIBC_DIR)/printf.o \
-             $(LIBC_DIR)/signal.o
-
-LIBC_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
-               -Wall -Wextra -O0 -g -fno-pie -fno-PIE $(LIBC_INC)
-
-USER_CFLAGS := $(LIBC_CFLAGS) -static -Wl,-e,_start -Wl,--build-id=none
-
-$(LIBC_DIR)/%.o: $(LIBC_DIR)/%.c
-	$(CC) $(LIBC_CFLAGS) -c $< -o $@
-
-$(LIBC_DIR)/%.o: $(LIBC_DIR)/%.S
-	$(CC) $(LIBC_CFLAGS) -c $< -o $@
-
-$(INIT_BIN): initramfs/src/init.c $(LIBC_OBJS)
+$(INIT_BIN): initramfs/src/init.c
 	mkdir -p initramfs/root
-	$(CC) $(USER_CFLAGS) -o $@ $< $(LIBC_OBJS)
+	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 
-$(HELLO_BIN): initramfs/src/hello.c $(LIBC_OBJS)
+$(HELLO_BIN): initramfs/src/hello.c
 	mkdir -p initramfs/root/bin
-	$(CC) $(USER_CFLAGS) -o $@ $< $(LIBC_OBJS)
+	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 	printf 'hello from open\n' > initramfs/root/msg.txt
 
-$(ECHO_BIN): initramfs/src/echo.c $(LIBC_OBJS)
+$(ECHO_BIN): initramfs/src/echo.c
 	mkdir -p initramfs/root/bin
-	$(CC) $(USER_CFLAGS) -o $@ $< $(LIBC_OBJS)
+	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 
 fs/initramfs_blob.o: $(INITRAMFS_CPIO)
 
@@ -86,7 +73,7 @@ mini-os.bin: mini-os.elf
 	$(OBJCOPY) -O binary $< $@
 
 clean:
-	rm -f $(OBJS) $(LIBC_OBJS) mini-os.elf mini-os.bin initramfs/initramfs.cpio
+	rm -f $(OBJS) mini-os.elf mini-os.bin initramfs/initramfs.cpio
 	rm -rf initramfs/root
 
 QEMU    ?= qemu-system-aarch64

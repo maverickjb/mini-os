@@ -7,6 +7,7 @@
 #include <asm/signal.h>
 
 struct stat;
+struct timespec;
 
 long ksys_write(unsigned long fd, const char *buf, unsigned long count);
 long ksys_read(unsigned long fd, char *buf, unsigned long count);
@@ -52,5 +53,8 @@ long ksys_setpgid(pid_t pid, pid_t pgid);
 long ksys_getsid(pid_t pid);
 long ksys_setsid(void);
 long ksys_ioctl(unsigned long fd, unsigned int cmd, unsigned long arg);
+long ksys_uname(void *buf);
+long ksys_clock_gettime(int clockid, struct timespec *tp);
+long ksys_set_tid_address(int *tidptr);
 
 #endif	/* _LINUX_SYSCALLS_H */

@@ -8,6 +8,7 @@ struct task_struct;
 
 #define TTY_RX_SIZE	256
 
+#define TCGETS		0x5401
 #define TIOCGPGRP	0x540F
 #define TIOCSPGRP	0x5410
 

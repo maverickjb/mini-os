@@ -81,6 +81,7 @@ struct task_struct {
     unsigned long saved_blocked;
     int restore_sigmask;
     struct sigaction actions[MAX_SIG];
+    int *clear_child_tid;
 };
 
 extern struct task_struct idle_tasks[];

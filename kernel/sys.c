@@ -11,6 +11,9 @@
 #include <linux/sched/task.h>
 #include <linux/stddef.h>
 #include <linux/signal.h>
+#include <linux/uaccess.h>
+#include <linux/string.h>
+#include <linux/tick.h>
 #include <asm/ptrace.h>
 #include <asm/irqflags.h>
 
@@ -34,6 +37,60 @@ void report_el0_fault(struct pt_regs *regs, unsigned long ec)
         uart_putc(nibble < 10 ? '0' + (char)nibble : 'a' + (char)(nibble - 10));
     }
     uart_puts("\n");
+}
+
+struct new_utsname {
+    char sysname[65];
+    char nodename[65];
+    char release[65];
+    char version[65];
+    char machine[65];
+    char domainname[65];
+};
+
+long ksys_uname(void *buf)
+{
+    struct new_utsname u;
+
+    if (!buf)
+        return -EFAULT;
+
+    memset(&u, 0, sizeof(u));
+    strscpy(u.sysname, "Linux", sizeof(u.sysname));
+    strscpy(u.nodename, "mini-os", sizeof(u.nodename));
+    strscpy(u.release, "0.0", sizeof(u.release));
+    strscpy(u.version, "mini-os", sizeof(u.version));
+    strscpy(u.machine, "aarch64", sizeof(u.machine));
+
+    if (copy_to_user(buf, &u, sizeof(u)))
+        return -EFAULT;
+    return 0;
+}
+
+long ksys_clock_gettime(int clockid, struct timespec *tp)
+{
+    struct timespec ts;
+    unsigned long j;
+
+    (void)clockid;
+    if (!tp)
+        return -EFAULT;
+
+    j = get_jiffies();
+    ts.tv_sec = (long)(j / HZ);
+    ts.tv_nsec = (long)(j % HZ) * (1000000000L / HZ);
+
+    if (copy_to_user(tp, &ts, sizeof(ts)))
+        return -EFAULT;
+    return 0;
+}
+
+long ksys_set_tid_address(int *tidptr)
+{
+    if (!current)
+        return -EINVAL;
+    current->clear_child_tid = tidptr;
+    return (long)current->pid;
 }
 
 static long handle_syscall(struct pt_regs *regs)
@@ -85,6 +142,30 @@ static long handle_syscall(struct pt_regs *regs)
     case __NR_exit:
         ksys_exit((long)regs->x0);
         return 0; /* not reached */
+    case __NR_exit_group:
+        ksys_exit((long)regs->x0);
+        return 0;
+    case __NR_set_tid_address:
+        return ksys_set_tid_address((int *)regs->x0);
+    case __NR_uname:
+        return ksys_uname((void *)regs->x0);
+    case __NR_clock_gettime:
+        return ksys_clock_gettime((int)regs->x0, (struct timespec *)regs->x1);
+    case __NR_getuid:
+    case __NR_geteuid:
+    case __NR_getgid:
+    case __NR_getegid:
+        return 0;
+    case __NR_gettid:
+        return ksys_getpid();
+    case __NR_getppid:
+        if (!current || !current->parent)
+            return 0;
+        return (long)current->parent->pid;
+    case __NR_mprotect:
+        return 0;
+    case __NR_fcntl:
+        return 0;
     case __NR_wait4:
         return ksys_wait4((int)regs->x0, (int *)regs->x1, (long)regs->x2);
     case __NR_execve:

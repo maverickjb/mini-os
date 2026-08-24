@@ -1,11 +1,40 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/syscall.h>
+
+struct linux_dirent64 {
+    unsigned long long d_ino;
+    long long d_off;
+    unsigned short d_reclen;
+    unsigned char d_type;
+    char d_name[];
+};
+
+static long getdents64(int fd, void *dirp, unsigned long count)
+{
+    return syscall(SYS_getdents64, fd, dirp, count);
+}
+
+static int nerr(int r)
+{
+    return r < 0 ? -errno : r;
+}
+
+static int sigset_is_empty(const sigset_t *s)
+{
+    sigset_t z;
+
+    sigemptyset(&z);
+    return memcmp(s, &z, sizeof(z)) == 0;
+}
 
 static volatile int got_usr1;
 static volatile int got_usr2;
@@ -82,8 +111,8 @@ int main(void)
     printf("mkdir /testdir ok ino=%d\n", (int)st.st_ino);
 
     ret = mkdir("/testdir", 0755);
-    if (ret != -EEXIST) {
-        printf("mkdir again expected %d got %d\n", -EEXIST, ret);
+    if (nerr(ret) != -EEXIST) {
+        printf("mkdir again expected %d got %d\n", -EEXIST, nerr(ret));
         return 1;
     }
     printf("mkdir EEXIST ok\n");
@@ -158,8 +187,8 @@ int main(void)
     }
 
     ret = stat("/tmpfile", &st);
-    if (ret != -ENOENT) {
-        printf("unlink expected ENOENT got %d\n", ret);
+    if (nerr(ret) != -ENOENT) {
+        printf("unlink expected ENOENT got %d\n", nerr(ret));
         return 1;
     }
 
@@ -179,8 +208,8 @@ int main(void)
 
     /* unlink() is for files only; directories need rmdir(). */
     ret = unlink("/testdir");
-    if (ret != -EISDIR) {
-        printf("unlink(/testdir) should fail with EISDIR, got %d\n", ret);
+    if (nerr(ret) != -EISDIR) {
+        printf("unlink(/testdir) should fail with EISDIR, got %d\n", nerr(ret));
         return 1;
     }
 
@@ -198,11 +227,9 @@ int main(void)
 
     {
         char cwd[256];
-        long n;
 
-        n = getcwd(cwd, sizeof(cwd));
-        if (n < 0) {
-            printf("getcwd failed: %d\n", (int)n);
+        if (!getcwd(cwd, sizeof(cwd))) {
+            printf("getcwd failed: %d\n", errno);
             return 1;
         }
         if (strcmp(cwd, "/cdtest") != 0) {
@@ -232,10 +259,8 @@ int main(void)
 
     {
         char cwd[256];
-        long n;
 
-        n = getcwd(cwd, sizeof(cwd));
-        if (n < 0 || strcmp(cwd, "/cdtest") != 0) {
+        if (!getcwd(cwd, sizeof(cwd)) || strcmp(cwd, "/cdtest") != 0) {
             printf("chdir ./. cwd bad\n");
             return 1;
         }
@@ -272,8 +297,8 @@ int main(void)
     }
 
     ret = stat("/testdir", &st);
-    if (ret != -ENOENT) {
-        printf("rmdir expected ENOENT got %d\n", ret);
+    if (nerr(ret) != -ENOENT) {
+        printf("rmdir expected ENOENT got %d\n", nerr(ret));
         return 1;
     }
 
@@ -325,7 +350,7 @@ int main(void)
             printf("setpgid expected pgid %d got %d\n", (int)me, (int)getpgrp());
             return 1;
         }
-        if (setpgid(0, 99999) != -EPERM) {
+        if (nerr(setpgid(0, 99999)) != -EPERM) {
             printf("setpgid nonexistent group expected EPERM\n");
             return 1;
         }
@@ -416,7 +441,7 @@ int main(void)
             printf("tcgetpgrp expected %d got %d\n", (int)pg, (int)tcgetpgrp(0));
             return 1;
         }
-        if (tcsetpgrp(0, 99999) != -ESRCH) {
+        if (nerr(tcsetpgrp(0, 99999)) != -ESRCH) {
             printf("tcsetpgrp missing expected ESRCH\n");
             return 1;
         }
@@ -441,13 +466,13 @@ int main(void)
             printf("getsid(self) mismatch\n");
             return 1;
         }
-        if (getsid(99999) != -ESRCH) {
+        if (nerr(getsid(99999)) != -ESRCH) {
             printf("getsid missing expected ESRCH\n");
             return 1;
         }
 
         /* hello already called setpgid(0, 0); group leader cannot setsid. */
-        if (setsid() != -EPERM) {
+        if (nerr(setsid()) != -EPERM) {
             printf("setsid as pgrp leader expected EPERM\n");
             return 1;
         }
@@ -467,7 +492,7 @@ int main(void)
                 _exit(2);
             if (getpgrp() != newsid || getsid(0) != newsid)
                 _exit(3);
-            if (setsid() != -EPERM)
+            if (nerr(setsid()) != -EPERM)
                 _exit(4);
             _exit(0);
         }
@@ -476,7 +501,7 @@ int main(void)
             printf("setsid child expected 0 got %d\n", status);
             return 1;
         }
-        if (getsid(cpid) != -ESRCH) {
+        if (nerr(getsid(cpid)) != -ESRCH) {
             printf("getsid after child exit expected ESRCH\n");
             return 1;
         }
@@ -639,7 +664,7 @@ int main(void)
             write(ready[1], "r", 1);
             close(ready[1]);
             n = read(fds[0], &c, 1);
-            if (n == -EINTR)
+            if (n < 0 && errno == EINTR)
                 _exit(42);
             _exit(3);
         }
@@ -716,7 +741,7 @@ int main(void)
             write(ready[1], "r", 1);
             close(ready[1]);
             n = read(fds[0], &c, 1);
-            if (n == -EINTR)
+            if (n < 0 && errno == EINTR)
                 _exit(42);
             _exit(3);
         }
@@ -769,7 +794,7 @@ int main(void)
             sa.sa_handler = sigtstp_mark;
             sa.sa_flags = 0;
             sa.sa_restorer = 0;
-            sa.sa_mask.sig[0] = 0;
+            sigemptyset(&sa.sa_mask);
             if (sigaction(SIGTSTP, &sa, NULL) < 0)
                 _exit(1);
             got_tstp = 0;
@@ -913,7 +938,7 @@ int main(void)
         sa.sa_handler = SIG_IGN;
         sa.sa_flags = 0;
         sa.sa_restorer = 0;
-        sa.sa_mask.sig[0] = 0;
+        sigemptyset(&sa.sa_mask);
         if (sigaction(SIGUSR1, &sa, &osa) < 0) {
             printf("sigaction IGN failed\n");
             return 1;
@@ -945,14 +970,14 @@ int main(void)
             sa.sa_handler = sigusr1_mark;
             sa.sa_flags = 0;
             sa.sa_restorer = 0;
-            sa.sa_mask.sig[0] = 0;
+            sigemptyset(&sa.sa_mask);
             if (sigaction(SIGUSR1, &sa, NULL) < 0)
                 _exit(1);
             got_usr1 = 0;
             write(ready[1], "r", 1);
             close(ready[1]);
             n = read(fds[0], &c, 1);
-            if (got_usr1 && n == -EINTR)
+            if (got_usr1 && n < 0 && errno == EINTR)
                 _exit(42);
             _exit(3);
         }
@@ -1052,11 +1077,11 @@ int main(void)
             sigaddset(&set, SIGUSR1);
             if (sigprocmask(SIG_BLOCK, &set, &old) < 0)
                 _exit(2);
-            if (old.sig[0] != 0)
+            if (!sigset_is_empty(&old))
                 _exit(3);
             if (sigprocmask(SIG_SETMASK, NULL, &old2) < 0)
                 _exit(4);
-            if (!(old2.sig[0] & (1UL << SIGUSR1)))
+            if (!sigismember(&old2, SIGUSR1))
                 _exit(5);
             if (kill(getpid(), SIGUSR1) < 0)
                 _exit(6);
@@ -1098,7 +1123,7 @@ int main(void)
             sigemptyset(&pending);
             if (sigpending(&pending) < 0)
                 _exit(3);
-            if (pending.sig[0] != 0)
+            if (!sigset_is_empty(&pending))
                 _exit(4);
             if (sigprocmask(SIG_UNBLOCK, &set, NULL) < 0)
                 _exit(5);
@@ -1151,13 +1176,13 @@ int main(void)
             close(ready[1]);
 
             sigemptyset(&wait);
-            if (sigsuspend(&wait) != -EINTR)
+            if (nerr(sigsuspend(&wait)) != -EINTR)
                 _exit(3);
             if (!got_usr1)
                 _exit(4);
             if (sigprocmask(SIG_SETMASK, NULL, &old) < 0)
                 _exit(5);
-            if (!(old.sig[0] & (1UL << SIGUSR1)))
+            if (!sigismember(&old, SIGUSR1))
                 _exit(6);
             _exit(42);
         }
