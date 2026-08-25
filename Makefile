@@ -38,12 +38,18 @@ USER_CC      ?= aarch64-unknown-linux-musl-gcc
 USER_CFLAGS  := -Wall -Wextra -O0 -g -static -fno-pie -no-pie
 USER_PATH    := $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
 
-INIT_BIN  := initramfs/root/init
-HELLO_BIN := initramfs/root/bin/hello
-ECHO_BIN  := initramfs/root/bin/echo
+INIT_BIN     := initramfs/root/init
+HELLO_BIN    := initramfs/root/bin/hello
+ECHO_BIN     := initramfs/root/bin/echo
+BUSYBOX_SRC  ?= initramfs/busybox
+BUSYBOX_BIN  := initramfs/root/bin/busybox
 
-$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN)
+$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN) $(BUSYBOX_BIN)
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
+
+$(BUSYBOX_BIN): $(BUSYBOX_SRC)
+	mkdir -p initramfs/root/bin
+	cp -f $< $@
 
 $(INIT_BIN): initramfs/src/init.c
 	mkdir -p initramfs/root

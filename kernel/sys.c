@@ -17,25 +17,34 @@
 #include <asm/ptrace.h>
 #include <asm/irqflags.h>
 
+static void uart_hex(unsigned long v)
+{
+    int i;
+
+    uart_puts("0x");
+    for (i = 60; i >= 0; i -= 4) {
+        unsigned long nibble = (v >> i) & 0xfUL;
+
+        uart_putc(nibble < 10 ? '0' + (char)nibble : 'a' + (char)(nibble - 10));
+    }
+}
+
 void report_el0_fault(struct pt_regs *regs, unsigned long ec)
 {
     unsigned long far;
+    unsigned long esr;
 
     __asm__ volatile("mrs %0, far_el1" : "=r"(far));
+    __asm__ volatile("mrs %0, esr_el1" : "=r"(esr));
 
-    uart_puts("EL0 fault ec=0x");
-    uart_putc("0123456789abcdef"[(ec >> 4) & 0xf]);
-    uart_putc("0123456789abcdef"[ec & 0xf]);
-    uart_puts(" elr=0x");
-    for (int i = 60; i >= 0; i -= 4) {
-        unsigned long nibble = (regs->elr_el1 >> i) & 0xfUL;
-        uart_putc(nibble < 10 ? '0' + (char)nibble : 'a' + (char)(nibble - 10));
-    }
-    uart_puts(" far=0x");
-    for (int i = 60; i >= 0; i -= 4) {
-        unsigned long nibble = (far >> i) & 0xfUL;
-        uart_putc(nibble < 10 ? '0' + (char)nibble : 'a' + (char)(nibble - 10));
-    }
+    uart_puts("EL0 fault ec=");
+    uart_hex(ec);
+    uart_puts(" esr=");
+    uart_hex(esr);
+    uart_puts(" elr=");
+    uart_hex(regs->elr_el1);
+    uart_puts(" far=");
+    uart_hex(far);
     uart_puts("\n");
 }
 
@@ -163,7 +172,7 @@ static long handle_syscall(struct pt_regs *regs)
             return 0;
         return (long)current->parent->pid;
     case __NR_mprotect:
-        return 0;
+        return ksys_mprotect(regs->x0, regs->x1, regs->x2);
     case __NR_fcntl:
         return 0;
     case __NR_wait4:

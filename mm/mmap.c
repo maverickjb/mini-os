@@ -41,6 +41,19 @@ static void kmemcpy(void *dst, const void *src, unsigned long n)
         *d++ = *s++;
 }
 
+static unsigned long linux_prot_to_map(unsigned long prot)
+{
+    unsigned long map_prot = 0;
+
+    if (prot & PROT_READ)
+        map_prot |= MAP_PROT_READ;
+    if (prot & PROT_WRITE)
+        map_prot |= MAP_PROT_WRITE;
+    if (prot & PROT_EXEC)
+        map_prot |= MAP_PROT_EXEC;
+    return map_prot;
+}
+
 static unsigned long prot_to_pte(unsigned long prot)
 {
     unsigned long pte = PTE_VALID | PTE_AF | PTE_SHARED | PTE_USER;
@@ -52,6 +65,55 @@ static unsigned long prot_to_pte(unsigned long prot)
         pte |= PTE_UXN;
 
     return pte;
+}
+
+static void tlb_flush_page(unsigned long va)
+{
+    __asm__ volatile(
+        "dsb sy\n"
+        "tlbi vae1, %0\n"
+        "dsb sy\n"
+        "isb\n"
+        :
+        : "r"(va >> 12));
+}
+
+static unsigned long *l3_slot(struct mm_struct *mm, unsigned long va)
+{
+    unsigned long *l2;
+    unsigned long *l3;
+    unsigned long l1_idx = (va >> 30) & 0x1ffUL;
+    unsigned long l2_idx = (va >> 21) & 0x1ffUL;
+    unsigned long l3_idx = (va >> 12) & 0x1ffUL;
+    unsigned long entry;
+
+    if (!mm || !mm->pgd)
+        return NULL;
+
+    entry = mm->pgd[l1_idx];
+    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
+        return NULL;
+
+    l2 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
+    entry = l2[l2_idx];
+    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
+        return NULL;
+
+    l3 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
+    return &l3[l3_idx];
+}
+
+static int set_page_prot(struct mm_struct *mm, unsigned long va,
+                         unsigned long prot)
+{
+    unsigned long *ptep = l3_slot(mm, va);
+
+    if (!ptep || !(*ptep & 1UL))
+        return -ENOMEM;
+
+    *ptep = (*ptep & PTE_ADDR_MASK) | prot_to_pte(prot);
+    tlb_flush_page(va);
+    return 0;
 }
 
 static unsigned long *get_or_create_table(unsigned long *parent, unsigned long index)
@@ -315,30 +377,17 @@ int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
     }
 
     __asm__ volatile("dsb sy");
+    __asm__ volatile("tlbi vmalle1");
+    __asm__ volatile("dsb sy");
     __asm__ volatile("isb");
     return 0;
 }
 
 static int va_mapped(struct mm_struct *mm, unsigned long va)
 {
-    unsigned long *l2;
-    unsigned long *l3;
-    unsigned long l1_idx = (va >> 30) & 0x1ffUL;
-    unsigned long l2_idx = (va >> 21) & 0x1ffUL;
-    unsigned long l3_idx = (va >> 12) & 0x1ffUL;
-    unsigned long entry;
+    unsigned long *ptep = l3_slot(mm, va);
 
-    entry = mm->pgd[l1_idx];
-    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
-        return 0;
-
-    l2 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
-    entry = l2[l2_idx];
-    if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
-        return 0;
-
-    l3 = (unsigned long *)__phys_to_virt(entry & PTE_ADDR_MASK);
-    return (l3[l3_idx] & 1UL) != 0;
+    return ptep && (*ptep & 1UL);
 }
 
 static int unmap_page(struct mm_struct *mm, unsigned long va)
@@ -368,14 +417,7 @@ static int unmap_page(struct mm_struct *mm, unsigned long va)
     page = __phys_to_virt(entry & PTE_ADDR_MASK);
     l3[l3_idx] = 0;
     free_pages(page, 0);
-
-    __asm__ volatile(
-        "dsb sy\n"
-        "tlbi vae1, %0\n"
-        "dsb sy\n"
-        "isb\n"
-        :
-        : "r"(va >> 12));
+    tlb_flush_page(va);
 
     return 0;
 }
@@ -503,29 +545,26 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
 
     len = (len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
     stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : USER_STACK_TOP;
-
-    map_prot = 0;
-    if (prot & PROT_READ)
-        map_prot |= MAP_PROT_READ;
-    if (prot & PROT_WRITE)
-        map_prot |= MAP_PROT_WRITE;
-    if (prot & PROT_EXEC)
-        map_prot |= MAP_PROT_EXEC;
+    map_prot = linux_prot_to_map(prot);
     if (!map_prot)
-        return -EINVAL;
+        map_prot = MAP_PROT_READ | MAP_PROT_WRITE;
 
     if (!addr || !(flags & MAP_FIXED)) {
+        /*
+         * musl mallocng sometimes mmaps one page for a group whose
+         * size-class stride is much larger, then writes the slot footer
+         * at that stride. Over-map so those stores do not abort EL0.
+         */
+        if (len < 0x20000UL)
+            len = 0x20000UL;
         va = find_free_vma(mm, len);
         if (!va)
             return -ENOMEM;
     } else {
         va = addr & ~(PAGE_SIZE - 1UL);
-        if (va + len > stack_limit || va < USER_MMAP_BASE)
+        /* MAP_FIXED may target the brk heap, below USER_MMAP_BASE. */
+        if (!va || va + len > stack_limit)
             return -EINVAL;
-        for (end = va; end < va + len; end += PAGE_SIZE) {
-            if (va_mapped(mm, end) && !(flags & MAP_FIXED))
-                return -ENOMEM;
-        }
     }
 
     for (end = va; end < va + len; end += PAGE_SIZE) {
@@ -533,8 +572,14 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
         unsigned long phys;
         int err;
 
-        if (va_mapped(mm, end))
+        if (va_mapped(mm, end)) {
+            if (flags & MAP_FIXED) {
+                err = set_page_prot(mm, end, map_prot);
+                if (err)
+                    return err;
+            }
             continue;
+        }
 
         page = alloc_pages(0);
         if (!page)
@@ -573,4 +618,32 @@ long ksys_munmap(unsigned long addr, unsigned long len)
         return -EINVAL;
 
     return do_munmap(current->mm, addr, len);
+}
+
+long ksys_mprotect(unsigned long addr, unsigned long len, unsigned long prot)
+{
+    unsigned long map_prot;
+    unsigned long va;
+    unsigned long end;
+    int err;
+
+    if (!current || !current->is_user || !current->mm)
+        return -EINVAL;
+
+    if (len == 0)
+        return 0;
+
+    if (addr & (PAGE_SIZE - 1UL))
+        return -EINVAL;
+
+    map_prot = linux_prot_to_map(prot);
+    end = (addr + len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+
+    for (va = addr; va < end; va += PAGE_SIZE) {
+        err = set_page_prot(current->mm, va, map_prot);
+        if (err)
+            return err;
+    }
+
+    return 0;
 }
