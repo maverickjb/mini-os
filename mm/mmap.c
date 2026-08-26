@@ -17,7 +17,9 @@
 #define PTE_SHARED      (3UL << 8)   /* inner shareable */
 #define PTE_USER        (1UL << 6)   /* AP[1]: user accessible at EL0 */
 #define PTE_RDONLY      (1UL << 7)   /* AP[2]: read-only */
+#define PTE_NG          (1UL << 11)  /* non-global: follows TTBR0 */
 #define PTE_UXN         (1UL << 54)
+#define DCACHE_LINE     64UL
 /* Output address field [47:12]; must not include upper attr bits (e.g. UXN). */
 #define PTE_ADDR_MASK   0x0000FFFFFFFFF000UL
 #define PTE_FLAGS_MASK  (~PTE_ADDR_MASK)
@@ -56,7 +58,14 @@ static unsigned long linux_prot_to_map(unsigned long prot)
 
 static unsigned long prot_to_pte(unsigned long prot)
 {
-    unsigned long pte = PTE_VALID | PTE_AF | PTE_SHARED | PTE_USER;
+    unsigned long pte = PTE_VALID | PTE_AF | PTE_SHARED | PTE_NG;
+
+    /*
+     * PROT_NONE: keep a valid leaf so the VMA exists, but omit PTE_USER so
+     * EL0 faults. Matches Linux: mapping present, no access.
+     */
+    if (prot & (MAP_PROT_READ | MAP_PROT_WRITE | MAP_PROT_EXEC))
+        pte |= PTE_USER;
 
     if (!(prot & MAP_PROT_WRITE))
         pte |= PTE_RDONLY;
@@ -67,6 +76,33 @@ static unsigned long prot_to_pte(unsigned long prot)
     return pte;
 }
 
+static void dcache_clean_poc(void *addr, unsigned long size)
+{
+    unsigned long p = (unsigned long)addr & ~(DCACHE_LINE - 1UL);
+    unsigned long end = (unsigned long)addr + size;
+
+    for (; p < end; p += DCACHE_LINE)
+        __asm__ volatile("dc civac, %0" : : "r"(p) : "memory");
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+static void pte_set(unsigned long *slot, unsigned long val)
+{
+    *slot = val;
+    __asm__ volatile("dc civac, %0" : : "r"(slot) : "memory");
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+static void tlb_flush_all(void)
+{
+    __asm__ volatile(
+        "dsb sy\n"
+        "tlbi vmalle1\n"
+        "dsb sy\n"
+        "isb\n"
+        ::: "memory");
+}
+
 static void tlb_flush_page(unsigned long va)
 {
     __asm__ volatile(
@@ -75,7 +111,8 @@ static void tlb_flush_page(unsigned long va)
         "dsb sy\n"
         "isb\n"
         :
-        : "r"(va >> 12));
+        : "r"(va >> 12)
+        : "memory");
 }
 
 static unsigned long *l3_slot(struct mm_struct *mm, unsigned long va)
@@ -111,7 +148,7 @@ static int set_page_prot(struct mm_struct *mm, unsigned long va,
     if (!ptep || !(*ptep & 1UL))
         return -ENOMEM;
 
-    *ptep = (*ptep & PTE_ADDR_MASK) | prot_to_pte(prot);
+    pte_set(ptep, (*ptep & PTE_ADDR_MASK) | prot_to_pte(prot));
     tlb_flush_page(va);
     return 0;
 }
@@ -132,7 +169,8 @@ static unsigned long *get_or_create_table(unsigned long *parent, unsigned long i
         return NULL;
 
     page_zero(table);
-    parent[index] = __virt_to_phys((unsigned long)table) | PTE_TABLE;
+    dcache_clean_poc(table, PAGE_SIZE);
+    pte_set(&parent[index], __virt_to_phys((unsigned long)table) | PTE_TABLE);
     return table;
 }
 
@@ -201,6 +239,7 @@ static unsigned long *dup_pgtable_level(unsigned long *src, int level)
         return NULL;
 
     page_zero(dst);
+    dcache_clean_poc(dst, PAGE_SIZE);
 
     for (i = 0; i < PT_ENTRIES; i++) {
 
@@ -238,10 +277,9 @@ static unsigned long *dup_pgtable_level(unsigned long *src, int level)
             /*
              * Put new child table address
              */
-            dst[i] =
-                __virt_to_phys((unsigned long)child_dst)
-                |
-                (ent & PTE_FLAGS_MASK);
+            pte_set(&dst[i],
+                    __virt_to_phys((unsigned long)child_dst) |
+                    (ent & PTE_FLAGS_MASK));
 
         } else {
 
@@ -285,19 +323,12 @@ static unsigned long *dup_pgtable_level(unsigned long *src, int level)
              * Copy user memory
              */
             kmemcpy(new_page, old_page, PAGE_SIZE);
-
+            dcache_clean_poc(new_page, PAGE_SIZE);
 
             new_pa =
                 __virt_to_phys((unsigned long)new_page);
 
-
-            /*
-             * Same permissions,
-             * different physical address
-             */
-            dst[i] =
-                new_pa |
-                (ent & PTE_FLAGS_MASK);
+            pte_set(&dst[i], new_pa | (ent & PTE_FLAGS_MASK));
         }
     }
 
@@ -325,11 +356,10 @@ void mm_install(struct mm_struct *mm)
 
     __asm__ volatile(
         "msr ttbr0_el1, %0\n"
-        "tlbi vmalle1\n"
-        "dsb sy\n"
         "isb\n"
         :
         : "r"(ttbr0));
+    tlb_flush_all();
 }
 
 static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
@@ -349,8 +379,7 @@ static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
     if (!l3)
         return -ENOMEM;
 
-    l3[l3_idx] = (pa & PTE_ADDR_MASK) | prot_to_pte(prot);
-    __asm__ volatile("dsb sy");
+    pte_set(&l3[l3_idx], (pa & PTE_ADDR_MASK) | prot_to_pte(prot));
     return 0;
 }
 
@@ -376,10 +405,8 @@ int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
             return err;
     }
 
-    __asm__ volatile("dsb sy");
-    __asm__ volatile("tlbi vmalle1");
-    __asm__ volatile("dsb sy");
-    __asm__ volatile("isb");
+    __asm__ volatile("dsb sy" ::: "memory");
+    tlb_flush_all();
     return 0;
 }
 
@@ -415,7 +442,7 @@ static int unmap_page(struct mm_struct *mm, unsigned long va)
         return 0;
 
     page = __phys_to_virt(entry & PTE_ADDR_MASK);
-    l3[l3_idx] = 0;
+    pte_set(&l3[l3_idx], 0);
     free_pages(page, 0);
     tlb_flush_page(va);
 
@@ -546,17 +573,8 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
     len = (len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
     stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : USER_STACK_TOP;
     map_prot = linux_prot_to_map(prot);
-    if (!map_prot)
-        map_prot = MAP_PROT_READ | MAP_PROT_WRITE;
 
     if (!addr || !(flags & MAP_FIXED)) {
-        /*
-         * musl mallocng sometimes mmaps one page for a group whose
-         * size-class stride is much larger, then writes the slot footer
-         * at that stride. Over-map so those stores do not abort EL0.
-         */
-        if (len < 0x20000UL)
-            len = 0x20000UL;
         va = find_free_vma(mm, len);
         if (!va)
             return -ENOMEM;

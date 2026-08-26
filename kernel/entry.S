@@ -140,10 +140,16 @@ sync_el0_entry:
     stp     x12, x13, [x19, #96]
     stp     x14, x15, [x19, #112]
     stp     x16, x17, [x19, #128]
+    /*
+     * x19/x20 were stashed at [sp]; x19 now points at pt_regs.
+     * Save x21 before reusing it as scratch — musl mallocng keeps
+     * sizeclass in w21 across mmap().
+     */
     stp     x22, x23, [x19, #176]
+    str     x21, [x19, #168]
     ldp     x21, x22, [sp, #0]
     stp     x18, x21, [x19, #144]
-    stp     x22, x23, [x19, #160]
+    str     x22, [x19, #160]
     stp     x24, x25, [x19, #192]
     stp     x26, x27, [x19, #208]
     stp     x28, x29, [x19, #224]
