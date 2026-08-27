@@ -1,16 +1,6 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-static void echo_status(int st)
-{
-    char c;
-
-    /* Stand-in for shell `echo $?` (statuses 0..9). */
-    c = '0' + (char)(st % 10);
-    write(1, &c, 1);
-    write(1, "\n", 1);
-}
-
 static int run_busybox(char *const argv[])
 {
     pid_t pid;
@@ -37,18 +27,16 @@ static int run_busybox(char *const argv[])
 int main(void)
 {
     int st;
-    char *true_argv[] = { "busybox", "true", NULL };
-    char *false_argv[] = { "busybox", "false", NULL };
+    char *pwd_argv[] = { "busybox", "pwd", NULL };
 
-    /* busybox true; echo $? */
-    st = run_busybox(true_argv);
-    write(1, "true $?=", 8);
-    echo_status(st);
+    st = run_busybox(pwd_argv);
+    write(1, "pwd $?=", 7);
+    {
+        char c = '0' + (char)(st % 10);
 
-    /* busybox false; echo $? */
-    st = run_busybox(false_argv);
-    write(1, "false $?=", 9);
-    echo_status(st);
+        write(1, &c, 1);
+        write(1, "\n", 1);
+    }
 
     for (;;)
         ;

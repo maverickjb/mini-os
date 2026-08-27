@@ -62,6 +62,55 @@ long ksys_write(unsigned long fd, const char *buf, unsigned long count)
     return vfs_write(file, buf, count);
 }
 
+#define UIO_MAXIOV 1024
+
+struct iovec {
+    void *iov_base;
+    unsigned long iov_len;
+};
+
+long ksys_writev(unsigned long fd, const void *uiov, unsigned long iovcnt)
+{
+    struct task_struct *task = get_current();
+    struct file *file;
+    const struct iovec *iov = (const struct iovec *)uiov;
+    unsigned long i;
+    long total = 0;
+
+    if (!task || fd >= NR_OPEN)
+        return -EBADF;
+    if (!iov || iovcnt == 0)
+        return 0;
+    if (iovcnt > UIO_MAXIOV)
+        return -EINVAL;
+
+    file = task->files[fd];
+    if (!file)
+        return -EBADF;
+
+    for (i = 0; i < iovcnt; i++) {
+        struct iovec vec;
+        long ret;
+
+        if (copy_from_user(&vec, &iov[i], sizeof(vec)))
+            return total ? total : -EFAULT;
+        if (vec.iov_len == 0)
+            continue;
+        if (!vec.iov_base)
+            return total ? total : -EFAULT;
+
+        ret = vfs_write(file, (const char *)vec.iov_base, vec.iov_len);
+        if (ret < 0)
+            return total ? total : ret;
+
+        total += ret;
+        if ((unsigned long)ret < vec.iov_len)
+            break;
+    }
+
+    return total;
+}
+
 long ksys_read(unsigned long fd, char *buf, unsigned long count)
 {
     struct task_struct *task = get_current();
