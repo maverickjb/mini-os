@@ -501,3 +501,30 @@ long ksys_getcwd(char *user_buf, unsigned long size)
 
     return len;
 }
+
+/*
+ * utimensat(2) — update timestamps. We do not store times yet; succeed if
+ * the path exists so BusyBox touch can create-on-ENOENT via open(O_CREAT).
+ */
+long ksys_utimensat(int dfd, const char *filename, const struct timespec *times,
+                    int flags)
+{
+    char path[PATH_MAX];
+    long err;
+
+    (void)dfd;
+    (void)times;
+    (void)flags;
+
+    if (!filename)
+        return -EFAULT;
+
+    err = getname_from_user(path, filename);
+    if (err)
+        return err;
+
+    if (!vfs_lookup(path))
+        return -ENOENT;
+
+    return 0;
+}

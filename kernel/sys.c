@@ -132,6 +132,10 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_chdir((const char *)regs->x0);
     case __NR_getcwd:
         return ksys_getcwd((char *)regs->x0, regs->x1);
+    case __NR_utimensat:
+        return ksys_utimensat((int)regs->x0, (const char *)regs->x1,
+                              (const struct timespec *)regs->x2,
+                              (int)regs->x3);
     case __NR_close:
         return ksys_close(regs->x0);
     case __NR_dup:

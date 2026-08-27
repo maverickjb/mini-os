@@ -23,6 +23,8 @@ long ksys_linkat(int olddfd, const char *oldname, int newdfd,
 long ksys_rmdir(const char *pathname);
 long ksys_chdir(const char *filename);
 long ksys_getcwd(char *buf, unsigned long size);
+long ksys_utimensat(int dfd, const char *filename, const struct timespec *times,
+                    int flags);
 long ksys_close(unsigned long fd);
 long ksys_dup(unsigned long oldfd);
 long ksys_dup2(unsigned long oldfd, unsigned long newfd);

@@ -39,10 +39,14 @@ static void echo_status(const char *label, int st)
 int main(void)
 {
     int st;
-    char *cat_argv[] = { "busybox", "cat", "/msg.txt", NULL };
+    char *touch_argv[] = { "busybox", "touch", "/touched", NULL };
+    char *ls_argv[] = { "busybox", "ls", "-l", "/", NULL };
 
-    st = run_busybox(cat_argv);
-    echo_status("cat $?=", st);
+    st = run_busybox(touch_argv);
+    echo_status("touch $?=", st);
+
+    st = run_busybox(ls_argv);
+    echo_status("ls $?=", st);
 
     for (;;)
         ;
