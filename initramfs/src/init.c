@@ -39,14 +39,11 @@ static void echo_status(const char *label, int st)
 int main(void)
 {
     int st;
-    char *touch_argv[] = { "busybox", "touch", "/touched", NULL };
-    char *ls_argv[] = { "busybox", "ls", "-l", "/", NULL };
+    char *sleep_argv[] = { "busybox", "sleep", "2", NULL };
 
-    st = run_busybox(touch_argv);
-    echo_status("touch $?=", st);
-
-    st = run_busybox(ls_argv);
-    echo_status("ls $?=", st);
+    write(1, "before sleep\n", 14);
+    st = run_busybox(sleep_argv);
+    echo_status("sleep 2 $?=", st);
 
     for (;;)
         ;

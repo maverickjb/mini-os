@@ -168,6 +168,9 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_uname((void *)regs->x0);
     case __NR_clock_gettime:
         return ksys_clock_gettime((int)regs->x0, (struct timespec *)regs->x1);
+    case __NR_nanosleep:
+        return ksys_nanosleep((const struct timespec *)regs->x0,
+                              (struct timespec *)regs->x1);
     case __NR_getuid:
     case __NR_geteuid:
     case __NR_getgid:

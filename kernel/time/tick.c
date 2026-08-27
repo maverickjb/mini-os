@@ -5,6 +5,7 @@
 #include <linux/tick.h>
 #include <linux/irq.h>
 #include <linux/sched/task.h>
+#include <linux/sched.h>
 #include <linux/serial.h>
 #include <asm/exception.h>
 #include <asm/irqflags.h>
@@ -74,9 +75,22 @@ unsigned long get_jiffies(void)
     return jiffies;
 }
 
+void tick_wake_sleepers(void)
+{
+    struct task_struct *task;
+
+    for (task = runqueue; task; task = task->next) {
+        if (task->state != TASK_SLEEPING || !task->wake_jiffies)
+            continue;
+        if (jiffies >= task->wake_jiffies)
+            wake_up_process(task);
+    }
+}
+
 void handle_arch_tick(struct pt_regs *regs)
 {
     do_timer();
+    tick_wake_sleepers();
 
     /* Pick up RX if the PL011 IRQ was missed (FIFO watermark / GIC). */
     serial_irq();

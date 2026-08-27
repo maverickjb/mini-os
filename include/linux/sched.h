@@ -84,6 +84,8 @@ struct task_struct {
     int restore_sigmask;
     struct sigaction actions[MAX_SIG];
     int *clear_child_tid;
+    /* Jiffies deadline for nanosleep; 0 => not sleeping on a timer. */
+    unsigned long wake_jiffies;
 };
 
 extern struct task_struct idle_tasks[];
