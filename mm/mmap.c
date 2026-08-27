@@ -97,7 +97,7 @@ static void tlb_flush_all(void)
 {
     __asm__ volatile(
         "dsb sy\n"
-        "tlbi vmalle1\n"
+        "tlbi vmalle1is\n"
         "dsb sy\n"
         "isb\n"
         ::: "memory");
@@ -360,6 +360,8 @@ void mm_install(struct mm_struct *mm)
         :
         : "r"(ttbr0));
     tlb_flush_all();
+    /* Drop any stale I-cache lines for previously executed user VAs. */
+    __asm__ volatile("ic ialluis\n dsb ish\n isb" ::: "memory");
 }
 
 static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,

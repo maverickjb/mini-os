@@ -127,8 +127,11 @@ static void context_switch(struct task_struct *prev, struct task_struct *next)
 {
     unsigned long daif;
 
-    if (prev->is_user)
+    if (prev->is_user) {
         __asm__ volatile("mrs %0, sp_el0" : "=r"(prev->user_sp));
+        /* Userspace (musl) writes TPIDR_EL0 for TLS; keep it per-task. */
+        __asm__ volatile("mrs %0, tpidr_el0" : "=r"(prev->tpidr_el0));
+    }
 
     /*
      * DAIF is per-CPU PSTATE, not saved by switch_to. Without this, a task
@@ -146,11 +149,12 @@ static void context_switch(struct task_struct *prev, struct task_struct *next)
     if (next->is_user && next->mm) {
         mm_install(next->mm);
         /*
-         * SP_EL0 is per-CPU, not per-task. Restore the next task's saved
-         * user stack pointer so a later eret does not reuse the previous
-         * task's SP (e.g. parent waitpid after child exec/exit).
+         * SP_EL0 / TPIDR_EL0 are per-CPU, not per-task. Restore the next
+         * task's saved values so parent waitpid after child exec/exit does
+         * not keep the child's TLS base (would break __errno_location).
          */
         __asm__ volatile("msr sp_el0, %0" : : "r"(next->user_sp));
+        __asm__ volatile("msr tpidr_el0, %0" : : "r"(next->tpidr_el0));
     }
 
     /*

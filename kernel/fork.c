@@ -44,6 +44,7 @@ void ret_from_fork(void)
     struct task_struct *task = current;
 
     __asm__ volatile("msr sp_el0, %0" : : "r"(task->user_sp));
+    __asm__ volatile("msr tpidr_el0, %0" : : "r"(task->tpidr_el0));
     if (task->mm)
         mm_install(task->mm);
 
@@ -76,6 +77,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->time_slice = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
+    tsk->tpidr_el0 = 0;
     tsk->regs = NULL;
     tsk->exit_code = 0;
     tsk->exit_signal = 0;
@@ -283,6 +285,12 @@ long ksys_fork(struct pt_regs *regs)
     copy_task_files(child, parent);
     child->cwd = parent->cwd;
     child->blocked = parent->blocked;
+    /*
+     * Capture parent's live TLS pointer — user code may have written
+     * TPIDR_EL0 since the last context switch.
+     */
+    __asm__ volatile("mrs %0, tpidr_el0" : "=r"(parent->tpidr_el0));
+    child->tpidr_el0 = parent->tpidr_el0;
     {
         unsigned int i;
 

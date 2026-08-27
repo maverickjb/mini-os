@@ -284,6 +284,25 @@ static int load_segment(struct mm_struct *mm, const unsigned char *buf,
                     buf + offset + file_pos, copy_len);
             file_pos += copy_len;
         }
+
+        /*
+         * Written through the D-cache; EL0 I-fetch uses the I-cache (PoU).
+         * Without this, a later exec of the same VAs can run stale lines.
+         */
+        {
+            unsigned long p = (unsigned long)page;
+            unsigned long end = p + PAGE_SIZE;
+
+            for (; p < end; p += 64)
+                __asm__ volatile("dc cvau, %0" : : "r"(p) : "memory");
+            __asm__ volatile("dsb ish" ::: "memory");
+            if (ph->p_flags & PF_X) {
+                p = (unsigned long)page;
+                for (; p < end; p += 64)
+                    __asm__ volatile("ic ivau, %0" : : "r"(p) : "memory");
+                __asm__ volatile("dsb ish\n isb" ::: "memory");
+            }
+        }
     }
 
     return 0;
@@ -374,6 +393,8 @@ int load_elf_binary(struct linux_binprm *bprm)
 
     bprm->task->is_user = 1;
     bprm->task->user_sp = user_sp;
+    /* New image installs its own TLS; drop the previous TPIDR_EL0. */
+    bprm->task->tpidr_el0 = 0;
     {
         struct pt_regs *regs = (struct pt_regs *)bprm->task->stack;
 

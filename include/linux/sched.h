@@ -59,6 +59,8 @@ struct task_struct {
     int time_slice;
     int is_user;
     unsigned long user_sp;
+    /* TPIDR_EL0 — musl TLS base; must be saved/restored across switches. */
+    unsigned long tpidr_el0;
     /*
      * Active trap frame on this task's kernel stack (syscall/IRQ entry),
      * or a fabricated frame at stack top for a newly forked/exec'd task.

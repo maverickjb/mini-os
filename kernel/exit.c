@@ -28,14 +28,6 @@ static void exit_files(struct task_struct *task)
     }
 }
 
-static void exit_mm(struct task_struct *task)
-{
-    struct mm_struct *mm = task->mm;
-
-    task->mm = NULL;
-    mm_put(mm);
-}
-
 static void notify_parent(struct task_struct *child)
 {
     struct task_struct *parent;
@@ -78,7 +70,12 @@ void do_exit(long code)
     task->exit_code = (int)code;
     task->wait_event = CHILD_EVENT_NONE;
     exit_files(task);
-    exit_mm(task);
+    /*
+     * Keep task->mm until the zombie is reaped (free_task). Freeing page
+     * tables here while TTBR0 still points at them corrupts the buddy
+     * allocator (free_pages writes list headers into live table pages)
+     * and breaks the next exec's maps.
+     */
     task->state = TASK_ZOMBIE;
 
     notify_parent(task);
@@ -122,6 +119,10 @@ static void free_task(struct task_struct *task)
 
     dequeue_task(task);
 
+    if (task->mm) {
+        mm_put(task->mm);
+        task->mm = NULL;
+    }
     if (task->stack)
         free_pages(task->stack, 0);
     free_pages(task, 0);
