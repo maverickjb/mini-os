@@ -22,6 +22,8 @@
 /* Anonymous mmap region below the user stack. */
 #define USER_MMAP_BASE  0x2000000UL
 #define USER_STACK_TOP  0x4040000UL
+#define USER_STACK_SIZE 0x10000UL /* 16 pages */
+#define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_SIZE)
 
 struct mm_struct *mm_alloc(void);
 struct mm_struct *dup_mm(struct mm_struct *oldmm);

@@ -11,6 +11,8 @@ struct timespec;
 
 long ksys_write(unsigned long fd, const char *buf, unsigned long count);
 long ksys_writev(unsigned long fd, const void *iov, unsigned long iovcnt);
+long ksys_sendfile(unsigned long out_fd, unsigned long in_fd, long *offset,
+                   unsigned long count);
 long ksys_read(unsigned long fd, char *buf, unsigned long count);
 long ksys_open(const char *filename, int flags, unsigned long mode);
 long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode);

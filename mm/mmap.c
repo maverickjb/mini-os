@@ -484,7 +484,7 @@ long do_brk(struct mm_struct *mm, unsigned long newbrk)
         return -EINVAL;
 
     oldbrk = mm->brk;
-    stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : 0;
+    stack_limit = mm->stack_top ? (mm->stack_top - USER_STACK_SIZE) : 0;
 
     /* Query / invalid request: return current break (Linux-compatible). */
     if (newbrk < mm->start_brk || (stack_limit && newbrk >= stack_limit))
@@ -539,7 +539,7 @@ static unsigned long find_free_vma(struct mm_struct *mm, unsigned long len)
     unsigned long stack_limit;
     unsigned long a;
 
-    stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : USER_STACK_TOP;
+    stack_limit = mm->stack_top ? (mm->stack_top - USER_STACK_SIZE) : USER_STACK_BOTTOM;
     va = (mm->mmap_base + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
 
     while (va + len <= stack_limit) {
@@ -573,7 +573,7 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
         return -EINVAL;
 
     len = (len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
-    stack_limit = mm->stack_top ? (mm->stack_top - PAGE_SIZE) : USER_STACK_TOP;
+    stack_limit = mm->stack_top ? (mm->stack_top - USER_STACK_SIZE) : USER_STACK_BOTTOM;
     map_prot = linux_prot_to_map(prot);
 
     if (!addr || !(flags & MAP_FIXED)) {

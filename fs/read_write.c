@@ -111,6 +111,71 @@ long ksys_writev(unsigned long fd, const void *uiov, unsigned long iovcnt)
     return total;
 }
 
+long ksys_sendfile(unsigned long out_fd, unsigned long in_fd, long *offset,
+                   unsigned long count)
+{
+    struct task_struct *task = get_current();
+    struct file *in;
+    struct file *out;
+    long pos;
+    long *ppos;
+    unsigned long done = 0;
+    char kbuf[128];
+
+    if (!task || out_fd >= NR_OPEN || in_fd >= NR_OPEN)
+        return -EBADF;
+
+    out = task->files[out_fd];
+    in = task->files[in_fd];
+    if (!out || !in)
+        return -EBADF;
+    if (!in->f_op || !in->f_op->read)
+        return -EINVAL;
+    if (!out->f_op || !out->f_op->write)
+        return -EINVAL;
+
+    if (offset) {
+        if (copy_from_user(&pos, offset, sizeof(pos)))
+            return -EFAULT;
+        ppos = &pos;
+    } else {
+        ppos = &in->f_pos;
+    }
+
+    while (done < count) {
+        unsigned long chunk = count - done;
+        long nr;
+        long nw;
+
+        if (chunk > sizeof(kbuf))
+            chunk = sizeof(kbuf);
+
+        nr = in->f_op->read(in, kbuf, chunk, ppos);
+        if (nr < 0)
+            return done ? (long)done : nr;
+        if (nr == 0)
+            break;
+
+        nw = out->f_op->write(out, kbuf, (unsigned long)nr, &out->f_pos);
+        if (nw < 0)
+            return done ? (long)done : nw;
+        if (nw == 0)
+            break;
+
+        done += (unsigned long)nw;
+        if (nw < nr) {
+            /* Partial write: rewind unused input bytes. */
+            *ppos -= (nr - nw);
+            break;
+        }
+    }
+
+    if (offset && copy_to_user(offset, &pos, sizeof(pos)))
+        return -EFAULT;
+
+    return (long)done;
+}
+
 long ksys_read(unsigned long fd, char *buf, unsigned long count)
 {
     struct task_struct *task = get_current();

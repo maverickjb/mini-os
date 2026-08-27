@@ -97,25 +97,35 @@ static unsigned long elf_prot(unsigned long p_flags)
 static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out,
                        void **kpage_out)
 {
-    void *stack = alloc_pages(0);
-    unsigned long stack_phys;
-    unsigned long map_base;
-    int err;
+    void *top_page = NULL;
+    unsigned long pages = USER_STACK_SIZE / PAGE_SIZE;
+    unsigned long i;
 
-    if (!stack)
-        return -ENOMEM;
+    for (i = 0; i < pages; i++) {
+        void *stack = alloc_pages(0);
+        unsigned long map_base;
+        unsigned long stack_phys;
+        int err;
 
-    kmemset(stack, 0, PAGE_SIZE);
-    stack_phys = __virt_to_phys((unsigned long)stack);
-    map_base = (USER_STACK_TOP - PAGE_SIZE) & ~(PAGE_SIZE - 1UL);
+        if (!stack)
+            return -ENOMEM;
 
-    err = do_map(mm, map_base, stack_phys, PAGE_SIZE,
-                 MAP_PROT_READ | MAP_PROT_WRITE);
-    if (err)
-        return err;
+        kmemset(stack, 0, PAGE_SIZE);
+        stack_phys = __virt_to_phys((unsigned long)stack);
+        map_base = USER_STACK_TOP - (i + 1UL) * PAGE_SIZE;
 
-    *kpage_out = stack;
-    *stack_top_out = map_base + PAGE_SIZE;
+        err = do_map(mm, map_base, stack_phys, PAGE_SIZE,
+                     MAP_PROT_READ | MAP_PROT_WRITE);
+        if (err)
+            return err;
+
+        /* create_elf_tables fills argv/env into the topmost page. */
+        if (i == 0)
+            top_page = stack;
+    }
+
+    *kpage_out = top_page;
+    *stack_top_out = USER_STACK_TOP;
     return 0;
 }
 

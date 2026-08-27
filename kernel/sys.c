@@ -109,6 +109,8 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_write(regs->x0, (const char *)regs->x1, regs->x2);
     case __NR_writev:
         return ksys_writev(regs->x0, (const void *)regs->x1, regs->x2);
+    case __NR_sendfile:
+        return ksys_sendfile(regs->x0, regs->x1, (long *)regs->x2, regs->x3);
     case __NR_ioctl:
         return ksys_ioctl(regs->x0, (unsigned int)regs->x1, regs->x2);
     case __NR_read:

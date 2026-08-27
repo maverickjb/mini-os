@@ -24,19 +24,25 @@ static int run_busybox(char *const argv[])
     return 127;
 }
 
+static void echo_status(const char *label, int st)
+{
+    char c = '0' + (char)(st % 10);
+    unsigned long n = 0;
+
+    while (label[n])
+        n++;
+    write(1, label, n);
+    write(1, &c, 1);
+    write(1, "\n", 1);
+}
+
 int main(void)
 {
     int st;
-    char *pwd_argv[] = { "busybox", "pwd", NULL };
+    char *cat_argv[] = { "busybox", "cat", "/msg.txt", NULL };
 
-    st = run_busybox(pwd_argv);
-    write(1, "pwd $?=", 7);
-    {
-        char c = '0' + (char)(st % 10);
-
-        write(1, &c, 1);
-        write(1, "\n", 1);
-    }
+    st = run_busybox(cat_argv);
+    echo_status("cat $?=", st);
 
     for (;;)
         ;
