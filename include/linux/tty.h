@@ -11,6 +11,14 @@ struct task_struct;
 #define TCGETS		0x5401
 #define TIOCGPGRP	0x540F
 #define TIOCSPGRP	0x5410
+#define TIOCGWINSZ	0x5413
+
+struct winsize {
+    unsigned short ws_row;
+    unsigned short ws_col;
+    unsigned short ws_xpixel;
+    unsigned short ws_ypixel;
+};
 
 struct tty {
     struct serial_device *serial;

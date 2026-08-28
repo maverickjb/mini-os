@@ -246,6 +246,18 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
         if (copy_from_user(&pgid, (pid_t *)arg, sizeof(pgid)))
             return -EFAULT;
         return tty_setpgrp(pgid);
+    case TIOCGWINSZ: {
+        struct winsize ws = {
+            .ws_row = 24,
+            .ws_col = 80,
+            .ws_xpixel = 0,
+            .ws_ypixel = 0,
+        };
+
+        if (!arg || copy_to_user((void *)arg, &ws, sizeof(ws)))
+            return -EFAULT;
+        return 0;
+    }
     default:
         return -ENOTTY;
     }
