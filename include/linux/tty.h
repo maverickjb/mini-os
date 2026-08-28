@@ -3,6 +3,7 @@
 
 #include <linux/types.h>
 
+struct file;
 struct serial_device;
 struct task_struct;
 
@@ -12,6 +13,9 @@ struct task_struct;
 #define TCSETS		0x5402
 #define TIOCGPGRP	0x540F
 #define TIOCSPGRP	0x5410
+#define TIOCSCTTY	0x540E
+#define TIOCGSID	0x5429
+#define TIOCNOTTY	0x5422
 #define TIOCGWINSZ	0x5413
 
 #define NCCS		32
@@ -97,5 +101,7 @@ long tty_write(const char *buf, unsigned long count);
 
 pid_t tty_getpgrp(void);
 int tty_setpgrp(pid_t pgid);
+int tty_sets_controlling(struct file *file, int force);
+int tty_release_controlling(void);
 
 #endif /* _LINUX_TTY_H */

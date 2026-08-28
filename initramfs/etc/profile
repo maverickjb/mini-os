@@ -1,5 +1,5 @@
 # Minimal login environment for BusyBox ash
-PATH=/bin
+PATH=/bin:/sbin
 export PATH
 HOME=/
 export HOME

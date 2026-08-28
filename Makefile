@@ -39,15 +39,20 @@ USER_CC      ?= aarch64-unknown-linux-musl-gcc
 USER_CFLAGS  := -Wall -Wextra -O0 -g -static -fno-pie -no-pie
 USER_PATH    := $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
 
-INIT_BIN     := initramfs/root/init
 HELLO_BIN    := initramfs/root/bin/hello
 BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
-BUSYBOX_APPLETS := ls echo cat sleep ps uname true false pwd
+BUSYBOX_APPLETS := sh ash ls echo cat sleep ps uname true false pwd
 
-$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(BUSYBOX_BIN) initramfs/etc/profile
-	mkdir -p initramfs/root/tmp initramfs/root/etc
+$(INITRAMFS_CPIO): $(HELLO_BIN) $(BUSYBOX_BIN) \
+	initramfs/etc/profile initramfs/etc/inittab initramfs/etc/init.d/rcS
+	mkdir -p initramfs/root/tmp initramfs/root/etc/init.d initramfs/root/sbin
 	cp -f initramfs/etc/profile initramfs/root/etc/profile
+	cp -f initramfs/etc/inittab initramfs/root/etc/inittab
+	cp -f initramfs/etc/init.d/rcS initramfs/root/etc/init.d/rcS
+	chmod +x initramfs/root/etc/init.d/rcS
+	ln -sf bin/busybox initramfs/root/init
+	ln -sf ../bin/busybox initramfs/root/sbin/init
 	test -f initramfs/root/etc/passwd || printf 'root:x:0:0:root:/:/bin/sh\n' > initramfs/root/etc/passwd
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
 
@@ -57,10 +62,6 @@ $(BUSYBOX_BIN): $(BUSYBOX_SRC)
 	@for app in $(BUSYBOX_APPLETS); do \
 		ln -sf busybox initramfs/root/bin/$$app; \
 	done
-
-$(INIT_BIN): initramfs/src/init.c
-	mkdir -p initramfs/root
-	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 
 $(HELLO_BIN): initramfs/src/hello.c
 	mkdir -p initramfs/root/bin initramfs/root/etc

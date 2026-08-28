@@ -230,6 +230,39 @@ int tty_setpgrp(pid_t pgid)
     return 0;
 }
 
+int tty_sets_controlling(struct file *file, int force)
+{
+    struct task_struct *task = current;
+
+    (void)file;
+    (void)force;
+
+    if (!task || !task->is_user)
+        return -ENOTTY;
+
+    if (task->sid != task->pid)
+        return -ENOTTY;
+
+    tty0.session_id = task->sid;
+    tty0.foreground_pgid = task->pgid;
+    return 0;
+}
+
+int tty_release_controlling(void)
+{
+    struct task_struct *task = current;
+
+    if (!task || !task->is_user)
+        return -ENOTTY;
+
+    if (tty0.session_id != task->sid)
+        return -ENOTTY;
+
+    tty0.session_id = 0;
+    tty0.foreground_pgid = 0;
+    return 0;
+}
+
 static long tty_file_read(struct file *file, char *buf, unsigned long count,
                           long *pos)
 {
@@ -276,6 +309,15 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
         if (copy_from_user(&pgid, (pid_t *)arg, sizeof(pgid)))
             return -EFAULT;
         return tty_setpgrp(pgid);
+    case TIOCSCTTY:
+        return tty_sets_controlling(file, (int)arg);
+    case TIOCGSID:
+        pgid = tty0.session_id;
+        if (copy_to_user((pid_t *)arg, &pgid, sizeof(pgid)))
+            return -EFAULT;
+        return 0;
+    case TIOCNOTTY:
+        return tty_release_controlling();
     case TIOCGWINSZ: {
         struct winsize ws = {
             .ws_row = 24,

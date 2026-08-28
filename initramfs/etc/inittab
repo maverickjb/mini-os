@@ -1,0 +1,3 @@
+# BusyBox init configuration for mini-os
+::sysinit:/bin/sh /etc/init.d/rcS
+::respawn:-/bin/ash -l

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Optional early boot hook (no-op for now).
+exit 0
