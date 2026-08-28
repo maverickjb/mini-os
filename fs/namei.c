@@ -543,6 +543,48 @@ long ksys_symlinkat(const char *target, int dfd, const char *linkpath)
     return do_symlink(target_buf, link_buf);
 }
 
+long ksys_readlinkat(int dfd, const char *pathname, char *buf,
+                     unsigned long bufsiz)
+{
+    char path[PATH_MAX];
+    char kbuf[PATH_MAX];
+    struct inode *inode;
+    unsigned long copy_len;
+    long len;
+    long err;
+
+    (void)dfd;
+
+    if (!current || !current->is_user)
+        return -EINVAL;
+    if (!pathname || !buf)
+        return -EFAULT;
+    if (bufsiz == 0)
+        return -EINVAL;
+
+    err = getname_from_user(path, pathname);
+    if (err)
+        return err;
+
+    inode = vfs_lookup(path);
+    if (!inode)
+        return -ENOENT;
+
+    copy_len = bufsiz;
+    if (copy_len > PATH_MAX)
+        copy_len = PATH_MAX;
+
+    len = ramfs_readlink(inode, kbuf, copy_len);
+    proc_iput(inode);
+    if (len < 0)
+        return len;
+
+    if (copy_to_user(buf, kbuf, (unsigned long)len))
+        return -EFAULT;
+
+    return len;
+}
+
 long ksys_chdir(const char *filename)
 {
     char path[PATH_MAX];

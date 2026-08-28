@@ -47,6 +47,7 @@ int ramfs_truncate(struct inode *inode, unsigned long size);
 int ramfs_readdir(struct inode *dir, ramfs_readdir_fn fn, void *arg);
 
 const void *ramfs_data(struct inode *inode);
+long ramfs_readlink(struct inode *inode, char *buf, unsigned long bufsiz);
 
 extern struct file_ops ramfs_file_ops;
 extern struct file_ops ramfs_dir_ops;

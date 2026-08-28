@@ -172,6 +172,9 @@ static long handle_syscall(struct pt_regs *regs)
     case __NR_symlinkat:
         return ksys_symlinkat((const char *)regs->x0, (int)regs->x1,
                             (const char *)regs->x2);
+    case __NR_readlinkat:
+        return ksys_readlinkat((int)regs->x0, (const char *)regs->x1,
+                               (char *)regs->x2, regs->x3);
     case __NR_linkat:
         return ksys_linkat((int)regs->x0, (const char *)regs->x1,
                            (int)regs->x2, (const char *)regs->x3,

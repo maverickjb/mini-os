@@ -19,6 +19,8 @@ long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode);
 long ksys_mkdirat(int dfd, const char *filename, umode_t mode);
 long ksys_unlinkat(int dfd, const char *filename, int flag);
 long ksys_symlinkat(const char *target, int dfd, const char *linkpath);
+long ksys_readlinkat(int dfd, const char *pathname, char *buf,
+                     unsigned long bufsiz);
 long ksys_linkat(int olddfd, const char *oldname, int newdfd,
                  const char *newname, int flags);
 long ksys_rmdir(const char *pathname);

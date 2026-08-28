@@ -936,3 +936,26 @@ const void *ramfs_data(struct inode *inode)
 
     return RAMFS_I(inode)->data;
 }
+
+long ramfs_readlink(struct inode *inode, char *buf, unsigned long bufsiz)
+{
+    struct ramfs_inode *ri;
+    unsigned long len;
+
+    if (!inode || !buf)
+        return -EFAULT;
+    if (bufsiz == 0)
+        return -EINVAL;
+    if (inode->type != S_IFLNK)
+        return -EINVAL;
+
+    ri = RAMFS_I(inode);
+    len = inode->size;
+    if (len > bufsiz)
+        len = bufsiz;
+
+    if (len && ri->data)
+        ramfs_memcpy(buf, ri->data, len);
+
+    return (long)len;
+}
