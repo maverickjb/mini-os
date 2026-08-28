@@ -251,7 +251,7 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
     }
 }
 
-static struct file_ops tty_fops = {
+struct file_ops tty_fops = {
     .read = tty_file_read,
     .write = tty_file_write,
     .ioctl = tty_file_ioctl,

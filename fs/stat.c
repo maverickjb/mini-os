@@ -15,6 +15,7 @@
 #include <linux/namei.h>
 #include <linux/proc_fs.h>
 #include <linux/devnull.h>
+#include <linux/devtty.h>
 
 static void cp_inode_stat(struct inode *inode, struct stat *st)
 {
@@ -56,8 +57,9 @@ static void cp_file_stat(struct file *file, struct stat *st)
 
     /* Anonymous pipe / tty / devnull without a backing inode. */
     memset(st, 0, sizeof(*st));
-    if (file == &uart_file) {
-        st->st_mode = S_IFCHR | 0666;
+    if (file == &uart_file || devtty_file_is(file)) {
+        devtty_fill_stat(st);
+        return;
     } else if (devnull_file_is(file)) {
         devnull_fill_stat(st);
         return;
@@ -159,6 +161,15 @@ long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
         struct stat st;
 
         devnull_fill_stat(&st);
+        if (copy_to_user(statbuf, &st, sizeof(st)))
+            return -EFAULT;
+        return 0;
+    }
+
+    if (devtty_is_path(path)) {
+        struct stat st;
+
+        devtty_fill_stat(&st);
         if (copy_to_user(statbuf, &st, sizeof(st)))
             return -EFAULT;
         return 0;

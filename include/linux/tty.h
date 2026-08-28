@@ -29,6 +29,7 @@ struct tty {
 };
 
 extern struct tty tty0;
+extern struct file_ops tty_fops;
 
 void tty_init(void);
 void tty_attach_session(pid_t sid, pid_t pgid);
