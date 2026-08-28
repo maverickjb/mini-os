@@ -20,7 +20,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            mm/page_alloc.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
            fs/binfmt.c fs/open.c fs/stat.c fs/readdir.c fs/pipe.c fs/namei.c \
-           fs/dcache.c \
+           fs/dcache.c fs/procfs.c \
            mm/mmap.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
            fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c
 OBJS    := $(SRCS:.c=.o)
@@ -45,6 +45,8 @@ BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
 
 $(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN) $(BUSYBOX_BIN)
+	mkdir -p initramfs/root/etc
+	test -f initramfs/root/etc/passwd || printf 'root:x:0:0:root:/:/bin/sh\n' > initramfs/root/etc/passwd
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
 
 $(BUSYBOX_BIN): $(BUSYBOX_SRC)
@@ -56,9 +58,10 @@ $(INIT_BIN): initramfs/src/init.c
 	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 
 $(HELLO_BIN): initramfs/src/hello.c
-	mkdir -p initramfs/root/bin
+	mkdir -p initramfs/root/bin initramfs/root/etc
 	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 	printf 'hello from open\n' > initramfs/root/msg.txt
+	printf 'root:x:0:0:root:/:/bin/sh\n' > initramfs/root/etc/passwd
 
 $(ECHO_BIN): initramfs/src/echo.c
 	mkdir -p initramfs/root/bin

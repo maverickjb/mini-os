@@ -110,5 +110,6 @@ struct file uart_file = {
     .private_data = NULL,
     .f_pos = 0,
     .f_flags = 0,
+    .f_mode = 0,
 };
 

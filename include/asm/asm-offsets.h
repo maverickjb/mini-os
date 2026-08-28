@@ -1,9 +1,9 @@
 #ifndef __ASM_ASM_OFFSETS_H
 #define __ASM_ASM_OFFSETS_H
 
-#define INIT_STACK_SIZE   4096
+#define INIT_STACK_SIZE   8192
 #define PT_REGS_SIZE      272
-#define SYNC_C_STACK      1024
+#define SYNC_C_STACK      2048
 
 /*
  * struct task_struct — offsets for assembly (must match linux/sched.h).

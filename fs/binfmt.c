@@ -405,6 +405,33 @@ int load_elf_binary(struct linux_binprm *bprm)
     bprm->task->user_sp = user_sp;
     /* New image installs its own TLS; drop the previous TPIDR_EL0. */
     bprm->task->tpidr_el0 = 0;
+
+    /* /proc/<pid>/stat + cmdline — keep this off the syscall stack in do_execve. */
+    {
+        const char *arg0 = bprm->argv[0];
+        const char *base = arg0;
+        const char *p;
+        unsigned long pos = 0;
+        int ai;
+
+        for (p = arg0; *p; p++)
+            if (*p == '/')
+                base = p + 1;
+        strscpy(bprm->task->comm, base, sizeof(bprm->task->comm));
+
+        memset(bprm->task->cmdline, 0, sizeof(bprm->task->cmdline));
+        for (ai = 0; ai < bprm->argc; ai++) {
+            const char *s = bprm->argv[ai];
+
+            while (*s && pos + 1 < sizeof(bprm->task->cmdline))
+                bprm->task->cmdline[pos++] = *s++;
+            if (pos + 1 < sizeof(bprm->task->cmdline))
+                bprm->task->cmdline[pos++] = '\0';
+            else
+                break;
+        }
+    }
+
     {
         struct pt_regs *regs = (struct pt_regs *)bprm->task->stack;
 

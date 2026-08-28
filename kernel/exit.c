@@ -124,7 +124,7 @@ static void free_task(struct task_struct *task)
         task->mm = NULL;
     }
     if (task->stack)
-        free_pages(task->stack, 0);
+        free_pages(task->stack, 1);
     free_pages(task, 0);
 }
 

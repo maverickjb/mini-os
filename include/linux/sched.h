@@ -9,7 +9,7 @@
 
 struct dentry;
 
-#define INIT_STACK_SIZE   4096
+#define INIT_STACK_SIZE   8192
 #define NR_OPEN           8
 #define SCHED_TIME_SLICE  10
 
@@ -86,6 +86,9 @@ struct task_struct {
     int *clear_child_tid;
     /* Jiffies deadline for nanosleep; 0 => not sleeping on a timer. */
     unsigned long wake_jiffies;
+    /* /proc/<pid>/stat comm and /proc/<pid>/cmdline (NUL-separated). */
+    char comm[16];
+    char cmdline[128];
 };
 
 extern struct task_struct idle_tasks[];

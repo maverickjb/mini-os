@@ -1,6 +1,8 @@
 #ifndef _LINUX_FS_H
 #define _LINUX_FS_H
 
+#include <linux/types.h>
+
 struct file;
 struct task_struct;
 struct dentry;
@@ -15,12 +17,20 @@ typedef unsigned short umode_t;
 #define S_IFDIR         0040000
 #define S_IFREG         0100000
 
+#define SEEK_SET        0
+#define SEEK_CUR        1
+#define SEEK_END        2
+
+/* File open mode bits (subset of Linux fmode_t). */
+#define FMODE_LSEEK     0x4
+
 struct file_ops {
     long (*read)(struct file *file, char *buf, unsigned long count, long *pos);
     long (*write)(struct file *file, const char *buf, unsigned long count,
                   long *pos);
     long (*readdir)(struct file *file, void *dirp, unsigned long count);
     long (*ioctl)(struct file *file, unsigned int cmd, unsigned long arg);
+    loff_t (*llseek)(struct file *file, loff_t offset, int whence);
     int (*release)(struct file *file);
 };
 
@@ -49,12 +59,16 @@ struct file {
     void *private_data;
     long f_pos;
     int f_flags;
+    fmode_t f_mode;
 };
 
 void get_file(struct file *file);
 void fput(struct file *file);
 struct file *alloc_file(void);
 int install_fd(struct task_struct *task, struct file *file);
+
+loff_t generic_file_llseek(struct file *file, loff_t offset, int whence);
+loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
 
 /* Linux open flags (subset). */
 #define O_RDONLY        0

@@ -13,6 +13,7 @@
 
 #include <linux/namei.h>
 #include <linux/ramfs.h>
+#include <linux/proc_fs.h>
 
 void get_file(struct file *file)
 {
@@ -51,6 +52,7 @@ struct file *alloc_file(void)
     file->private_data = NULL;
     file->f_pos = 0;
     file->f_flags = 0;
+    file->f_mode = 0;
     return file;
 }
 
@@ -102,6 +104,12 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     if (err)
         return err;
 
+    /* No creating files under /proc. */
+    if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' &&
+        path[3] == 'o' && path[4] == 'c' && path[5] == '/' &&
+        (flags & O_CREAT))
+        return -EACCES;
+
     inode = vfs_lookup(path);
     if (!inode) {
         if (!(flags & O_CREAT))
@@ -117,30 +125,45 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     }
 
     if (inode_is_dir(inode)) {
-        if ((flags & O_ACCMODE) != O_RDONLY)
+        if ((flags & O_ACCMODE) != O_RDONLY) {
+            proc_iput(inode);
             return -EISDIR;
+        }
     } else if (flags & O_DIRECTORY) {
+        proc_iput(inode);
         return -ENOTDIR;
     } else if (!inode_is_reg(inode)) {
+        proc_iput(inode);
         return -ENOENT;
     }
 
     if (!inode_is_dir(inode) && (flags & O_TRUNC) &&
         (flags & O_ACCMODE) != O_RDONLY) {
+        if (proc_is_inode(inode)) {
+            proc_iput(inode);
+            return -EACCES;
+        }
         err = ramfs_truncate(inode, 0);
-        if (err)
+        if (err) {
+            proc_iput(inode);
             return err;
+        }
     }
 
     file = alloc_file();
-    if (!file)
+    if (!file) {
+        proc_iput(inode);
         return -ENOMEM;
+    }
 
     file->inode = inode;
     file->f_op = (struct file_ops *)inode->i_fop;
     file->private_data = inode->private_data;
     file->f_pos = 0;
     file->f_flags = flags;
+    file->f_mode = 0;
+    if (inode_is_reg(inode) && file->f_op && file->f_op->llseek)
+        file->f_mode |= FMODE_LSEEK;
 
     fd = install_fd(task, file);
     if (fd < 0) {

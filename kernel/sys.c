@@ -16,6 +16,7 @@
 #include <linux/tick.h>
 #include <asm/ptrace.h>
 #include <asm/irqflags.h>
+#include <asm/memory.h>
 
 static void uart_hex(unsigned long v)
 {
@@ -102,6 +103,50 @@ long ksys_set_tid_address(int *tidptr)
     return (long)current->pid;
 }
 
+/* Linux aarch64 struct sysinfo (subset used by BusyBox). */
+struct sysinfo {
+    long uptime;
+    unsigned long loads[3];
+    unsigned long totalram;
+    unsigned long freeram;
+    unsigned long sharedram;
+    unsigned long bufferram;
+    unsigned long totalswap;
+    unsigned long freeswap;
+    unsigned short procs;
+    unsigned short pad;
+    unsigned long totalhigh;
+    unsigned long freehigh;
+    unsigned int mem_unit;
+    char _f[20 - 2 * sizeof(long) - sizeof(int)];
+};
+
+long ksys_sysinfo(void *info)
+{
+    struct sysinfo si;
+    struct task_struct *walk;
+    unsigned short procs = 0;
+
+    if (!info)
+        return -EFAULT;
+
+    memset(&si, 0, sizeof(si));
+    si.uptime = (long)(get_jiffies() / HZ);
+    si.mem_unit = 4096;
+    si.totalram = PHYS_MEM_SIZE / 4096UL;
+    si.freeram = si.totalram / 2UL;
+
+    for (walk = runqueue; walk; walk = walk->next) {
+        if (walk->pid > 0 && walk->state != TASK_DEAD)
+            procs++;
+    }
+    si.procs = procs;
+
+    if (copy_to_user(info, &si, sizeof(si)))
+        return -EFAULT;
+    return 0;
+}
+
 static long handle_syscall(struct pt_regs *regs)
 {
     switch (regs->x8) {
@@ -171,6 +216,11 @@ static long handle_syscall(struct pt_regs *regs)
     case __NR_nanosleep:
         return ksys_nanosleep((const struct timespec *)regs->x0,
                               (struct timespec *)regs->x1);
+    case __NR_sysinfo:
+        return ksys_sysinfo((void *)regs->x0);
+    case __NR_lseek:
+        return ksys_lseek((unsigned int)regs->x0, (off_t)regs->x1,
+                          (unsigned int)regs->x2);
     case __NR_getuid:
     case __NR_geteuid:
     case __NR_getgid:

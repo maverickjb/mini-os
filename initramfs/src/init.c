@@ -39,11 +39,10 @@ static void echo_status(const char *label, int st)
 int main(void)
 {
     int st;
-    char *sleep_argv[] = { "busybox", "sleep", "2", NULL };
+    char *ps_argv[] = { "busybox", "ps", NULL };
 
-    write(1, "before sleep\n", 14);
-    st = run_busybox(sleep_argv);
-    echo_status("sleep 2 $?=", st);
+    st = run_busybox(ps_argv);
+    echo_status("ps $?=", st);
 
     for (;;)
         ;

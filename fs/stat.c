@@ -13,6 +13,7 @@
 #include <linux/serial.h>
 
 #include <linux/namei.h>
+#include <linux/proc_fs.h>
 
 static void cp_inode_stat(struct inode *inode, struct stat *st)
 {
@@ -154,5 +155,7 @@ long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
     if (!inode)
         return -ENOENT;
 
-    return do_stat_inode(inode, statbuf);
+    err = (int)do_stat_inode(inode, statbuf);
+    proc_iput(inode);
+    return err;
 }

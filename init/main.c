@@ -15,6 +15,7 @@
 #include <linux/dcache.h>
 #include <linux/initramfs.h>
 #include <linux/binfmts.h>
+#include <linux/proc_fs.h>
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];
@@ -77,6 +78,8 @@ void start_kernel(void)
             else
                 uart_puts("unpack_to_rootfs: ok\n");
         }
+
+        proc_init();
 
         sched_init();
         rest_init();

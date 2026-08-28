@@ -208,3 +208,53 @@ long ksys_ioctl(unsigned long fd, unsigned int cmd, unsigned long arg)
 
     return file->f_op->ioctl(file, cmd, arg);
 }
+
+loff_t generic_file_llseek(struct file *file, loff_t offset, int whence)
+{
+    loff_t pos;
+
+    switch (whence) {
+    case SEEK_SET:
+        pos = offset;
+        break;
+    case SEEK_CUR:
+        pos = (loff_t)file->f_pos + offset;
+        break;
+    case SEEK_END:
+        pos = (file->inode ? (loff_t)file->inode->size : 0) + offset;
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    if (pos < 0)
+        return -EINVAL;
+
+    file->f_pos = (long)pos;
+    return pos;
+}
+
+loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
+{
+    if (!(file->f_mode & FMODE_LSEEK))
+        return -ESPIPE;
+
+    return file->f_op->llseek(file, offset, whence);
+}
+
+long ksys_lseek(unsigned int fd, off_t offset, unsigned int whence)
+{
+    struct task_struct *task = get_current();
+    struct file *file;
+    loff_t res;
+
+    if (!task || fd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[fd];
+    if (!file)
+        return -EBADF;
+
+    res = vfs_llseek(file, (loff_t)offset, (int)whence);
+    return (long)res;
+}

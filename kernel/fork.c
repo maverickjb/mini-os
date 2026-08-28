@@ -93,6 +93,8 @@ static void task_zero(struct task_struct *tsk)
     tsk->restore_sigmask = 0;
     tsk->clear_child_tid = NULL;
     tsk->wake_jiffies = 0;
+    memset(tsk->comm, 0, sizeof(tsk->comm));
+    memset(tsk->cmdline, 0, sizeof(tsk->cmdline));
     memset(tsk->actions, 0, sizeof(tsk->actions)); /* SIG_DFL */
 
     for (i = 0; i < NR_OPEN; i++)
@@ -208,9 +210,11 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     if (!tsk)
         return NULL;
 
-    stack = alloc_pages(0);
-    if (!stack)
+    stack = alloc_pages(1);
+    if (!stack) {
+        free_pages(tsk, 0);
         return NULL;
+    }
 
     task_zero(tsk);
     tsk->pid = next_pid++;
@@ -246,7 +250,7 @@ long ksys_fork(struct pt_regs *regs)
     if (!child)
         return -ENOMEM;
 
-    stack = alloc_pages(0);
+    stack = alloc_pages(1);
     if (!stack) {
         free_pages(child, 0);
         return -ENOMEM;
@@ -267,7 +271,7 @@ long ksys_fork(struct pt_regs *regs)
     child->exit_signal = SIGCHLD;
     child->mm = dup_mm(parent->mm);
     if (!child->mm) {
-        free_pages(stack, 0);
+        free_pages(stack, 1);
         free_pages(child, 0);
         return -ENOMEM;
     }
@@ -275,7 +279,7 @@ long ksys_fork(struct pt_regs *regs)
     err = dup_user_stack(child, parent);
     if (err) {
         mm_put(child->mm);
-        free_pages(stack, 0);
+        free_pages(stack, 1);
         free_pages(child, 0);
         return err;
     }

@@ -53,6 +53,7 @@ static long ramfs_file_write(struct file *file, const char *buf,
 struct file_ops ramfs_file_ops = {
     .read = ramfs_file_read,
     .write = ramfs_file_write,
+    .llseek = generic_file_llseek,
 };
 
 static unsigned char ramfs_dtype(int type)
