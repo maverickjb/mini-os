@@ -59,6 +59,33 @@ static int input_not_ready(void)
     return 0;
 }
 
+static void tty_wake_reader(void);
+
+static void tty_apply_termios(const struct user_termios *t)
+{
+    tty0.termios = *t;
+    tty0.canonical = !!(t->c_lflag & ICANON);
+    tty0.echo = !!(t->c_lflag & ECHO);
+    tty0.isig = !!(t->c_lflag & ISIG);
+    tty_wake_reader();
+}
+
+static void tty_default_termios(struct user_termios *t)
+{
+    unsigned int i;
+
+    for (i = 0; i < sizeof(*t); i++)
+        ((unsigned char *)t)[i] = 0;
+
+    t->c_iflag = ICRNL;
+    t->c_oflag = OPOST | ONLCR;
+    t->c_cflag = CS8 | CREAD | HUPCL;
+    t->c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN;
+    t->c_cc[VEOF] = 4;   /* ^D */
+    t->c_cc[VMIN] = 1;
+    t->c_cc[VTIME] = 0;
+}
+
 static void tty_wake_reader(void)
 {
     if (tty0.read_wait)
@@ -73,13 +100,13 @@ void tty_receive_char(char c)
         c = '\n';
 
     if (c == 0x03) {
-        if (tty0.foreground_pgid)
+        if (tty0.isig && tty0.foreground_pgid)
             ksys_kill(-(long)tty0.foreground_pgid, SIGINT);
         return;
     }
 
     if (c == 0x1a) {
-        if (tty0.foreground_pgid)
+        if (tty0.isig && tty0.foreground_pgid)
             ksys_kill(-(long)tty0.foreground_pgid, SIGTSTP);
         return;
     }
@@ -227,14 +254,17 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
     (void)file;
 
     switch (cmd) {
-    case TCGETS: {
-        unsigned char termios[60];
-        unsigned int i;
-
-        for (i = 0; i < sizeof(termios); i++)
-            termios[i] = 0;
-        if (!arg || copy_to_user((void *)arg, termios, sizeof(termios)))
+    case TCGETS:
+        if (!arg || copy_to_user((void *)arg, &tty0.termios,
+                                 sizeof(tty0.termios)))
             return -EFAULT;
+        return 0;
+    case TCSETS: {
+        struct user_termios t;
+
+        if (!arg || copy_from_user(&t, (void *)arg, sizeof(t)))
+            return -EFAULT;
+        tty_apply_termios(&t);
         return 0;
     }
     case TIOCGPGRP:
@@ -282,9 +312,10 @@ void tty_init(void)
     tty0.rx_tail = 0;
     tty0.session_id = 0;
     tty0.foreground_pgid = 0;
-    tty0.echo = 1;
-    tty0.canonical = 1;
     tty0.read_wait = NULL;
+
+    tty_default_termios(&tty0.termios);
+    tty_apply_termios(&tty0.termios);
 
     uart_file.f_op = &tty_fops;
 
