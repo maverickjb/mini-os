@@ -14,8 +14,10 @@
 
 #include <linux/namei.h>
 #include <linux/proc_fs.h>
+#include <linux/dev.h>
 #include <linux/devnull.h>
 #include <linux/devtty.h>
+#include <linux/devconsole.h>
 
 static void cp_inode_stat(struct inode *inode, struct stat *st)
 {
@@ -59,7 +61,10 @@ static void cp_file_stat(struct file *file, struct stat *st)
 
     /* Anonymous pipe / tty / devnull without a backing inode. */
     memset(st, 0, sizeof(*st));
-    if (file == &uart_file || devtty_file_is(file)) {
+    if (file == &uart_file || devconsole_file_is(file)) {
+        devconsole_fill_stat(st);
+        return;
+    } else if (devtty_file_is(file)) {
         devtty_fill_stat(st);
         return;
     } else if (devnull_file_is(file)) {
@@ -159,19 +164,12 @@ long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
     if (err)
         return err;
 
-    if (devnull_is_path(path)) {
+    if (dev_is_path(path)) {
         struct stat st;
 
-        devnull_fill_stat(&st);
-        if (copy_to_user(statbuf, &st, sizeof(st)))
-            return -EFAULT;
-        return 0;
-    }
+        if (dev_fill_stat_path(path, &st) < 0)
+            return -ENOENT;
 
-    if (devtty_is_path(path)) {
-        struct stat st;
-
-        devtty_fill_stat(&st);
         if (copy_to_user(statbuf, &st, sizeof(st)))
             return -EFAULT;
         return 0;

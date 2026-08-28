@@ -20,7 +20,8 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            mm/page_alloc.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
            fs/binfmt.c fs/open.c fs/stat.c fs/readdir.c fs/pipe.c fs/namei.c \
-           fs/dcache.c fs/procfs.c fs/devnull.c fs/devtty.c \
+           fs/dcache.c fs/procfs.c fs/dev.c fs/devnull.c fs/devtty.c \
+           fs/devconsole.c \
            mm/mmap.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
            fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c
 OBJS    := $(SRCS:.c=.o)

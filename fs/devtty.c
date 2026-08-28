@@ -3,6 +3,7 @@
  */
 
 #include <linux/devtty.h>
+#include <linux/dev.h>
 #include <linux/fs.h>
 #include <linux/sched/task.h>
 #include <linux/stat.h>
@@ -17,7 +18,8 @@ int devtty_is_path(const char *path)
 
 int devtty_file_is(const struct file *file)
 {
-    return file && file->f_op == &tty_fops;
+    return file && file->f_op == &tty_fops &&
+           file->private_data == DEV_FD_TTY;
 }
 
 struct file *devtty_open(int flags)
@@ -35,6 +37,7 @@ struct file *devtty_open(int flags)
 
     file->f_op = &tty_fops;
     file->f_flags = flags;
+    file->private_data = DEV_FD_TTY;
     return file;
 }
 

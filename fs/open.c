@@ -14,7 +14,7 @@
 #include <linux/namei.h>
 #include <linux/ramfs.h>
 #include <linux/proc_fs.h>
-#include <linux/devnull.h>
+#include <linux/dev.h>
 #include <linux/devtty.h>
 
 void get_file(struct file *file)
@@ -145,30 +145,16 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     if (err)
         return err;
 
-    if (devnull_is_path(path)) {
+    if (dev_is_path(path)) {
         if (flags & O_DIRECTORY)
             return -ENOTDIR;
 
-        file = devnull_open(flags);
-        if (!file)
+        file = dev_open_path(path, flags);
+        if (!file) {
+            if (devtty_is_path(path))
+                return -ENXIO;
             return -ENOMEM;
-
-        fd = install_fd(task, file);
-        if (fd < 0) {
-            fput(file);
-            return fd;
         }
-
-        return fd;
-    }
-
-    if (devtty_is_path(path)) {
-        if (flags & O_DIRECTORY)
-            return -ENOTDIR;
-
-        file = devtty_open(flags);
-        if (!file)
-            return -ENXIO;
 
         fd = install_fd(task, file);
         if (fd < 0) {
