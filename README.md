@@ -15,8 +15,10 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
 | Page allocator + user maps | Buddy-style pages, user page tables, `mmap` / `brk` |
-| VFS | Inodes, dentries, files, ramfs, pipes |
-| Initramfs | cpio image unpacked to ramfs; PID 1 runs `/init` |
+| VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
+| `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
+| Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
+| Initramfs + BusyBox | cpio rootfs; PID 1 is BusyBox `init` via `/init` → `busybox` |
 
 Many Linux syscall numbers exist in `include/linux/unistd.h`. Only the ones wired in `kernel/sys.c` actually work.
 
@@ -26,11 +28,13 @@ Needs two AArch64 compilers and QEMU:
 
 ```text
 aarch64-linux-gnu-gcc                 # kernel (freestanding)
-aarch64-unknown-linux-musl-gcc        # userspace (static musl)
+aarch64-unknown-linux-musl-gcc        # userspace test programs (static musl)
 qemu-system-aarch64
 ```
 
 The Makefile looks for the musl compiler on `PATH`, and also in `$HOME/toolchains/aarch64-unknown-linux-musl/bin`. Override with `USER_CC=...` if yours lives elsewhere.
+
+Place a static AArch64 BusyBox binary at `initramfs/busybox` (musl, stripped is fine). The Makefile copies it into the cpio and creates applet symlinks.
 
 ```sh
 make
@@ -43,20 +47,44 @@ QEMU is started as:
 qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic -kernel mini-os.elf
 ```
 
-Boot CPU0 brings up three secondary CPUs, unpacks the initramfs, creates PID 1, and idle loops. PID 1 is a musl `/init` that `write`s `hello` to the UART and exits.
+Boot CPU0 brings up three secondary CPUs, unpacks the initramfs, creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts.
+
+You should see a `~ #` prompt. Try `ls`, `ps`, `cat /etc/inittab`.
 
 `make clean` removes objects, `mini-os.elf`, `mini-os.bin`, and the generated initramfs tree (`initramfs/root`).
+
+## Rootfs layout
+
+The cpio image is built under `initramfs/root/`:
+
+```text
+/init              → bin/busybox          # kernel exec target; init applet
+/sbin/init         → ../bin/busybox       # conventional init path
+/bin/busybox       # static BusyBox binary (you supply initramfs/busybox)
+/bin/{ash,sh,ls,…} → busybox              # applet symlinks (see Makefile)
+/etc/inittab       # BusyBox init config
+/etc/init.d/rcS    # early boot hook (no-op by default)
+/etc/profile       # login shell environment
+/etc/passwd        # minimal root entry
+/tmp/
+/proc/             # created by kernel proc_init()
+/dev/              # directory; /dev/null, /dev/tty, /dev/console are VFS hooks
+/bin/hello         # musl syscall/regression test binary
+```
+
+There is no musl `/init` stub. The kernel still execs `/init` (initramfs convention); the symlink makes that BusyBox init directly.
 
 ## Layout
 
 ```text
 kernel/     boot, IRQ, scheduler, fork/exit, syscalls, signals
 mm/         page allocator, mmap/brk, copy_to/from_user
-fs/         ramfs, dcache, path lookup, pipes, ELF loader
+fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
 drivers/    UART + console TTY
 lib/        kernel string helpers
 include/    linux/ and asm/ headers (Linux-shaped, not Linux)
-initramfs/  musl programs: /init, /bin/hello, /bin/echo
+initramfs/  BusyBox rootfs sources, musl test programs (hello)
+init/       kernel boot C entry (start_kernel)
 ```
 
 Headers live under `include/linux` and `include/asm` so files look like kernel code (`current`, `pt_regs`, `__NR_*`) without pulling in the real kernel.
@@ -67,7 +95,7 @@ Headers live under `include/linux` and `include/asm` so files look like kernel c
 
 - `kernel/head.S` — EL1 entry, early stack, MMU (identity + high half at `0xffff800080000000`), jump to C. QEMU loads the image at `0x40000000`.
 - `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
-- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, ramfs, unpack initramfs, scheduler, PID 1.
+- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, ramfs, unpack initramfs, procfs, scheduler, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
 
@@ -95,12 +123,13 @@ States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, i
 
 Implemented (subset):
 
-- I/O and files: `read`, `write`, `openat`, `close`, `dup`/`dup3`, `pipe2`, `fstat`, `newfstatat`, `getdents64`, `ioctl` (TTY pgrp, `TCGETS`)
-- Paths: `mkdirat`, `unlinkat`, `linkat`, `chdir`, `getcwd`
+- I/O and files: `read`, `write`, `writev`, `openat`, `close`, `dup`/`dup3`, `pipe2`, `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
+- Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `chdir`, `getcwd`, `utimensat` (stub)
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
-- Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`
-- Memory: `brk`, `mmap` (anonymous), `munmap`; `mprotect` and `fcntl` are no-op stubs (enough for musl CRT)
+- Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
+- Memory: `brk`, `mmap` (anonymous), `munmap`; `mprotect` is a no-op stub (enough for musl CRT)
 - Signals: `kill`, `rt_sigaction`, `rt_sigprocmask`, `rt_sigpending`, `rt_sigsuspend`, `rt_sigreturn`
+- TTY `ioctl`: `TCGETS`/`TCSETS`, `TIOCGPGRP`/`TIOCSPGRP`, `TIOCSCTTY`, `TIOCGSID`, `TIOCNOTTY`, `TIOCGWINSZ`
 
 Unknown numbers return `-ENOSYS`.
 
@@ -138,39 +167,45 @@ SP  : argc
 
 `ET_DYN` (PIE), `PT_INTERP` (dynamic linker), and non-`RELATIVE` relocations are not supported. Static musl programs are built `-static -fno-pie -no-pie`.
 
-The initramfs cpio is linked at the **end** of the kernel image (`linker.ld`) so a larger musl rootfs does not push `.data.boot` out of `adr` range from `head.S`.
+The initramfs cpio is linked at the **end** of the kernel image (`linker.ld`) so a larger rootfs does not push `.data.boot` out of `adr` range from `head.S`.
 
 ### VFS, ramfs, initramfs
 
-Linux VFS vocabulary, one filesystem:
+Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 
 - `include/linux/fs.h` — inode, `file`, `file_operations`, `inode_operations`.
 - `fs/dcache.c` — dentries, path walk for `.` / `..`, `getcwd`.
-- `fs/namei.c` — path resolve, `mkdir`/`unlink`/`link`/`chdir`.
-- `fs/ramfs.c` — in-memory files and directories, `nlink` hard links.
+- `fs/namei.c` — path resolve, `mkdir`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
+- `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`).
 - `fs/pipe.c` — pipe buffers and wait queues (`-EINTR` if a signal is pending).
-- `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table helpers.
+- `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table, `fcntl`, `lseek` via `f_op->llseek`.
+- `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps`.
+- `fs/dev.c`, `fs/devnull.c`, `fs/devtty.c`, `fs/devconsole.c` — special `/dev/*` path hooks (not real char devices).
 - `fs/initramfs.c` — unpack a newc cpio blob into ramfs.
 
-There is no block layer, no ext4, no mount table beyond “everything is ramfs.”
+There is no block layer, no ext4, no mount table beyond “everything is ramfs (+ proc + dev hooks).” Shebang (`#!`) execution is not supported — run scripts as `/bin/sh script`.
 
 ### Console and SMP
 
 - `drivers/tty/serial.c` — PL011 UART; kernel `uart_puts` and user `write` to stdout.
-- `drivers/tty/tty.c` — canonical line discipline, echo, `TIOCGPGRP` / `TIOCSPGRP`.
+- `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), winsize stub.
 - `kernel/smp.c` — start secondary CPUs. They print a hello and idle. User tasks currently run on CPU0’s scheduling path.
 
 PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
 
 ### Userspace
 
-Programs under `initramfs/src/` are ordinary C, compiled with **musl** (`aarch64-unknown-linux-musl-gcc -static -fno-pie`). There is no in-tree libc; `#include <unistd.h>` is musl’s.
+**BusyBox** is the main userspace: static binary at `initramfs/busybox`, copied to `/bin/busybox` with symlinks for common applets (`ash`, `sh`, `ls`, `echo`, `cat`, `sleep`, `ps`, `uname`, `true`, `false`, `pwd`, … — see `BUSYBOX_APPLETS` in the Makefile).
 
-- `/init` — PID 1: `write(1, "hello\n", 6); return 0;`
-- `/bin/hello` — VFS / process / signal tests (same kernel ABI, musl errno)
-- `/bin/echo` — read stdin, write stdout
+Boot chain:
 
-A glibc or dynamically linked BusyBox will not run. A musl **static `ET_EXEC`** BusyBox can enter `_start`, but applets still need syscalls this kernel does not provide (`lseek`, `ppoll`, `faccessat`, `readlinkat`, …).
+1. Kernel → `/init` (busybox symlink, `init` applet).
+2. `/etc/inittab` → `sysinit` runs `/bin/sh /etc/init.d/rcS`, then `respawn` starts login ash.
+3. `/etc/profile` sets `PATH=/bin:/sbin`, `HOME=/`, `TERM=linux` for interactive shells.
+
+**`/bin/hello`** is a separate musl program (`initramfs/src/hello.c`) used to regression-test syscalls. It is not part of normal boot.
+
+A glibc or dynamically linked userspace will not run. Programs must be static AArch64 `ET_EXEC` ELFs.
 
 ## How a syscall looks
 
@@ -184,7 +219,9 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk, no user SMP load balancing, no locking beyond “IRQs off.” No PIE loader, no `ld.so`. Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
+No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk, no user SMP load balancing, no locking beyond “IRQs off.” No PIE loader, no `ld.so`. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `reboot`, `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
+
+Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 
 ## Reading order
 
@@ -193,5 +230,7 @@ No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no 
 3. `kernel/sched/core.c` → `kernel/fork.c` → `kernel/exit.c`
 4. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
 5. `fs/binfmt.c` → `fs/exec.c`
-6. `kernel/signal.c`
-7. `initramfs/src/init.c` and `initramfs/src/hello.c`
+6. `fs/procfs.c` → `fs/dev.c`
+7. `drivers/tty/tty.c`
+8. `kernel/signal.c`
+9. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
