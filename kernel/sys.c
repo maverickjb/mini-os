@@ -235,7 +235,7 @@ static long handle_syscall(struct pt_regs *regs)
     case __NR_mprotect:
         return ksys_mprotect(regs->x0, regs->x1, regs->x2);
     case __NR_fcntl:
-        return 0;
+        return ksys_fcntl(regs->x0, (unsigned int)regs->x1, regs->x2);
     case __NR_wait4:
         return ksys_wait4((int)regs->x0, (int *)regs->x1, (long)regs->x2);
     case __NR_execve:

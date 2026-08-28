@@ -99,6 +99,7 @@ static void task_zero(struct task_struct *tsk)
 
     for (i = 0; i < NR_OPEN; i++)
         tsk->files[i] = NULL;
+    tsk->close_on_exec = 0;
 }
 
 static void task_ctx_init(struct task_struct *task, void (*fn)(void *), void *arg)
@@ -180,6 +181,8 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 static void copy_task_files(struct task_struct *child, struct task_struct *parent)
 {
     unsigned int i;
+
+    child->close_on_exec = parent->close_on_exec;
 
     for (i = 0; i < NR_OPEN; i++) {
         child->files[i] = parent->files[i];

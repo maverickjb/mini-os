@@ -29,6 +29,7 @@ long ksys_close(unsigned long fd);
 long ksys_dup(unsigned long oldfd);
 long ksys_dup2(unsigned long oldfd, unsigned long newfd);
 long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags);
+long ksys_fcntl(unsigned long fd, unsigned int cmd, unsigned long arg);
 long ksys_pipe2(int *fildes, int flags);
 long ksys_fstat(unsigned long fd, struct stat *statbuf);
 long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,

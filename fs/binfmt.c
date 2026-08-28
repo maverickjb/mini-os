@@ -406,6 +406,8 @@ int load_elf_binary(struct linux_binprm *bprm)
     /* New image installs its own TLS; drop the previous TPIDR_EL0. */
     bprm->task->tpidr_el0 = 0;
 
+    close_on_exec_fds(bprm->task);
+
     /* /proc/<pid>/stat + cmdline — keep this off the syscall stack in do_execve. */
     {
         const char *arg0 = bprm->argv[0];

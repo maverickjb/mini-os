@@ -66,6 +66,7 @@ void get_file(struct file *file);
 void fput(struct file *file);
 struct file *alloc_file(void);
 int install_fd(struct task_struct *task, struct file *file);
+void close_on_exec_fds(struct task_struct *task);
 
 loff_t generic_file_llseek(struct file *file, loff_t offset, int whence);
 loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
@@ -77,7 +78,21 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
 #define O_ACCMODE       3
 #define O_CREAT         0x40
 #define O_TRUNC         0x200
+#define O_APPEND        00002000
+#define O_NONBLOCK      00004000
+#define O_ASYNC         00020000
+#define O_CLOEXEC       02000000
 #define O_DIRECTORY     0x10000
+
+/* fcntl(2) commands (Linux aarch64). */
+#define F_DUPFD         0
+#define F_GETFD         1
+#define F_SETFD         2
+#define F_GETFL         3
+#define F_SETFL         4
+#define F_DUPFD_CLOEXEC 0x406
+
+#define FD_CLOEXEC      1
 
 #define AT_FDCWD        (-100)
 #define AT_REMOVEDIR    0x200

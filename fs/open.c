@@ -63,11 +63,50 @@ int install_fd(struct task_struct *task, struct file *file)
     for (fd = 0; fd < NR_OPEN; fd++) {
         if (!task->files[fd]) {
             task->files[fd] = file;
+            task->close_on_exec &= (unsigned char)~(1u << fd);
             return fd;
         }
     }
 
     return -EMFILE;
+}
+
+static int install_fd_min(struct task_struct *task, struct file *file,
+                          unsigned int minfd)
+{
+    int fd;
+
+    if (minfd >= NR_OPEN)
+        return -EINVAL;
+
+    for (fd = (int)minfd; fd < NR_OPEN; fd++) {
+        if (!task->files[fd]) {
+            task->files[fd] = file;
+            task->close_on_exec &= (unsigned char)~(1u << fd);
+            return fd;
+        }
+    }
+
+    return -EMFILE;
+}
+
+void close_on_exec_fds(struct task_struct *task)
+{
+    unsigned int i;
+
+    if (!task)
+        return;
+
+    for (i = 0; i < NR_OPEN; i++) {
+        if (!(task->close_on_exec & (1u << i)))
+            continue;
+
+        if (task->files[i]) {
+            fput(task->files[i]);
+            task->files[i] = NULL;
+        }
+        task->close_on_exec &= (unsigned char)~(1u << i);
+    }
 }
 
 static long close_fd(struct task_struct *task, unsigned long fd)
@@ -227,10 +266,11 @@ long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags)
     struct file *file;
     struct file *old_new;
 
-    (void)flags;
-
     if (!task || oldfd >= NR_OPEN || newfd >= NR_OPEN)
         return -EBADF;
+
+    if (flags & ~O_CLOEXEC)
+        return -EINVAL;
 
     file = task->files[oldfd];
     if (!file)
@@ -245,5 +285,66 @@ long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags)
     if (old_new)
         fput(old_new);
 
+    if (flags & O_CLOEXEC)
+        task->close_on_exec |= (unsigned char)(1u << newfd);
+    else
+        task->close_on_exec &= (unsigned char)~(1u << newfd);
+
     return (long)newfd;
+}
+
+long ksys_fcntl(unsigned long fd, unsigned int cmd, unsigned long arg)
+{
+    struct task_struct *task = current;
+    struct file *file;
+    int newfd;
+
+    if (!task || fd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[fd];
+    if (!file)
+        return -EBADF;
+
+    switch (cmd) {
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC: {
+        unsigned int minfd = (unsigned int)arg;
+
+        if ((int)minfd < 0 || minfd >= NR_OPEN)
+            return -EINVAL;
+
+        get_file(file);
+        newfd = install_fd_min(task, file, minfd);
+        if (newfd < 0) {
+            fput(file);
+            return newfd;
+        }
+
+        if (cmd == F_DUPFD_CLOEXEC)
+            task->close_on_exec |= (unsigned char)(1u << newfd);
+        else
+            task->close_on_exec &= (unsigned char)~(1u << newfd);
+
+        return newfd;
+    }
+    case F_GETFD:
+        return (task->close_on_exec & (1u << fd)) ? FD_CLOEXEC : 0;
+    case F_SETFD:
+        if (arg & ~FD_CLOEXEC)
+            return -EINVAL;
+        if (arg & FD_CLOEXEC)
+            task->close_on_exec |= (unsigned char)(1u << fd);
+        else
+            task->close_on_exec &= (unsigned char)~(1u << fd);
+        return 0;
+    case F_GETFL:
+        return file->f_flags;
+    case F_SETFL:
+        file->f_flags = (file->f_flags & ~(O_APPEND | O_NONBLOCK | O_ASYNC)) |
+                        (int)(arg & (O_APPEND | O_NONBLOCK | O_ASYNC));
+        return 0;
+    default:
+        return -EINVAL;
+    }
 }
