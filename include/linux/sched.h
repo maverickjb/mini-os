@@ -10,7 +10,7 @@
 struct dentry;
 
 #define INIT_STACK_SIZE   8192
-#define NR_OPEN           8
+#define NR_OPEN           32
 #define SCHED_TIME_SLICE  10
 
 enum task_state {
@@ -54,7 +54,7 @@ struct task_struct {
     unsigned long *stack;
     struct mm_struct *mm;
     struct file *files[NR_OPEN];
-    unsigned char close_on_exec; /* bit i => FD_CLOEXEC on files[i] */
+    unsigned long close_on_exec; /* bit i => FD_CLOEXEC on files[i] */
     struct task_struct *next;
     struct task_struct *parent;
     int time_slice;

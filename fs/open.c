@@ -65,7 +65,7 @@ int install_fd(struct task_struct *task, struct file *file)
     for (fd = 0; fd < NR_OPEN; fd++) {
         if (!task->files[fd]) {
             task->files[fd] = file;
-            task->close_on_exec &= (unsigned char)~(1u << fd);
+            task->close_on_exec &= ~(1UL << fd);
             return fd;
         }
     }
@@ -84,7 +84,7 @@ static int install_fd_min(struct task_struct *task, struct file *file,
     for (fd = (int)minfd; fd < NR_OPEN; fd++) {
         if (!task->files[fd]) {
             task->files[fd] = file;
-            task->close_on_exec &= (unsigned char)~(1u << fd);
+            task->close_on_exec &= ~(1UL << fd);
             return fd;
         }
     }
@@ -100,14 +100,14 @@ void close_on_exec_fds(struct task_struct *task)
         return;
 
     for (i = 0; i < NR_OPEN; i++) {
-        if (!(task->close_on_exec & (1u << i)))
+        if (!(task->close_on_exec & (1UL << i)))
             continue;
 
         if (task->files[i]) {
             fput(task->files[i]);
             task->files[i] = NULL;
         }
-        task->close_on_exec &= (unsigned char)~(1u << i);
+        task->close_on_exec &= ~(1UL << i);
     }
 }
 
@@ -322,9 +322,9 @@ long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags)
         fput(old_new);
 
     if (flags & O_CLOEXEC)
-        task->close_on_exec |= (unsigned char)(1u << newfd);
+        task->close_on_exec |= (1UL << newfd);
     else
-        task->close_on_exec &= (unsigned char)~(1u << newfd);
+        task->close_on_exec &= ~(1UL << newfd);
 
     return (long)newfd;
 }
@@ -358,21 +358,21 @@ long ksys_fcntl(unsigned long fd, unsigned int cmd, unsigned long arg)
         }
 
         if (cmd == F_DUPFD_CLOEXEC)
-            task->close_on_exec |= (unsigned char)(1u << newfd);
+            task->close_on_exec |= (1UL << newfd);
         else
-            task->close_on_exec &= (unsigned char)~(1u << newfd);
+            task->close_on_exec &= ~(1UL << newfd);
 
         return newfd;
     }
     case F_GETFD:
-        return (task->close_on_exec & (1u << fd)) ? FD_CLOEXEC : 0;
+        return (task->close_on_exec & (1UL << fd)) ? FD_CLOEXEC : 0;
     case F_SETFD:
         if (arg & ~FD_CLOEXEC)
             return -EINVAL;
         if (arg & FD_CLOEXEC)
-            task->close_on_exec |= (unsigned char)(1u << fd);
+            task->close_on_exec |= (1UL << fd);
         else
-            task->close_on_exec &= (unsigned char)~(1u << fd);
+            task->close_on_exec &= ~(1UL << fd);
         return 0;
     case F_GETFL:
         return file->f_flags;
