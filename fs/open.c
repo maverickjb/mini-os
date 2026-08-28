@@ -14,6 +14,7 @@
 #include <linux/namei.h>
 #include <linux/ramfs.h>
 #include <linux/proc_fs.h>
+#include <linux/devnull.h>
 
 void get_file(struct file *file)
 {
@@ -142,6 +143,23 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     err = getname_from_user(path, filename);
     if (err)
         return err;
+
+    if (devnull_is_path(path)) {
+        if (flags & O_DIRECTORY)
+            return -ENOTDIR;
+
+        file = devnull_open(flags);
+        if (!file)
+            return -ENOMEM;
+
+        fd = install_fd(task, file);
+        if (fd < 0) {
+            fput(file);
+            return fd;
+        }
+
+        return fd;
+    }
 
     /* No creating files under /proc. */
     if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' &&
