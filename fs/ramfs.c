@@ -67,6 +67,8 @@ static unsigned char ramfs_dtype(int type)
         return DT_CHR;
     case S_IFIFO:
         return DT_FIFO;
+    case S_IFLNK:
+        return DT_LNK;
     default:
         return DT_UNKNOWN;
     }
@@ -427,6 +429,55 @@ static int ramfs_inode_link(struct dentry *old_dentry, struct inode *dir,
     return 0;
 }
 
+static int ramfs_inode_symlink(struct inode *dir, struct dentry *dentry,
+                               const char *target)
+{
+    struct ramfs_inode *parent;
+    struct ramfs_inode *ri;
+    unsigned long len;
+    int err;
+
+    if (!dir || !dentry || !dentry->name[0] || !target)
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+
+    len = ramfs_namelen(target);
+    if (len >= PATH_MAX)
+        return -ENAMETOOLONG;
+
+    parent = RAMFS_I(dir);
+    if (ramfs_find_child(parent, dentry->name))
+        return -EEXIST;
+
+    ri = ramfs_alloc_inode(S_IFLNK);
+    if (!ri)
+        return -ENOMEM;
+
+    if (len > 0) {
+        ri->data = ramfs_kmalloc(len + 1);
+        if (!ri->data) {
+            ramfs_kfree(ri, sizeof(*ri));
+            return -ENOMEM;
+        }
+        ri->capacity = len + 1;
+        ramfs_memcpy(ri->data, target, len);
+        ((char *)ri->data)[len] = '\0';
+        ri->inode.size = len;
+    }
+
+    err = ramfs_add_child(parent, dentry->name, ri);
+    if (err) {
+        if (ri->data)
+            ramfs_kfree(ri->data, ri->capacity);
+        ramfs_kfree(ri, sizeof(*ri));
+        return err;
+    }
+
+    dentry->inode = &ri->inode;
+    return 0;
+}
+
 static int ramfs_inode_rmdir(struct inode *dir, struct dentry *dentry)
 {
     struct ramfs_inode *parent;
@@ -463,6 +514,7 @@ static const struct inode_operations ramfs_dir_inode_ops = {
     .unlink = ramfs_inode_unlink,
     .rmdir = ramfs_inode_rmdir,
     .link = ramfs_inode_link,
+    .symlink = ramfs_inode_symlink,
 };
 
 static const char *ramfs_skip_slash(const char *path)

@@ -89,6 +89,18 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir,
     return dir->i_op->link(old_dentry, dir, new_dentry);
 }
 
+int vfs_symlink(const char *target, struct inode *dir, struct dentry *dentry)
+{
+    if (!target || !dir || !dentry)
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+    if (!dir->i_op || !dir->i_op->symlink)
+        return -EPERM;
+
+    return dir->i_op->symlink(dir, dentry, target);
+}
+
 static unsigned long str_len(const char *s)
 {
     unsigned long n = 0;
@@ -472,6 +484,63 @@ long ksys_linkat(int olddfd, const char *oldname, int newdfd,
         return err;
 
     return do_link(oldpath, newpath);
+}
+
+static int do_symlink(const char *target, const char *linkpath)
+{
+    char parent_path[PATH_MAX];
+    char name[DNAME_INLINE_LEN];
+    struct dentry *parent;
+    struct dentry new_dentry;
+    int err;
+
+    if (vfs_lookup(linkpath))
+        return -EEXIST;
+
+    err = path_parent_name(linkpath, parent_path, name);
+    if (err)
+        return err;
+
+    parent = d_lookup_path(parent_path);
+    if (!parent)
+        return -ENOENT;
+
+    str_copy(new_dentry.name, name, sizeof(new_dentry.name));
+    new_dentry.inode = NULL;
+    new_dentry.parent = parent;
+    new_dentry.child = NULL;
+    new_dentry.next = NULL;
+
+    return vfs_symlink(target, parent->inode, &new_dentry);
+}
+
+long ksys_symlinkat(const char *target, int dfd, const char *linkpath)
+{
+    char target_buf[PATH_MAX];
+    char link_buf[PATH_MAX];
+    long n;
+    long err;
+
+    (void)dfd;
+
+    if (!target || !linkpath)
+        return -EFAULT;
+
+    n = strncpy_from_user(target_buf, target, PATH_MAX);
+    if (n < 0)
+        return n;
+    if (n >= PATH_MAX)
+        return -ENAMETOOLONG;
+
+    err = getname_from_user(link_buf, linkpath);
+    if (err)
+        return err;
+
+    if (link_buf[0] == '/' && link_buf[1] == 'p' && link_buf[2] == 'r' &&
+        link_buf[3] == 'o' && link_buf[4] == 'c' && link_buf[5] == '/')
+        return -EACCES;
+
+    return do_symlink(target_buf, link_buf);
 }
 
 long ksys_chdir(const char *filename)

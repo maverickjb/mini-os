@@ -15,6 +15,7 @@ typedef unsigned short umode_t;
 #define S_IFIFO         0010000
 #define S_IFCHR         0020000
 #define S_IFDIR         0040000
+#define S_IFLNK         0120000
 #define S_IFREG         0100000
 
 #define SEEK_SET        0
@@ -40,6 +41,8 @@ struct inode_operations {
     int (*rmdir)(struct inode *dir, struct dentry *dentry);
     int (*link)(struct dentry *old_dentry, struct inode *dir,
                  struct dentry *new_dentry);
+    int (*symlink)(struct inode *dir, struct dentry *dentry,
+                   const char *target);
 };
 
 struct inode {
@@ -105,6 +108,11 @@ static inline int inode_is_dir(const struct inode *inode)
 static inline int inode_is_reg(const struct inode *inode)
 {
     return inode && inode->type == S_IFREG;
+}
+
+static inline int inode_is_lnk(const struct inode *inode)
+{
+    return inode && inode->type == S_IFLNK;
 }
 
 #endif /* _LINUX_FS_H */
