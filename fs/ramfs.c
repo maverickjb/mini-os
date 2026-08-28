@@ -752,6 +752,36 @@ int ramfs_create(const char *path)
     return 0;
 }
 
+int ramfs_symlink(const char *path, const char *target)
+{
+    char name[RAMFS_NAME_MAX + 1];
+    struct ramfs_inode *parent;
+    struct dentry dentry;
+    unsigned long i;
+
+    if (!path || path[0] != '/' || !target)
+        return -EINVAL;
+
+    parent = ramfs_lookup_parent(path, name);
+    if (!parent)
+        return -ENOENT;
+
+    if (ramfs_find_child(parent, name))
+        return -EEXIST;
+
+    for (i = 0; i < sizeof(dentry.name); i++)
+        dentry.name[i] = 0;
+    for (i = 0; name[i] && i + 1 < sizeof(dentry.name); i++)
+        dentry.name[i] = name[i];
+    dentry.name[i] = '\0';
+    dentry.inode = NULL;
+    dentry.parent = NULL;
+    dentry.child = NULL;
+    dentry.next = NULL;
+
+    return vfs_symlink(target, &parent->inode, &dentry);
+}
+
 int ramfs_unlink(const char *path)
 {
     char name[RAMFS_NAME_MAX + 1];

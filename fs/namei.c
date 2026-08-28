@@ -14,9 +14,20 @@
 #include <linux/gfp.h>
 #include <linux/proc_fs.h>
 
+static int path_parent_name(const char *path, char *parent, char *name);
+static int path_resolve(const char *base, const char *path, char *out);
+static void str_copy(char *dst, const char *src, unsigned long max);
+
 struct inode *vfs_lookup(const char *path)
 {
+    char curpath[PATH_MAX];
+    char target[PATH_MAX];
+    char resolved[PATH_MAX];
+    char scratch[DNAME_INLINE_LEN];
     struct inode *inode;
+    long len;
+    int depth;
+    int err;
 
     if (!path)
         return NULL;
@@ -31,7 +42,38 @@ struct inode *vfs_lookup(const char *path)
         /* Fall through for plain "/proc" if proc_init has not run. */
     }
 
-    return ramfs_lookup(path);
+    str_copy(curpath, path, PATH_MAX);
+
+    for (depth = 0; depth < 8; depth++) {
+        inode = ramfs_lookup(curpath);
+        if (!inode)
+            return NULL;
+
+        if (!inode_is_lnk(inode))
+            return inode;
+
+        len = ramfs_readlink(inode, target, PATH_MAX - 1);
+        if (len < 0)
+            return NULL;
+        target[len] = '\0';
+
+        if (target[0] == '/') {
+            str_copy(resolved, target, PATH_MAX);
+        } else {
+            char parent[PATH_MAX];
+
+            err = path_parent_name(curpath, parent, scratch);
+            if (err)
+                return NULL;
+            err = path_resolve(parent, target, resolved);
+            if (err)
+                return NULL;
+        }
+
+        str_copy(curpath, resolved, PATH_MAX);
+    }
+
+    return NULL;
 }
 
 int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)

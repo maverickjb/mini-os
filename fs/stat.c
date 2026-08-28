@@ -33,7 +33,7 @@ static void cp_inode_stat(struct inode *inode, struct stat *st)
     if (inode_is_dir(inode))
         st->st_mode |= 0755;
     else if (inode_is_reg(inode))
-        st->st_mode |= 0644;
+        st->st_mode |= 0755;
     else if (inode_is_lnk(inode))
         st->st_mode |= 0777;
     else

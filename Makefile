@@ -40,11 +40,11 @@ USER_PATH    := $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
 
 INIT_BIN     := initramfs/root/init
 HELLO_BIN    := initramfs/root/bin/hello
-ECHO_BIN     := initramfs/root/bin/echo
 BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
+BUSYBOX_APPLETS := ls echo cat sleep ps uname true false pwd
 
-$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN) $(BUSYBOX_BIN) initramfs/etc/profile
+$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(BUSYBOX_BIN) initramfs/etc/profile
 	mkdir -p initramfs/root/tmp initramfs/root/etc
 	cp -f initramfs/etc/profile initramfs/root/etc/profile
 	test -f initramfs/root/etc/passwd || printf 'root:x:0:0:root:/:/bin/sh\n' > initramfs/root/etc/passwd
@@ -53,6 +53,9 @@ $(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN) $(BUSYBOX_BIN) initramfs
 $(BUSYBOX_BIN): $(BUSYBOX_SRC)
 	mkdir -p initramfs/root/bin
 	cp -f $< $@
+	@for app in $(BUSYBOX_APPLETS); do \
+		ln -sf busybox initramfs/root/bin/$$app; \
+	done
 
 $(INIT_BIN): initramfs/src/init.c
 	mkdir -p initramfs/root
@@ -63,10 +66,6 @@ $(HELLO_BIN): initramfs/src/hello.c
 	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 	printf 'hello from open\n' > initramfs/root/msg.txt
 	printf 'root:x:0:0:root:/:/bin/sh\n' > initramfs/root/etc/passwd
-
-$(ECHO_BIN): initramfs/src/echo.c
-	mkdir -p initramfs/root/bin
-	PATH="$(USER_PATH)" $(USER_CC) $(USER_CFLAGS) -o $@ $<
 
 fs/initramfs_blob.o: $(INITRAMFS_CPIO)
 

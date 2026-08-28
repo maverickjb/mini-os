@@ -35,6 +35,7 @@ struct inode *ramfs_lookup(const char *path);
 struct inode *ramfs_lookup_child(struct inode *dir, const char *name);
 int ramfs_mkdir(const char *path);
 int ramfs_create(const char *path);
+int ramfs_symlink(const char *path, const char *target);
 int ramfs_unlink(const char *path);
 int ramfs_rmdir(const char *path);
 

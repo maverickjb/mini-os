@@ -236,7 +236,35 @@ int unpack_to_rootfs(const void *data, unsigned long size)
             continue;
         }
 
-        /* Ignore symlinks, devices, etc. */
+        if ((mode & S_IFMT) == S_IFLNK) {
+            char target[RAMFS_NAME_MAX + 1];
+            unsigned long tlen = filesize;
+            unsigned long i;
+
+            if (tlen >= sizeof(target))
+                return -EINVAL;
+
+            if (parent_dir(path, pdir) < 0)
+                return -EINVAL;
+
+            err = ramfs_mkdir_p(pdir);
+            if (err)
+                return err;
+
+            for (i = 0; i < tlen; i++)
+                target[i] = (char)payload[i];
+            while (tlen > 0 && target[tlen - 1] == '\0')
+                tlen--;
+            target[tlen] = '\0';
+
+            err = ramfs_symlink(path, target);
+            if (err && err != -EEXIST)
+                return err;
+
+            continue;
+        }
+
+        /* Ignore devices, etc. */
     }
 
     return 0;
