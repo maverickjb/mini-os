@@ -44,8 +44,9 @@ ECHO_BIN     := initramfs/root/bin/echo
 BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
 
-$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN) $(BUSYBOX_BIN)
-	mkdir -p initramfs/root/etc
+$(INITRAMFS_CPIO): $(INIT_BIN) $(HELLO_BIN) $(ECHO_BIN) $(BUSYBOX_BIN) initramfs/etc/profile
+	mkdir -p initramfs/root/tmp initramfs/root/etc
+	cp -f initramfs/etc/profile initramfs/root/etc/profile
 	test -f initramfs/root/etc/passwd || printf 'root:x:0:0:root:/:/bin/sh\n' > initramfs/root/etc/passwd
 	cd initramfs/root && find . -print | cpio -o -H newc --quiet > ../initramfs.cpio
 

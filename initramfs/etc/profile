@@ -1,0 +1,9 @@
+# Minimal login environment for BusyBox ash
+PATH=/bin
+export PATH
+HOME=/
+export HOME
+TERM=linux
+export TERM
+PS1='\w \$ '
+export PS1
