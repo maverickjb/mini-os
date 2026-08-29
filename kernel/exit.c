@@ -216,5 +216,8 @@ long ksys_wait4(long pid, int *status, long options)
         local_irq_disable();
         parent->state = TASK_RUNNING;
         parent->time_slice = SCHED_TIME_SLICE;
+
+        if (signal_pending(parent))
+            return -EINTR;
     }
 }

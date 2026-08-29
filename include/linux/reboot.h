@@ -19,4 +19,6 @@
 long ksys_reboot(unsigned int magic1, unsigned int magic2, unsigned int cmd,
                  void *arg);
 
+void kernel_init_shutdown(int sig);
+
 #endif /* _LINUX_REBOOT_H */

@@ -391,9 +391,9 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
 
         if (walk->pid <= 0)
             continue;
-        if (walk->state == TASK_DEAD)
+        if (walk->state == TASK_DEAD || walk->state == TASK_ZOMBIE)
             continue;
-        if (!walk->is_user && walk->state != TASK_ZOMBIE)
+        if (!walk->is_user)
             continue;
 
         if (pos < index) {

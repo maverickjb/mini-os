@@ -21,6 +21,7 @@
 #include <linux/gfp.h>
 #include <linux/mm.h>
 #include <linux/pid.h>
+#include <linux/reboot.h>
 #include <asm/irqflags.h>
 
 struct task_struct *find_task_by_pid(pid_t pid)
@@ -34,7 +35,7 @@ struct task_struct *find_task_by_pid(pid_t pid)
     walk = start = runqueue;
     do {
         if (walk->pid == pid && walk->is_user &&
-            walk->state != TASK_ZOMBIE && walk->state != TASK_DEAD)
+            walk->state != TASK_DEAD)
             return walk;
         walk = walk->next ? walk->next : runqueue;
     } while (walk != start);
@@ -316,6 +317,11 @@ void do_signal(struct pt_regs *regs)
                 do_signal_stop(sig);
                 continue;
             }
+            if (task->pid == 1 &&
+                (sig == SIGUSR1 || sig == SIGUSR2 || sig == SIGTERM)) {
+                kernel_init_shutdown(sig);
+                return;
+            }
             /* Default: terminate, except job-control / ignored signals. */
             if (sig == SIGCHLD || sig == SIGCONT ||
                 sig == SIGURG || sig == SIGWINCH)
@@ -339,10 +345,29 @@ long ksys_kill(long pid, int sig)
 
     if (pid > 0)
         return signal_one_process((pid_t)pid, sig);
-    if (pid < 0)
+    if (pid == 0) {
+        if (!current)
+            return -ESRCH;
+        return signal_process_group(current->pgid, sig);
+    }
+    if (pid < -1)
         return signal_process_group((pid_t)(-pid), sig);
 
-    return -ESRCH;
+    /* pid == -1: all user processes except the caller. */
+    {
+        struct task_struct *task;
+        int found = 0;
+
+        for (task = runqueue; task; task = task->next) {
+            if (!task->is_user || task == current ||
+                task->state == TASK_DEAD)
+                continue;
+            found = 1;
+            if (sig != 0)
+                signal_send(task, sig);
+        }
+        return found ? 0 : -ESRCH;
+    }
 }
 
 long ksys_rt_sigaction(int sig, const struct sigaction *act,

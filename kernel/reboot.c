@@ -8,6 +8,7 @@
 #include <linux/errno.h>
 #include <asm/irqflags.h>
 #include <asm/psci.h>
+#include <asm/signal.h>
 
 static void kernel_restart(void)
 {
@@ -27,6 +28,18 @@ static void kernel_poweroff(void)
 
     for (;;)
         __asm__ volatile("wfi");
+}
+
+void kernel_init_shutdown(int sig)
+{
+    /*
+     * BusyBox (when not PID 1): kill_all(), then kill(1, sig) and exit.
+     * Init must shut down. This BusyBox build uses SIGUSR1/SIGUSR2 for
+     * halt/poweroff; map both to power off. Use "reboot -f" to restart
+     * (calls reboot(2) directly with RB_AUTOBOOT).
+     */
+    if (sig == SIGUSR1 || sig == SIGUSR2 || sig == SIGTERM)
+        kernel_poweroff();
 }
 
 static int reboot_magic2_ok(unsigned int magic2)

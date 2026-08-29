@@ -43,7 +43,7 @@ USER_PATH    := $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
 HELLO_BIN    := initramfs/root/bin/hello
 BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
-BUSYBOX_APPLETS := sh ash ls echo cat sleep ps uname true false pwd
+BUSYBOX_APPLETS := sh ash ls echo cat sleep ps uname true false pwd reboot poweroff halt
 
 $(INITRAMFS_CPIO): $(HELLO_BIN) $(BUSYBOX_BIN) \
 	initramfs/etc/profile initramfs/etc/inittab initramfs/etc/init.d/rcS
