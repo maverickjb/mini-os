@@ -19,6 +19,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
 | Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
 | Initramfs + BusyBox | cpio rootfs; PID 1 is BusyBox `init` via `/init` → `busybox` |
+| Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
 
 Many Linux syscall numbers exist in `include/linux/unistd.h`. Only the ones wired in `kernel/sys.c` actually work.
 
@@ -49,7 +50,7 @@ qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographi
 
 Boot CPU0 brings up three secondary CPUs, unpacks the initramfs, creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts.
 
-You should see a `~ #` prompt. Try `ls`, `ps`, `cat /etc/inittab`.
+You should see a `~ #` prompt. Try `ls`, `ps`, `cat /etc/inittab`, `halt`, or `poweroff`. Use `reboot -f` to restart (BusyBox calls `reboot(2)` directly; plain `reboot` notifies init via signal).
 
 `make clean` removes objects, `mini-os.elf`, `mini-os.bin`, and the generated initramfs tree (`initramfs/root`).
 
@@ -77,11 +78,11 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 ## Layout
 
 ```text
-kernel/     boot, IRQ, scheduler, fork/exit, syscalls, signals
+kernel/     boot, IRQ, scheduler, fork/exit, syscalls, signals, reboot, printk
 mm/         page allocator, mmap/brk, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
 drivers/    UART + console TTY
-lib/        kernel string helpers
+lib/        kernel string helpers, vsnprintf
 include/    linux/ and asm/ headers (Linux-shaped, not Linux)
 initramfs/  BusyBox rootfs sources, musl test programs (hello)
 init/       kernel boot C entry (start_kernel)
@@ -112,7 +113,7 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 - `kernel/sched/core.c` — runqueue, round-robin `pick_next_task()`, `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
 - `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table.
-- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`).
+- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`).
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
 
 States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
@@ -139,13 +140,21 @@ Unknown numbers return `-ENOSYS`.
 `kernel/signal.c` is a small Linux rt-signal path:
 
 - Each task has `pending` and `blocked` bitmasks (signals 1–63).
-- `kill` queues a bit (`pid > 0` one task, `pid < 0` process group `-pid`) and wakes a sleeper if the signal is unblocked.
+- `kill` queues a bit (`pid > 0` one task, `pid == 0` caller’s pgrp, `pid < -1` another pgrp, `pid == -1` all user tasks except caller) and wakes a sleeper if the signal is unblocked.
+- **`wait4`** is interruptible: if a signal arrives while sleeping, the syscall returns **`-EINTR`**; **`do_signal()`** on the syscall-return path then delivers default actions (e.g. `SIGTERM` → `do_exit()`).
 - `do_signal` on syscall return: `SIGSTOP` parks the task in `TASK_STOPPED` (not a zombie); default terminate (except ignored signals like `SIGCHLD` / `SIGCONT`); `SIG_IGN` drop; or user handler.
+- PID 1 default `SIGUSR1` / `SIGUSR2` / `SIGTERM` triggers shutdown via `kernel_init_shutdown()` (BusyBox `halt` / `poweroff` path).
 - A handler gets a **signal frame** on the user stack; musl’s restorer issues `rt_sigreturn` to restore registers and the old mask.
 - `sa_mask` is applied while the handler runs.
 - `rt_sigprocmask` / `rt_sigpending` / `rt_sigsuspend` match the Linux “replace mask and sleep until a signal” idea.
 
 `SIGKILL` / `SIGSTOP` cannot be caught or blocked. `SIGCONT` (or `SIGKILL`) resumes a stopped task. `waitpid` with `WUNTRACED` / `WCONTINUED` reports `WIFSTOPPED` / `WIFCONTINUED`.
+
+### Reboot and power off
+
+- `kernel/reboot.c` — `reboot(2)` with Linux magic numbers; `RESTART` / `HALT` / `POWER_OFF`.
+- `kernel/psci.c` — PSCI 0.2 `SYSTEM_RESET` / `SYSTEM_OFF` via HVC (QEMU `virt` firmware).
+- BusyBox applets `halt`, `poweroff`, and `reboot -f` exercise the `reboot(2)` path; non-`-f` shutdown sends a signal to PID 1, handled in `do_signal()`.
 
 ### Virtual memory and ELF
 
@@ -186,9 +195,11 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 
 There is no block layer, no ext4, no mount table beyond “everything is ramfs (+ proc + dev hooks).” Shebang (`#!`) execution is not supported — run scripts as `/bin/sh script`.
 
-### Console and SMP
+### Console, printk, and SMP
 
-- `drivers/tty/serial.c` — PL011 UART; kernel `uart_puts` and user `write` to stdout.
+- `drivers/tty/serial.c` — PL011 UART; `uart_putc` / `uart_puts` / `uart_write` and user `write` to stdout.
+- `kernel/printk.c` — `printk()` and Linux-style `pr_info` / `pr_err` / … macros (`include/linux/printk.h`); output goes to UART with `KERN_*` level prefixes.
+- `lib/vsnprintf.c` — minimal formatter (`%d`, `%u`, `%x`, `%lx`, `%p`, `%s`, `%c`, `%%`) used by `printk`.
 - `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), winsize stub.
 - `kernel/smp.c` — start secondary CPUs. They print a hello and idle. User tasks currently run on CPU0’s scheduling path.
 
@@ -196,7 +207,7 @@ PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
 
 ### Userspace
 
-**BusyBox** is the main userspace: static binary at `initramfs/busybox`, copied to `/bin/busybox` with symlinks for common applets (`ash`, `sh`, `ls`, `echo`, `cat`, `sleep`, `ps`, `uname`, `true`, `false`, `pwd`, … — see `BUSYBOX_APPLETS` in the Makefile).
+**BusyBox** is the main userspace: static binary at `initramfs/busybox`, copied to `/bin/busybox` with symlinks for common applets (`ash`, `sh`, `ls`, `echo`, `cat`, `sleep`, `ps`, `uname`, `true`, `false`, `pwd`, `halt`, `poweroff`, `reboot` — see `BUSYBOX_APPLETS` in the Makefile).
 
 Boot chain:
 
@@ -232,6 +243,6 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 4. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
 5. `fs/binfmt.c` → `fs/exec.c`
 6. `fs/procfs.c` → `fs/dev.c`
-7. `drivers/tty/tty.c`
-8. `kernel/signal.c`
+7. `drivers/tty/tty.c` → `kernel/printk.c`
+8. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
 9. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`

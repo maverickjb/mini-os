@@ -78,6 +78,14 @@ void uart_putc(char c)
 
 void uart_puts(const char *s)
 {
+    uart_write(s);
+}
+
+void uart_write(const char *s)
+{
+    if (!s)
+        return;
+
     while (*s)
         uart_putc(*s++);
 }

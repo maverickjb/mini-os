@@ -4,7 +4,7 @@
 
 #include <linux/reboot.h>
 #include <linux/sched/task.h>
-#include <linux/serial.h>
+#include <linux/printk.h>
 #include <linux/errno.h>
 #include <asm/irqflags.h>
 #include <asm/psci.h>
@@ -12,7 +12,7 @@
 
 static void kernel_restart(void)
 {
-    uart_puts("Restarting system...\n");
+    pr_info("Restarting system...\n");
     local_irq_disable();
 
     for (;;)
@@ -21,7 +21,7 @@ static void kernel_restart(void)
 
 static void kernel_poweroff(void)
 {
-    uart_puts("Powering off...\n");
+    pr_info("Powering off...\n");
     local_irq_disable();
 
     psci_hvc(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
