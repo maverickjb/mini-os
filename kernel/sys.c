@@ -14,6 +14,7 @@
 #include <linux/uaccess.h>
 #include <linux/string.h>
 #include <linux/tick.h>
+#include <linux/reboot.h>
 #include <asm/ptrace.h>
 #include <asm/irqflags.h>
 #include <asm/memory.h>
@@ -283,6 +284,9 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_getsid((pid_t)regs->x0);
     case __NR_setsid:
         return ksys_setsid();
+    case __NR_reboot:
+        return ksys_reboot((unsigned int)regs->x0, (unsigned int)regs->x1,
+                           (unsigned int)regs->x2, (void *)regs->x3);
     default:
         return -ENOSYS;
     }
