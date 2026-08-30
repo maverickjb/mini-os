@@ -51,13 +51,12 @@ static unsigned int tty_rx_line_length(void)
     return 0;
 }
 
-static int input_not_ready(void)
+static int tty_read_ready(void)
 {
-    if (tty_rx_count() == 0)
-        return 1;
-    if (tty0.canonical && tty_rx_line_length() == 0)
-        return 1;
-    return 0;
+    if (tty0.canonical)
+        return tty_rx_line_length() > 0;
+
+    return tty_rx_count() > 0;
 }
 
 static void tty_wake_reader(void);
@@ -127,7 +126,6 @@ long tty_read(char *buf, unsigned long count)
 {
     unsigned long n;
     unsigned long i;
-    struct wait_queue_entry wait;
 
     if (!buf)
         return -EFAULT;
@@ -135,60 +133,9 @@ long tty_read(char *buf, unsigned long count)
     if (count == 0)
         return 0;
 
-    wait.task = current;
-    wait.next = NULL;
+    if (wait_event_interruptible(&tty0.read_wait, tty_read_ready))
+        return -EINTR;
 
-    for (;;) {
-        /*
-         * Check whether data is already available.
-         *
-         * IRQs are disabled so the condition and the transition
-         * to the sleeping state cannot be interrupted by the
-         * timer/UART IRQ on this UP kernel.
-         */
-        local_irq_disable();
-
-        if (!input_not_ready())
-            break;
-
-        if (signal_pending(current)) {
-            local_irq_enable();
-            return -EINTR;
-        }
-
-        /*
-         * Put ourselves on the wait queue and mark ourselves
-         * sleeping before enabling interrupts.
-         */
-        prepare_to_wait(&tty0.read_wait, &wait);
-
-        local_irq_enable();
-
-        /*
-         * The UART interrupt may wake us here.
-         */
-        schedule();
-
-        /*
-         * We are running again. Remove ourselves from the
-         * wait queue before checking the condition again.
-         */
-        local_irq_disable();
-        finish_wait(&tty0.read_wait, &wait);
-        local_irq_enable();
-
-        /*
-         * Wakeup does not necessarily mean data is available.
-         * It may have been a spurious wakeup or another waiter
-         * may have consumed the data.
-         *
-         * Therefore go around and check again.
-         */
-    }
-
-    /*
-     * We reach here with IRQs disabled and input available.
-     */
     if (tty0.canonical)
         n = tty_rx_line_length();
     else
@@ -201,8 +148,6 @@ long tty_read(char *buf, unsigned long count)
         buf[i] = tty0.rx_buf[tty0.rx_tail];
         tty0.rx_tail = tty_rx_next(tty0.rx_tail);
     }
-
-    local_irq_enable();
 
     return (long)n;
 }

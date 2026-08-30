@@ -27,5 +27,8 @@ void remove_wait_queue(struct wait_queue_head *wq, struct wait_queue_entry *entr
 void prepare_to_wait(struct wait_queue_head *wq, struct wait_queue_entry *entry);
 void finish_wait(struct wait_queue_head *wq, struct wait_queue_entry *entry);
 void wake_up(struct wait_queue_head *wq);
+int wait_event(struct wait_queue_head *wq, int (*condition)(void));
+long wait_event_interruptible(struct wait_queue_head *wq,
+                              int (*condition)(void));
 
 #endif /* _LINUX_WAIT_H */

@@ -5,7 +5,10 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/sched/task.h>
+#include <linux/signal.h>
+#include <linux/errno.h>
 #include <linux/stddef.h>
+#include <asm/irqflags.h>
 
 static int waitqueue_contains(struct wait_queue_head *wq,
                               struct wait_queue_entry *entry)
@@ -94,4 +97,67 @@ void wake_up(struct wait_queue_head *wq)
     }
 
     spin_unlock(&wq->lock);
+}
+
+int wait_event(struct wait_queue_head *wq, int (*condition)(void))
+{
+    struct wait_queue_entry wait;
+
+    wait.task = current;
+    wait.next = NULL;
+
+    for (;;) {
+        local_irq_disable();
+
+        if (condition()) {
+            local_irq_enable();
+            break;
+        }
+
+        prepare_to_wait(wq, &wait);
+
+        local_irq_enable();
+
+        schedule();
+
+        finish_wait(wq, &wait);
+    }
+
+    return 0;
+}
+
+long wait_event_interruptible(struct wait_queue_head *wq,
+                              int (*condition)(void))
+{
+    struct wait_queue_entry wait;
+
+    wait.task = current;
+    wait.next = NULL;
+
+    for (;;) {
+        local_irq_disable();
+
+        if (condition()) {
+            local_irq_enable();
+            break;
+        }
+
+        if (signal_pending(current)) {
+            local_irq_enable();
+            return -EINTR;
+        }
+
+        prepare_to_wait(wq, &wait);
+
+        local_irq_enable();
+
+        schedule();
+
+        finish_wait(wq, &wait);
+
+        if (signal_pending(current))
+            return -EINTR;
+    }
+
+    return 0;
 }
