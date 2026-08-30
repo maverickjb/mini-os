@@ -202,6 +202,7 @@ int tty_setpgrp(pid_t pgid)
 {
     struct task_struct *task;
     int found = 0;
+    unsigned long flags;
 
     if (pgid <= 0)
         return -EINVAL;
@@ -212,6 +213,7 @@ int tty_setpgrp(pid_t pgid)
     if (tty0.session_id && current->sid != tty0.session_id)
         return -ENOTTY;
 
+    spin_lock_irqsave(&runqueue_lock, flags);
     for (task = runqueue; task; task = task->next) {
         if (!task->is_user ||
             task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
@@ -219,9 +221,12 @@ int tty_setpgrp(pid_t pgid)
         if (task->pgid != pgid)
             continue;
         found = 1;
-        if (tty0.session_id && task->sid != tty0.session_id)
+        if (tty0.session_id && task->sid != tty0.session_id) {
+            spin_unlock_irqrestore(&runqueue_lock, flags);
             return -EPERM;
+        }
     }
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 
     if (!found)
         return -ESRCH;

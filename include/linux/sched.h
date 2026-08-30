@@ -4,6 +4,7 @@
 #include <linux/types.h>
 #include <linux/mm_types.h>
 #include <linux/fs.h>
+#include <linux/spinlock.h>
 #include <asm/ptrace.h>
 #include <asm/signal.h>
 
@@ -94,6 +95,7 @@ struct task_struct {
 
 extern struct task_struct idle_tasks[];
 extern struct task_struct *runqueue;
+extern spinlock_t runqueue_lock;
 extern struct task_struct *cpu_current_export;
 
 void sched_init(void);

@@ -11,6 +11,7 @@
 #include <linux/serial.h>
 #include <linux/stddef.h>
 #include <linux/sched.h>
+#include <linux/spinlock.h>
 
 #include <asm/smp.h>
 
@@ -25,6 +26,7 @@ struct task_struct idle_tasks[NR_CPUS] = {
 
 static struct task_struct *cpu_current[NR_CPUS];
 struct task_struct *runqueue;
+DEFINE_SPINLOCK(runqueue_lock);
 
 /* Exported for prepare_kstack_el0 in assembler (UP: CPU0 only). */
 struct task_struct *cpu_current_export;
@@ -51,13 +53,17 @@ static struct task_struct *idle_task(void)
 void enqueue_task(struct task_struct *task)
 {
     struct task_struct *walk;
+    unsigned long flags;
 
     task->next = NULL;
     task->state = TASK_RUNNING;
     task->time_slice = SCHED_TIME_SLICE;
 
+    spin_lock_irqsave(&runqueue_lock, flags);
+
     if (!runqueue) {
         runqueue = task;
+        spin_unlock_irqrestore(&runqueue_lock, flags);
         return;
     }
 
@@ -66,24 +72,31 @@ void enqueue_task(struct task_struct *task)
         walk = walk->next;
 
     walk->next = task;
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 }
 
 void dequeue_task(struct task_struct *task)
 {
     struct task_struct **prev;
+    unsigned long flags;
 
     if (!task)
         return;
+
+    spin_lock_irqsave(&runqueue_lock, flags);
 
     prev = &runqueue;
     while (*prev) {
         if (*prev == task) {
             *prev = task->next;
             task->next = NULL;
+            spin_unlock_irqrestore(&runqueue_lock, flags);
             return;
         }
         prev = &(*prev)->next;
     }
+
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 }
 
 struct task_struct *pick_next_task(struct task_struct *prev)
@@ -169,8 +182,11 @@ void schedule(void)
 {
     struct task_struct *prev = current;
     struct task_struct *next;
+    unsigned long flags;
 
+    spin_lock_irqsave(&runqueue_lock, flags);
     next = pick_next_task(prev);
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 
     if (next == prev)
         return;

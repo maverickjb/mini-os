@@ -32,7 +32,7 @@ static void rest_init(void)
     }
 
     wake_up_process(init);
-    runqueue = init;
+    enqueue_task(init);
 
     uart_puts("Rest init: PID 1 created, boot thread -> idle\n");
 }

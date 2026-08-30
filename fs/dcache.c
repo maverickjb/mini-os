@@ -92,14 +92,17 @@ static void d_unlink(struct dentry *dentry)
 static void cwd_fix(struct dentry *old, struct dentry *neu)
 {
     struct task_struct *t;
+    unsigned long flags;
 
     if (current && current->cwd == old)
         current->cwd = neu;
 
+    spin_lock_irqsave(&runqueue_lock, flags);
     for (t = runqueue; t; t = t->next) {
         if (t->cwd == old)
             t->cwd = neu;
     }
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 }
 
 void d_drop(struct dentry *dentry)

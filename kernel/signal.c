@@ -28,19 +28,25 @@ struct task_struct *find_task_by_pid(pid_t pid)
 {
     struct task_struct *walk;
     struct task_struct *start;
+    struct task_struct *found = NULL;
+    unsigned long flags;
 
     if (!runqueue || pid <= 0)
         return NULL;
 
+    spin_lock_irqsave(&runqueue_lock, flags);
     walk = start = runqueue;
     do {
         if (walk->pid == pid && walk->is_user &&
-            walk->state != TASK_DEAD)
-            return walk;
+            walk->state != TASK_DEAD) {
+            found = walk;
+            break;
+        }
         walk = walk->next ? walk->next : runqueue;
     } while (walk != start);
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 
-    return NULL;
+    return found;
 }
 
 static int signal_valid(int sig)
@@ -106,10 +112,12 @@ static int signal_process_group(pid_t pgid, int sig)
 {
     struct task_struct *task;
     int found = 0;
+    unsigned long flags;
 
     if (pgid <= 0)
         return -ESRCH;
 
+    spin_lock_irqsave(&runqueue_lock, flags);
     for (task = runqueue; task; task = task->next) {
         if (!task->is_user ||
             task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
@@ -121,6 +129,7 @@ static int signal_process_group(pid_t pgid, int sig)
         if (sig != 0)
             signal_send(task, sig);
     }
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 
     return found ? 0 : -ESRCH;
 }
@@ -357,7 +366,9 @@ long ksys_kill(long pid, int sig)
     {
         struct task_struct *task;
         int found = 0;
+        unsigned long flags;
 
+        spin_lock_irqsave(&runqueue_lock, flags);
         for (task = runqueue; task; task = task->next) {
             if (!task->is_user || task == current ||
                 task->state == TASK_DEAD)
@@ -366,6 +377,7 @@ long ksys_kill(long pid, int sig)
             if (sig != 0)
                 signal_send(task, sig);
         }
+        spin_unlock_irqrestore(&runqueue_lock, flags);
         return found ? 0 : -ESRCH;
     }
 }

@@ -137,9 +137,15 @@ long ksys_sysinfo(void *info)
     si.totalram = PHYS_MEM_SIZE / 4096UL;
     si.freeram = si.totalram / 2UL;
 
-    for (walk = runqueue; walk; walk = walk->next) {
-        if (walk->pid > 0 && walk->state != TASK_DEAD)
-            procs++;
+    {
+        unsigned long flags;
+
+        spin_lock_irqsave(&runqueue_lock, flags);
+        for (walk = runqueue; walk; walk = walk->next) {
+            if (walk->pid > 0 && walk->state != TASK_DEAD)
+                procs++;
+        }
+        spin_unlock_irqrestore(&runqueue_lock, flags);
     }
     si.procs = procs;
 

@@ -1,5 +1,6 @@
 #include <linux/pid.h>
 #include <linux/sched/task.h>
+#include <linux/sched.h>
 #include <linux/signal.h>
 #include <linux/errno.h>
 
@@ -22,20 +23,26 @@ static int pgid_exists(pid_t pgid)
 {
     struct task_struct *walk;
     struct task_struct *start;
+    int exists = 0;
+    unsigned long flags;
 
     if (!runqueue || pgid <= 0)
         return 0;
 
+    spin_lock_irqsave(&runqueue_lock, flags);
     walk = start = runqueue;
     do {
         if (walk->is_user &&
             walk->state != TASK_ZOMBIE && walk->state != TASK_DEAD &&
-            walk->pgid == pgid)
-            return 1;
+            walk->pgid == pgid) {
+            exists = 1;
+            break;
+        }
         walk = walk->next ? walk->next : runqueue;
     } while (walk != start);
+    spin_unlock_irqrestore(&runqueue_lock, flags);
 
-    return 0;
+    return exists;
 }
 
 long ksys_setpgid(pid_t pid, pid_t pgid)
