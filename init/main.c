@@ -17,6 +17,7 @@
 #include <linux/binfmts.h>
 #include <linux/proc_fs.h>
 #include <linux/devnull.h>
+#include "test.h"
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];
@@ -84,6 +85,7 @@ void start_kernel(void)
         devnull_init();
 
         sched_init();
+        run_kernel_tests();
         rest_init();
 
         for (unsigned int i = 0; i < NR_CPUS; i++) {

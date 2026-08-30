@@ -8,7 +8,7 @@ OBJCOPY := $(CROSS)objcopy
 
 CFLAGS  := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
            -Wall -Wextra -O0 -g -fno-pie -fno-PIE \
-           -I. -I include -I fs -I mm -I kernel
+           -I. -I include -I fs -I mm -I kernel -I tests/kernel
 ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
            -Wl,--entry=0x40000000
@@ -25,7 +25,10 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            fs/dcache.c fs/procfs.c fs/dev.c fs/devnull.c fs/devtty.c \
            fs/devconsole.c \
            mm/mmap.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
-           lib/vsnprintf.c \
+           lib/vsnprintf.c lib/rbtree.c \
+           tests/kernel/test_main.c tests/kernel/list_test.c \
+           tests/kernel/rbtree_test.c tests/kernel/spinlock_test.c \
+           tests/kernel/waitqueue_test.c tests/kernel/scheduler_test.c \
            fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)

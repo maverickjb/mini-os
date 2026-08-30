@@ -2,6 +2,7 @@
 #define _LINUX_WAIT_H
 
 #include <linux/spinlock.h>
+#include <linux/stddef.h>
 
 struct task_struct;
 
