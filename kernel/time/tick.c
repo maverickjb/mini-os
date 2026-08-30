@@ -98,16 +98,6 @@ void handle_arch_tick(struct pt_regs *regs)
     /* Pick up RX if the PL011 IRQ was missed (FIFO watermark / GIC). */
     serial_irq();
 
-    if ((jiffies % HZ) == 0) {
-        unsigned long sec = jiffies / HZ;
-
-        uart_puts("[tick ");
-        if (sec >= 10)
-            uart_putc('0' + (char)((sec / 10) % 10));
-        uart_putc('0' + (char)(sec % 10));
-        uart_puts("s]\n");
-    }
-
     if (current && current->pid != 0 && current->state == TASK_RUNNING) {
         current->time_slice--;
         if (current->time_slice <= 0) {
