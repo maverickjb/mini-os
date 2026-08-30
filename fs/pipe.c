@@ -11,14 +11,10 @@
 #include <linux/gfp.h>
 #include <linux/stddef.h>
 #include <linux/signal.h>
+#include <linux/wait.h>
 #include <asm/irqflags.h>
 
 #define PIPE_SIZE 1024
-
-struct wait_node {
-    struct task_struct *task;
-    struct wait_node *next;
-};
 
 struct pipe {
     unsigned int head;
@@ -26,72 +22,18 @@ struct pipe {
     unsigned int len;
     int readers;
     int writers;
-    struct wait_node *read_wait;
-    struct wait_node *write_wait;
+    struct wait_queue_head read_wait;
+    struct wait_queue_head write_wait;
     char buf[PIPE_SIZE];
 };
 
-static void add_wait_queue(struct wait_node **queue, struct task_struct *task)
+static void pipe_wait(struct wait_queue_head *wq)
 {
-    struct wait_node *node;
+    DECLARE_WAITQUEUE(wait, current);
 
-    node = alloc_pages(0);
-    if (!node)
-        return;
-
-    node->task = task;
-    node->next = *queue;
-    *queue = node;
-}
-
-static void remove_wait_queue(struct wait_node **queue, struct task_struct *task)
-{
-    struct wait_node **prev = queue;
-    struct wait_node *node;
-
-    while (*prev) {
-        if ((*prev)->task == task) {
-            node = *prev;
-            *prev = node->next;
-            free_pages(node, 0);
-            return;
-        }
-        prev = &(*prev)->next;
-    }
-}
-
-static void wake_wait_queue(struct wait_node **queue)
-{
-    struct wait_node *node;
-
-    while (*queue) {
-        node = *queue;
-        *queue = node->next;
-        wake_up_process(node->task);
-        free_pages(node, 0);
-    }
-}
-
-static void pipe_sleep(struct wait_node **queue)
-{
-    struct task_struct *task = current;
-
-    if (!task)
-        return;
-
-    local_irq_disable();
-    add_wait_queue(queue, task);
-    task->state = TASK_SLEEPING;
-    local_irq_enable();
-
+    prepare_to_wait(wq, &wait);
     schedule();
-
-    local_irq_disable();
-    remove_wait_queue(queue, task);
-    local_irq_enable();
-
-    task->state = TASK_RUNNING;
-    task->time_slice = SCHED_TIME_SLICE;
+    finish_wait(wq, &wait);
 }
 
 static long pipe_read(struct file *file, char *buf, unsigned long count,
@@ -121,7 +63,7 @@ retry:
         }
 
         local_irq_enable();
-        pipe_sleep(&p->read_wait);
+        pipe_wait(&p->read_wait);
         if (signal_pending(current))
             return -EINTR;
         goto retry;
@@ -141,7 +83,7 @@ retry:
     p->len -= (unsigned int)n;
     local_irq_enable();
 
-    wake_wait_queue(&p->write_wait);
+    wake_up(&p->write_wait);
     return (long)n;
 }
 
@@ -172,7 +114,7 @@ retry:
         }
 
         local_irq_enable();
-        pipe_sleep(&p->write_wait);
+        pipe_wait(&p->write_wait);
         if (signal_pending(current))
             return -EINTR;
         goto retry;
@@ -192,7 +134,7 @@ retry:
     p->len += (unsigned int)n;
     local_irq_enable();
 
-    wake_wait_queue(&p->read_wait);
+    wake_up(&p->read_wait);
     return (long)n;
 }
 
@@ -214,10 +156,10 @@ static int pipe_release(struct file *file)
     }
 
     if (p->readers == 0)
-        wake_wait_queue(&p->write_wait);
+        wake_up(&p->write_wait);
 
     if (p->writers == 0)
-        wake_wait_queue(&p->read_wait);
+        wake_up(&p->read_wait);
 
     if (p->readers == 0 && p->writers == 0) {
         local_irq_enable();
@@ -267,8 +209,8 @@ long ksys_pipe2(int *fildes, int flags)
     p->len = 0;
     p->readers = 1;
     p->writers = 1;
-    p->read_wait = NULL;
-    p->write_wait = NULL;
+    init_waitqueue_head(&p->read_wait);
+    init_waitqueue_head(&p->write_wait);
 
     rfile = alloc_file();
     if (!rfile) {

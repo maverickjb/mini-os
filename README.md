@@ -20,6 +20,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
 | Initramfs + BusyBox | cpio rootfs; PID 1 is BusyBox `init` via `/init` → `busybox` |
 | Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
+| Synchronization | AArch64 spinlocks; wait queues for pipe/TTY sleep |
 
 Many Linux syscall numbers exist in `include/linux/unistd.h`. Only the ones wired in `kernel/sys.c` actually work.
 
@@ -78,17 +79,17 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 ## Layout
 
 ```text
-kernel/     boot, IRQ, scheduler, fork/exit, syscalls, signals, reboot, printk
+kernel/     boot, IRQ, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
 mm/         page allocator, mmap/brk, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
 drivers/    UART + console TTY
 lib/        kernel string helpers, vsnprintf
-include/    linux/ and asm/ headers (Linux-shaped, not Linux)
+include/    linux/, uapi/linux/, and asm/ headers (Linux-shaped, not Linux)
 initramfs/  BusyBox rootfs sources, musl test programs (hello)
 init/       kernel boot C entry (start_kernel)
 ```
 
-Headers live under `include/linux` and `include/asm` so files look like kernel code (`current`, `pt_regs`, `__NR_*`) without pulling in the real kernel.
+Headers live under `include/linux`, `include/uapi/linux`, and `include/asm` so files look like kernel code (`current`, `pt_regs`, `__NR_*`) without pulling in the real kernel. Userspace-facing constants such as `WNOHANG` live in `include/uapi/linux/wait.h`; kernel wait-queue types are in `include/linux/wait.h`.
 
 ## Main components
 
@@ -110,13 +111,25 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 ### Scheduling and tasks
 
 - `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, kernel `cpu_context`, user `pt_regs *`, files, cwd, signal mask.
-- `kernel/sched/core.c` — runqueue, round-robin `pick_next_task()`, `schedule()` → `switch_to`.
+- `kernel/sched/core.c` — runqueue protected by `runqueue_lock`, round-robin `pick_next_task()`, `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
+- `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`.
 - `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table.
 - `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`).
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
 
 States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
+
+### Synchronization
+
+- `include/linux/spinlock.h` — AArch64 ticketless spinlock via `LDAXR`/`STXR` acquire and `STLR` release; `spin_lock_irqsave` / `spin_unlock_irqrestore` pair with `local_irq_save` / `local_irq_restore` (`include/asm/irqflags.h`).
+- `runqueue_lock` in `kernel/sched/core.c` — protects the global runqueue and `schedule()`’s pick-next path; all runqueue walkers take this lock.
+- `include/linux/wait.h` + `kernel/sched/wait.c` — Linux-style wait queues for blocking I/O:
+  - `DECLARE_WAITQUEUE` on the stack, `prepare_to_wait` → `schedule` → `finish_wait`.
+  - `wake_up()` marks sleeping waiters runnable via `wake_up_process()`.
+  - Used by `fs/pipe.c` (read/write when the buffer is empty/full) and `drivers/tty/tty.c` (blocking read until UART input arrives).
+
+There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover the current SMP-safe paths.
 
 ### System calls
 
@@ -187,7 +200,7 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 - `fs/dcache.c` — dentries, path walk for `.` / `..`, `getcwd`.
 - `fs/namei.c` — path resolve, `mkdir`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
 - `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`).
-- `fs/pipe.c` — pipe buffers and wait queues (`-EINTR` if a signal is pending).
+- `fs/pipe.c` — pipe buffers and wait queues (`prepare_to_wait` / `wake_up`; `-EINTR` if a signal is pending).
 - `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table, `fcntl`, `lseek` via `f_op->llseek`.
 - `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps`.
 - `fs/dev.c`, `fs/devnull.c`, `fs/devtty.c`, `fs/devconsole.c` — special `/dev/*` path hooks (not real char devices).
@@ -200,7 +213,7 @@ There is no block layer, no ext4, no mount table beyond “everything is ramfs (
 - `drivers/tty/serial.c` — PL011 UART; `uart_putc` / `uart_puts` / `uart_write` and user `write` to stdout.
 - `kernel/printk.c` — `printk()` and Linux-style `pr_info` / `pr_err` / … macros (`include/linux/printk.h`); output goes to UART with `KERN_*` level prefixes.
 - `lib/vsnprintf.c` — minimal formatter (`%d`, `%u`, `%x`, `%lx`, `%p`, `%s`, `%c`, `%%`) used by `printk`.
-- `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), winsize stub.
+- `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), blocking read on a wait queue, winsize stub.
 - `kernel/smp.c` — start secondary CPUs. They print a hello and idle. User tasks currently run on CPU0’s scheduling path.
 
 PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
@@ -231,7 +244,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk, no user SMP load balancing, no locking beyond “IRQs off.” No PIE loader, no `ld.so`. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
+No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk, no user SMP load balancing. No mutexes or reader/writer locks yet. No PIE loader, no `ld.so`. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 
@@ -239,7 +252,7 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 
 1. `kernel/head.S` → `init/main.c`
 2. `kernel/entry.S` → `kernel/sys.c`
-3. `kernel/sched/core.c` → `kernel/fork.c` → `kernel/exit.c`
+3. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `kernel/fork.c` → `kernel/exit.c`
 4. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
 5. `fs/binfmt.c` → `fs/exec.c`
 6. `fs/procfs.c` → `fs/dev.c`

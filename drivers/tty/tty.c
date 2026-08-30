@@ -12,6 +12,7 @@
 #include <linux/stddef.h>
 #include <linux/irq.h>
 #include <linux/uaccess.h>
+#include <linux/wait.h>
 #include <asm/irqflags.h>
 
 struct tty tty0;
@@ -88,8 +89,7 @@ static void tty_default_termios(struct user_termios *t)
 
 static void tty_wake_reader(void)
 {
-    if (tty0.read_wait)
-        wake_up_process(tty0.read_wait);
+    wake_up(&tty0.read_wait);
 }
 
 void tty_receive_char(char c)
@@ -127,42 +127,68 @@ long tty_read(char *buf, unsigned long count)
 {
     unsigned long n;
     unsigned long i;
+    struct wait_queue_entry wait;
 
     if (!buf)
         return -EFAULT;
-    if (!count)
+
+    if (count == 0)
         return 0;
 
-retry:
-    local_irq_disable();
+    wait.task = current;
+    wait.next = NULL;
 
-    if (input_not_ready()) {
+    for (;;) {
+        /*
+         * Check whether data is already available.
+         *
+         * IRQs are disabled so the condition and the transition
+         * to the sleeping state cannot be interrupted by the
+         * timer/UART IRQ on this UP kernel.
+         */
+        local_irq_disable();
+
+        if (!input_not_ready())
+            break;
+
         if (signal_pending(current)) {
             local_irq_enable();
             return -EINTR;
         }
 
-        /* Atomically prepare to sleep. */
-        tty0.read_wait = current;
-        current->state = TASK_SLEEPING;
+        /*
+         * Put ourselves on the wait queue and mark ourselves
+         * sleeping before enabling interrupts.
+         */
+        prepare_to_wait(&tty0.read_wait, &wait);
 
         local_irq_enable();
+
+        /*
+         * The UART interrupt may wake us here.
+         */
         schedule();
 
+        /*
+         * We are running again. Remove ourselves from the
+         * wait queue before checking the condition again.
+         */
         local_irq_disable();
-
-        tty0.read_wait = NULL;
-        current->state = TASK_RUNNING;
-        current->time_slice = SCHED_TIME_SLICE;
-
+        finish_wait(&tty0.read_wait, &wait);
         local_irq_enable();
 
-        if (signal_pending(current))
-            return -EINTR;
-
-        goto retry;
+        /*
+         * Wakeup does not necessarily mean data is available.
+         * It may have been a spurious wakeup or another waiter
+         * may have consumed the data.
+         *
+         * Therefore go around and check again.
+         */
     }
 
+    /*
+     * We reach here with IRQs disabled and input available.
+     */
     if (tty0.canonical)
         n = tty_rx_line_length();
     else
@@ -177,6 +203,7 @@ retry:
     }
 
     local_irq_enable();
+
     return (long)n;
 }
 
@@ -359,7 +386,7 @@ void tty_init(void)
     tty0.rx_tail = 0;
     tty0.session_id = 0;
     tty0.foreground_pgid = 0;
-    tty0.read_wait = NULL;
+    init_waitqueue_head(&tty0.read_wait);
 
     tty_default_termios(&tty0.termios);
     tty_apply_termios(&tty0.termios);

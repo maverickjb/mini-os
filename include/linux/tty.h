@@ -2,10 +2,10 @@
 #define _LINUX_TTY_H
 
 #include <linux/types.h>
+#include <linux/wait.h>
 
 struct file;
 struct serial_device;
-struct task_struct;
 
 #define TTY_RX_SIZE	256
 
@@ -86,7 +86,7 @@ struct tty {
 
     struct user_termios termios;
 
-    struct task_struct *read_wait;
+    struct wait_queue_head read_wait;
 };
 
 extern struct tty tty0;
