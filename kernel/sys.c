@@ -138,14 +138,15 @@ long ksys_sysinfo(void *info)
     si.freeram = si.totalram / 2UL;
 
     {
+        struct list_head *pos;
         unsigned long flags;
 
-        spin_lock_irqsave(&runqueue_lock, flags);
-        for (walk = runqueue; walk; walk = walk->next) {
+        spin_lock_irqsave(&cpu_rq.lock, flags);
+        for_each_task(pos, walk) {
             if (walk->pid > 0 && walk->state != TASK_DEAD)
                 procs++;
         }
-        spin_unlock_irqrestore(&runqueue_lock, flags);
+        spin_unlock_irqrestore(&cpu_rq.lock, flags);
     }
     si.procs = procs;
 

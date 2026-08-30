@@ -77,17 +77,18 @@ unsigned long get_jiffies(void)
 
 void tick_wake_sleepers(void)
 {
+    struct list_head *pos;
     struct task_struct *task;
     unsigned long flags;
 
-    spin_lock_irqsave(&runqueue_lock, flags);
-    for (task = runqueue; task; task = task->next) {
+    spin_lock_irqsave(&cpu_rq.lock, flags);
+    for_each_task(pos, task) {
         if (task->state != TASK_SLEEPING || !task->wake_jiffies)
             continue;
         if (jiffies >= task->wake_jiffies)
             wake_up_process(task);
     }
-    spin_unlock_irqrestore(&runqueue_lock, flags);
+    spin_unlock_irqrestore(&cpu_rq.lock, flags);
 }
 
 void handle_arch_tick(struct pt_regs *regs)

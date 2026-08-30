@@ -62,6 +62,7 @@ void proc_iput(struct inode *inode)
 
 static struct task_struct *proc_find_task(pid_t pid)
 {
+    struct list_head *pos;
     struct task_struct *walk;
     struct task_struct *found = NULL;
     unsigned long flags;
@@ -69,8 +70,8 @@ static struct task_struct *proc_find_task(pid_t pid)
     if (pid <= 0)
         return NULL;
 
-    spin_lock_irqsave(&runqueue_lock, flags);
-    for (walk = runqueue; walk; walk = walk->next) {
+    spin_lock_irqsave(&cpu_rq.lock, flags);
+    for_each_task(pos, walk) {
         if (walk->pid != pid)
             continue;
         if (walk->state == TASK_DEAD)
@@ -80,7 +81,7 @@ static struct task_struct *proc_find_task(pid_t pid)
         found = walk;
         break;
     }
-    spin_unlock_irqrestore(&runqueue_lock, flags);
+    spin_unlock_irqrestore(&cpu_rq.lock, flags);
     return found;
 }
 
@@ -374,9 +375,10 @@ static int emit_dirent(void *dirp, unsigned long count, unsigned long *written,
 
 static long proc_root_readdir(struct file *file, void *dirp, unsigned long count)
 {
+    struct list_head *pos;
     struct task_struct *walk;
     long index;
-    long pos;
+    long pos_num;
     unsigned long written;
     unsigned long flags;
     int ret;
@@ -388,10 +390,10 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
 
     index = file->f_pos;
     written = 0;
-    pos = 0;
+    pos_num = 0;
 
-    spin_lock_irqsave(&runqueue_lock, flags);
-    for (walk = runqueue; walk; walk = walk->next) {
+    spin_lock_irqsave(&cpu_rq.lock, flags);
+    for_each_task(pos, walk) {
         char name[16];
         unsigned long v;
         int n = 0;
@@ -403,8 +405,8 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
         if (!walk->is_user)
             continue;
 
-        if (pos < index) {
-            pos++;
+        if (pos_num < index) {
+            pos_num++;
             continue;
         }
 
@@ -424,8 +426,8 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
         }
         name[n] = '\0';
 
-        spin_unlock_irqrestore(&runqueue_lock, flags);
-        ret = emit_dirent(dirp, count, &written, &pos,
+        spin_unlock_irqrestore(&cpu_rq.lock, flags);
+        ret = emit_dirent(dirp, count, &written, &pos_num,
                           0x10000UL + (unsigned long)walk->pid * 4UL,
                           DT_DIR, name);
         if (ret < 0)
@@ -433,10 +435,10 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
         if (ret > 0)
             break;
 
-        file->f_pos = pos;
-        spin_lock_irqsave(&runqueue_lock, flags);
+        file->f_pos = pos_num;
+        spin_lock_irqsave(&cpu_rq.lock, flags);
     }
-    spin_unlock_irqrestore(&runqueue_lock, flags);
+    spin_unlock_irqrestore(&cpu_rq.lock, flags);
 
     return (long)written;
 }

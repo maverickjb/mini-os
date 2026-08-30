@@ -5,6 +5,7 @@
 #include <linux/mm_types.h>
 #include <linux/fs.h>
 #include <linux/spinlock.h>
+#include <linux/list.h>
 #include <asm/ptrace.h>
 #include <asm/signal.h>
 
@@ -45,6 +46,13 @@ struct cpu_context {
     unsigned long sp;
 };
 
+struct rq {
+    spinlock_t lock;
+    struct list_head tasks;
+    struct task_struct *curr;
+    unsigned int nr_running;
+};
+
 struct task_struct {
     pid_t pid;
     pid_t tgid; /* thread-group id; same as pid until CLONE_THREAD */
@@ -56,7 +64,7 @@ struct task_struct {
     struct mm_struct *mm;
     struct file *files[NR_OPEN];
     unsigned long close_on_exec; /* bit i => FD_CLOEXEC on files[i] */
-    struct task_struct *next;
+    struct list_head run_list;
     struct task_struct *parent;
     int time_slice;
     int is_user;
@@ -94,10 +102,10 @@ struct task_struct {
 };
 
 extern struct task_struct idle_tasks[];
-extern struct task_struct *runqueue;
-extern spinlock_t runqueue_lock;
+extern struct rq cpu_rq;
 extern struct task_struct *cpu_current_export;
 
+void rq_init(struct rq *rq);
 void sched_init(void);
 void sched_init_idle(unsigned int cpu);
 void cpu_idle(void);
@@ -105,5 +113,9 @@ void schedule(void);
 void enqueue_task(struct task_struct *task);
 void dequeue_task(struct task_struct *task);
 struct task_struct *pick_next_task(struct task_struct *prev);
+
+#define for_each_task(pos, task)                                        \
+    list_for_each(pos, &cpu_rq.tasks)                                   \
+        if ((task = list_entry(pos, struct task_struct, run_list)), 1)
 
 #endif

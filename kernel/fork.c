@@ -3,6 +3,8 @@
  */
 
 #include <linux/sched/task.h>
+#include <linux/sched.h>
+#include <linux/list.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
 #include <linux/uaccess.h>
@@ -72,7 +74,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->thread_arg = NULL;
     tsk->stack = NULL;
     tsk->mm = NULL;
-    tsk->next = NULL;
+    INIT_LIST_HEAD(&tsk->run_list);
     tsk->parent = NULL;
     tsk->time_slice = 0;
     tsk->is_user = 0;

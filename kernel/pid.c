@@ -21,26 +21,24 @@ long ksys_getpgrp(void)
 
 static int pgid_exists(pid_t pgid)
 {
+    struct list_head *pos;
     struct task_struct *walk;
-    struct task_struct *start;
     int exists = 0;
     unsigned long flags;
 
-    if (!runqueue || pgid <= 0)
+    if (list_empty(&cpu_rq.tasks) || pgid <= 0)
         return 0;
 
-    spin_lock_irqsave(&runqueue_lock, flags);
-    walk = start = runqueue;
-    do {
+    spin_lock_irqsave(&cpu_rq.lock, flags);
+    for_each_task(pos, walk) {
         if (walk->is_user &&
             walk->state != TASK_ZOMBIE && walk->state != TASK_DEAD &&
             walk->pgid == pgid) {
             exists = 1;
             break;
         }
-        walk = walk->next ? walk->next : runqueue;
-    } while (walk != start);
-    spin_unlock_irqrestore(&runqueue_lock, flags);
+    }
+    spin_unlock_irqrestore(&cpu_rq.lock, flags);
 
     return exists;
 }

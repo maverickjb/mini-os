@@ -26,26 +26,23 @@
 
 struct task_struct *find_task_by_pid(pid_t pid)
 {
+    struct list_head *pos;
     struct task_struct *walk;
-    struct task_struct *start;
     struct task_struct *found = NULL;
     unsigned long flags;
 
-    if (!runqueue || pid <= 0)
+    if (pid <= 0)
         return NULL;
 
-    spin_lock_irqsave(&runqueue_lock, flags);
-    walk = start = runqueue;
-    do {
+    spin_lock_irqsave(&cpu_rq.lock, flags);
+    for_each_task(pos, walk) {
         if (walk->pid == pid && walk->is_user &&
             walk->state != TASK_DEAD) {
             found = walk;
             break;
         }
-        walk = walk->next ? walk->next : runqueue;
-    } while (walk != start);
-    spin_unlock_irqrestore(&runqueue_lock, flags);
-
+    }
+    spin_unlock_irqrestore(&cpu_rq.lock, flags);
     return found;
 }
 
@@ -110,6 +107,7 @@ static int signal_one_process(pid_t pid, int sig)
 
 static int signal_process_group(pid_t pgid, int sig)
 {
+    struct list_head *pos;
     struct task_struct *task;
     int found = 0;
     unsigned long flags;
@@ -117,8 +115,8 @@ static int signal_process_group(pid_t pgid, int sig)
     if (pgid <= 0)
         return -ESRCH;
 
-    spin_lock_irqsave(&runqueue_lock, flags);
-    for (task = runqueue; task; task = task->next) {
+    spin_lock_irqsave(&cpu_rq.lock, flags);
+    for_each_task(pos, task) {
         if (!task->is_user ||
             task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
             continue;
@@ -129,7 +127,7 @@ static int signal_process_group(pid_t pgid, int sig)
         if (sig != 0)
             signal_send(task, sig);
     }
-    spin_unlock_irqrestore(&runqueue_lock, flags);
+    spin_unlock_irqrestore(&cpu_rq.lock, flags);
 
     return found ? 0 : -ESRCH;
 }
@@ -364,12 +362,13 @@ long ksys_kill(long pid, int sig)
 
     /* pid == -1: all user processes except the caller. */
     {
+        struct list_head *pos;
         struct task_struct *task;
         int found = 0;
         unsigned long flags;
 
-        spin_lock_irqsave(&runqueue_lock, flags);
-        for (task = runqueue; task; task = task->next) {
+        spin_lock_irqsave(&cpu_rq.lock, flags);
+        for_each_task(pos, task) {
             if (!task->is_user || task == current ||
                 task->state == TASK_DEAD)
                 continue;
@@ -377,7 +376,7 @@ long ksys_kill(long pid, int sig)
             if (sig != 0)
                 signal_send(task, sig);
         }
-        spin_unlock_irqrestore(&runqueue_lock, flags);
+        spin_unlock_irqrestore(&cpu_rq.lock, flags);
         return found ? 0 : -ESRCH;
     }
 }
