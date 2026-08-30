@@ -9,7 +9,7 @@
 #include <linux/errno.h>
 #include <linux/uaccess.h>
 #include <linux/signal.h>
-#include <linux/wait.h>
+#include <uapi/linux/wait.h>
 #include <asm/irqflags.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
