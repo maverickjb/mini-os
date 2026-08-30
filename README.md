@@ -20,7 +20,9 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
 | Initramfs + BusyBox | cpio rootfs; PID 1 is BusyBox `init` via `/init` → `busybox` |
 | Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
-| Synchronization | AArch64 spinlocks; wait queues for pipe/TTY sleep |
+| Synchronization | AArch64 spinlocks; wait queues; `wait_event` helpers |
+| Kernel data structures | Doubly-linked lists, red-black tree (`list.h`, `rbtree`) |
+| Kernel tests | TAP suite at boot (`tests/kernel/`) |
 
 Many Linux syscall numbers exist in `include/linux/unistd.h`. Only the ones wired in `kernel/sys.c` actually work.
 
@@ -49,7 +51,21 @@ QEMU is started as:
 qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic -kernel mini-os.elf
 ```
 
-Boot CPU0 brings up three secondary CPUs, unpacks the initramfs, creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts.
+Boot CPU0 brings up three secondary CPUs, unpacks the initramfs, runs the **kernel test suite** (TAP output on UART), creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts.
+
+Early boot prints TAP results like:
+
+```text
+TAP version 13
+1..5
+ok 1 - list
+ok 2 - rbtree
+ok 3 - spinlock
+ok 4 - waitqueue
+ok 5 - scheduler
+passed: 5
+failed: 0
+```
 
 You should see a `~ #` prompt. Try `ls`, `ps`, `cat /etc/inittab`, `halt`, or `poweroff`. Use `reboot -f` to restart (BusyBox calls `reboot(2)` directly; plain `reboot` notifies init via signal).
 
@@ -83,8 +99,9 @@ kernel/     boot, IRQ, scheduler, wait queues, fork/exit, syscalls, signals, reb
 mm/         page allocator, mmap/brk, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
 drivers/    UART + console TTY
-lib/        kernel string helpers, vsnprintf
+lib/        string helpers, vsnprintf, red-black tree
 include/    linux/, uapi/linux/, and asm/ headers (Linux-shaped, not Linux)
+tests/      in-kernel unit tests (TAP on UART)
 initramfs/  BusyBox rootfs sources, musl test programs (hello)
 init/       kernel boot C entry (start_kernel)
 ```
@@ -97,7 +114,7 @@ Headers live under `include/linux`, `include/uapi/linux`, and `include/asm` so f
 
 - `kernel/head.S` — EL1 entry, early stack, MMU (identity + high half at `0xffff800080000000`), jump to C. QEMU loads the image at `0x40000000`.
 - `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
-- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, ramfs, unpack initramfs, procfs, scheduler, PID 1.
+- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, ramfs, unpack initramfs, procfs, scheduler, kernel tests, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
 
@@ -113,7 +130,7 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 - `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, kernel `cpu_context`, user `pt_regs *`, files, cwd, signal mask.
 - `kernel/sched/core.c` — runqueue protected by `runqueue_lock`, round-robin `pick_next_task()`, `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
-- `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`.
+- `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
 - `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table.
 - `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`).
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
@@ -126,8 +143,12 @@ States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, i
 - `runqueue_lock` in `kernel/sched/core.c` — protects the global runqueue and `schedule()`’s pick-next path; all runqueue walkers take this lock.
 - `include/linux/wait.h` + `kernel/sched/wait.c` — Linux-style wait queues for blocking I/O:
   - `DECLARE_WAITQUEUE` on the stack, `prepare_to_wait` → `schedule` → `finish_wait`.
+  - `wait_event(wq, condition)` — sleep until a function-pointer condition is true.
+  - `wait_event_interruptible(wq, condition)` — same, but returns `-EINTR` if a signal is pending.
   - `wake_up()` marks sleeping waiters runnable via `wake_up_process()`.
-  - Used by `fs/pipe.c` (read/write when the buffer is empty/full) and `drivers/tty/tty.c` (blocking read until UART input arrives).
+  - Used by `fs/pipe.c` (read/write when the buffer is empty/full) and `drivers/tty/tty.c` (`wait_event_interruptible` on blocking read).
+- `include/linux/list.h` — doubly-linked `list_head` helpers (`list_add`, `list_del`, `list_for_each`).
+- `include/linux/rbtree.h` + `lib/rbtree.c` — minimal red-black tree (insert, erase, in-order walk).
 
 There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover the current SMP-safe paths.
 
@@ -213,7 +234,7 @@ There is no block layer, no ext4, no mount table beyond “everything is ramfs (
 - `drivers/tty/serial.c` — PL011 UART; `uart_putc` / `uart_puts` / `uart_write` and user `write` to stdout.
 - `kernel/printk.c` — `printk()` and Linux-style `pr_info` / `pr_err` / … macros (`include/linux/printk.h`); output goes to UART with `KERN_*` level prefixes.
 - `lib/vsnprintf.c` — minimal formatter (`%d`, `%u`, `%x`, `%lx`, `%p`, `%s`, `%c`, `%%`) used by `printk`.
-- `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), blocking read on a wait queue, winsize stub.
+- `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), blocking read via `wait_event_interruptible`, winsize stub.
 - `kernel/smp.c` — start secondary CPUs. They print a hello and idle. User tasks currently run on CPU0’s scheduling path.
 
 PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
@@ -231,6 +252,20 @@ Boot chain:
 **`/bin/hello`** is a separate musl program (`initramfs/src/hello.c`) used to regression-test syscalls. It is not part of normal boot.
 
 A glibc or dynamically linked userspace will not run. Programs must be static AArch64 `ET_EXEC` ELFs.
+
+### Kernel tests
+
+In-kernel unit tests run on CPU0 after `sched_init()` and before PID 1 starts (`run_kernel_tests()` in `init/main.c`). Output is [TAP](https://testanything.org/) on the UART.
+
+- `tests/kernel/test.h` — `EXPECT_EQ`, `EXPECT_TRUE` (return `-1` from the test on failure).
+- `tests/kernel/test_main.c` — test registry and TAP runner.
+- `tests/kernel/list_test.c` — `list_head` add/delete/iterate.
+- `tests/kernel/rbtree_test.c` — insert, search, in-order walk, erase.
+- `tests/kernel/spinlock_test.c` — lock/unlock, `spin_is_locked`.
+- `tests/kernel/waitqueue_test.c` — add/remove queue, `wait_event`, `wake_up`.
+- `tests/kernel/scheduler_test.c` — `enqueue_task`, `pick_next_task`, `dequeue_task`.
+
+Tests are always linked into `mini-os.elf` (see `Makefile` `SRCS`). To add a test, implement `int test_foo(void)` returning `0` on success, register it in `tests/kernel/test_main.c`, and add the `.c` file to `SRCS`.
 
 ## How a syscall looks
 
@@ -253,9 +288,11 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 1. `kernel/head.S` → `init/main.c`
 2. `kernel/entry.S` → `kernel/sys.c`
 3. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `kernel/fork.c` → `kernel/exit.c`
-4. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
-5. `fs/binfmt.c` → `fs/exec.c`
-6. `fs/procfs.c` → `fs/dev.c`
-7. `drivers/tty/tty.c` → `kernel/printk.c`
-8. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
-9. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
+4. `tests/kernel/test_main.c` and the individual `tests/kernel/*_test.c` files
+5. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
+6. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
+7. `fs/binfmt.c` → `fs/exec.c`
+8. `fs/procfs.c` → `fs/dev.c`
+9. `drivers/tty/tty.c` → `kernel/printk.c`
+10. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
+11. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
