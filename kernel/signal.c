@@ -34,7 +34,7 @@ struct task_struct *find_task_by_pid(pid_t pid)
     if (pid <= 0)
         return NULL;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, walk) {
         if (walk->pid == pid && walk->is_user &&
             walk->state != TASK_DEAD) {
@@ -42,7 +42,7 @@ struct task_struct *find_task_by_pid(pid_t pid)
             break;
         }
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
     return found;
 }
 
@@ -115,7 +115,7 @@ static int signal_process_group(pid_t pgid, int sig)
     if (pgid <= 0)
         return -ESRCH;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, task) {
         if (!task->is_user ||
             task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
@@ -127,7 +127,7 @@ static int signal_process_group(pid_t pgid, int sig)
         if (sig != 0)
             signal_send(task, sig);
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
 
     return found ? 0 : -ESRCH;
 }
@@ -237,8 +237,7 @@ static int setup_signal_frame(struct pt_regs *regs, int sig,
 }
 
 /*
- * Park current in TASK_STOPPED until SIGCONT or SIGKILL. The task stays
- * on the runqueue so waitpid can still see it; pick_next_task skips it.
+ * Park current in TASK_STOPPED until SIGCONT or SIGKILL.
  */
 static void do_signal_stop(int sig)
 {
@@ -246,14 +245,15 @@ static void do_signal_stop(int sig)
 
     task->stop_signal = sig;
     task->wait_event = CHILD_EVENT_STOPPED;
-    task->state = TASK_STOPPED;
     notify_parent_stop(task);
+    sched_block(TASK_STOPPED);
     local_irq_enable();
     schedule();
     local_irq_disable();
-    if (task->state != TASK_RUNNING)
+    if (!list_is_linked(&task->run_list))
+        enqueue_task(task);
+    else
         task->state = TASK_RUNNING;
-    task->time_slice = SCHED_TIME_SLICE;
 }
 
 static void handle_signal(struct pt_regs *regs, int sig,
@@ -367,7 +367,7 @@ long ksys_kill(long pid, int sig)
         int found = 0;
         unsigned long flags;
 
-        spin_lock_irqsave(&cpu_rq.lock, flags);
+        task_list_lock_irqsave(&flags);
         for_each_task(pos, task) {
             if (!task->is_user || task == current ||
                 task->state == TASK_DEAD)
@@ -376,7 +376,7 @@ long ksys_kill(long pid, int sig)
             if (sig != 0)
                 signal_send(task, sig);
         }
-        spin_unlock_irqrestore(&cpu_rq.lock, flags);
+        task_list_unlock_irqrestore(flags);
         return found ? 0 : -ESRCH;
     }
 }
@@ -538,12 +538,12 @@ long ksys_rt_sigsuspend(const sigset_t *unewset, unsigned long sigsetsize)
     task->blocked = newset.sig[0] & ~SIG_UNBLOCKABLE;
 
     while (!signal_pending(task)) {
-        task->state = TASK_SLEEPING;
+        sched_block(TASK_SLEEPING);
         local_irq_enable();
         schedule();
         local_irq_disable();
-        task->state = TASK_RUNNING;
-        task->time_slice = SCHED_TIME_SLICE;
+        if (!list_is_linked(&task->run_list))
+            enqueue_task(task);
     }
 
     return -EINTR;

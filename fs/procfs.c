@@ -70,7 +70,7 @@ static struct task_struct *proc_find_task(pid_t pid)
     if (pid <= 0)
         return NULL;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, walk) {
         if (walk->pid != pid)
             continue;
@@ -81,7 +81,7 @@ static struct task_struct *proc_find_task(pid_t pid)
         found = walk;
         break;
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
     return found;
 }
 
@@ -392,7 +392,7 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
     written = 0;
     pos_num = 0;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, walk) {
         char name[16];
         unsigned long v;
@@ -426,7 +426,7 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
         }
         name[n] = '\0';
 
-        spin_unlock_irqrestore(&cpu_rq.lock, flags);
+        task_list_unlock_irqrestore(flags);
         ret = emit_dirent(dirp, count, &written, &pos_num,
                           0x10000UL + (unsigned long)walk->pid * 4UL,
                           DT_DIR, name);
@@ -436,9 +436,9 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
             break;
 
         file->f_pos = pos_num;
-        spin_lock_irqsave(&cpu_rq.lock, flags);
+        task_list_lock_irqsave(&flags);
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
 
     return (long)written;
 }

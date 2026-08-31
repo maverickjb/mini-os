@@ -141,12 +141,12 @@ long ksys_sysinfo(void *info)
         struct list_head *pos;
         unsigned long flags;
 
-        spin_lock_irqsave(&cpu_rq.lock, flags);
+        task_list_lock_irqsave(&flags);
         for_each_task(pos, walk) {
             if (walk->pid > 0 && walk->state != TASK_DEAD)
                 procs++;
         }
-        spin_unlock_irqrestore(&cpu_rq.lock, flags);
+        task_list_unlock_irqrestore(flags);
     }
     si.procs = procs;
 

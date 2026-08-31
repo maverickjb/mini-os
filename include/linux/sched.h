@@ -65,6 +65,7 @@ struct task_struct {
     struct file *files[NR_OPEN];
     unsigned long close_on_exec; /* bit i => FD_CLOEXEC on files[i] */
     struct list_head run_list;
+    struct list_head task_list;
     struct task_struct *parent;
     int time_slice;
     int is_user;
@@ -106,6 +107,12 @@ extern struct rq cpu_rq;
 extern struct task_struct *cpu_current_export;
 
 void rq_init(struct rq *rq);
+void task_list_lock_irqsave(unsigned long *flags);
+void task_list_unlock_irqrestore(unsigned long flags);
+struct list_head *task_list_head(void);
+void task_attach(struct task_struct *task);
+void task_detach(struct task_struct *task);
+void sched_block(enum task_state state);
 void sched_init(void);
 void sched_init_idle(unsigned int cpu);
 void cpu_idle(void);
@@ -114,8 +121,9 @@ void enqueue_task(struct task_struct *task);
 void dequeue_task(struct task_struct *task);
 struct task_struct *pick_next_task(struct task_struct *prev);
 
+/* Caller must hold tasklist lock via task_list_lock_irqsave(). */
 #define for_each_task(pos, task)                                        \
-    list_for_each(pos, &cpu_rq.tasks)                                   \
-        if ((task = list_entry(pos, struct task_struct, run_list)), 1)
+    list_for_each(pos, task_list_head())                                \
+        if ((task = list_entry(pos, struct task_struct, task_list)), 1)
 
 #endif

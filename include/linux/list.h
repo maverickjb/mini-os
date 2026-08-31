@@ -47,13 +47,10 @@ static inline void __list_del(struct list_head *prev, struct list_head *next)
     prev->next = next;
 }
 
-static inline void list_del(struct list_head *entry)
-{
-    __list_del(entry->prev, entry->next);
-    entry->next = NULL;
-    entry->prev = NULL;
-}
-
+/*
+ * Always remove with list_del_init(); INIT_LIST_HEAD() before first insert.
+ * Detached nodes are self-referring (next == entry), never NULL.
+ */
 static inline void list_del_init(struct list_head *entry)
 {
     __list_del(entry->prev, entry->next);
@@ -63,6 +60,11 @@ static inline void list_del_init(struct list_head *entry)
 static inline int list_empty(const struct list_head *head)
 {
     return head->next == head;
+}
+
+static inline int list_is_linked(const struct list_head *entry)
+{
+    return entry->next != entry;
 }
 
 #define list_entry(ptr, type, member) \

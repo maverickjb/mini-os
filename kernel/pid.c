@@ -26,10 +26,10 @@ static int pgid_exists(pid_t pgid)
     int exists = 0;
     unsigned long flags;
 
-    if (list_empty(&cpu_rq.tasks) || pgid <= 0)
+    if (pgid <= 0)
         return 0;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, walk) {
         if (walk->is_user &&
             walk->state != TASK_ZOMBIE && walk->state != TASK_DEAD &&
@@ -38,7 +38,7 @@ static int pgid_exists(pid_t pgid)
             break;
         }
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
 
     return exists;
 }

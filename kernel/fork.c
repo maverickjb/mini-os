@@ -75,6 +75,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->stack = NULL;
     tsk->mm = NULL;
     INIT_LIST_HEAD(&tsk->run_list);
+    INIT_LIST_HEAD(&tsk->task_list);
     tsk->parent = NULL;
     tsk->time_slice = 0;
     tsk->is_user = 0;
@@ -232,13 +233,15 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     tsk->stack = stack;
 
     task_ctx_init(tsk, fn, arg);
+    task_attach(tsk);
     return tsk;
 }
 
 void wake_up_process(struct task_struct *task)
 {
-    task->state = TASK_RUNNING;
-    task->time_slice = SCHED_TIME_SLICE;
+    if (task->state == TASK_RUNNING && list_is_linked(&task->run_list))
+        return;
+    enqueue_task(task);
 }
 
 long ksys_fork(struct pt_regs *regs)
@@ -309,6 +312,7 @@ long ksys_fork(struct pt_regs *regs)
     }
     task_user_ctx_init(child);
 
+    task_attach(child);
     enqueue_task(child);
 
     regs->x0 = (unsigned long)child->pid;

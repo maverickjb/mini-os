@@ -98,12 +98,12 @@ static void cwd_fix(struct dentry *old, struct dentry *neu)
     if (current && current->cwd == old)
         current->cwd = neu;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, t) {
         if (t->cwd == old)
             t->cwd = neu;
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
 }
 
 void d_drop(struct dentry *dentry)

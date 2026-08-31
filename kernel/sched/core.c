@@ -26,6 +26,8 @@ struct task_struct idle_tasks[NR_CPUS] = {
 };
 
 static struct task_struct *cpu_current[NR_CPUS];
+static spinlock_t tasklist_lock = SPINLOCK_INIT;
+static struct list_head all_tasks = LIST_HEAD_INIT(all_tasks);
 struct rq cpu_rq = {
     .lock = SPINLOCK_INIT,
     .tasks = { &cpu_rq.tasks, &cpu_rq.tasks },
@@ -55,11 +57,6 @@ static struct task_struct *idle_task(void)
     return &idle_tasks[smp_processor_id()];
 }
 
-static int task_on_rq(struct list_head *list)
-{
-    return list->next != NULL && list->next != list;
-}
-
 void rq_init(struct rq *rq)
 {
     spin_lock_init(&rq->lock);
@@ -68,9 +65,52 @@ void rq_init(struct rq *rq)
     rq->nr_running = 0;
 }
 
+void task_list_lock_irqsave(unsigned long *flags)
+{
+    spin_lock_irqsave(&tasklist_lock, *flags);
+}
+
+void task_list_unlock_irqrestore(unsigned long flags)
+{
+    spin_unlock_irqrestore(&tasklist_lock, flags);
+}
+
+struct list_head *task_list_head(void)
+{
+    return &all_tasks;
+}
+
+void task_attach(struct task_struct *task)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&tasklist_lock, flags);
+    if (!list_is_linked(&task->task_list))
+        list_add_tail(&task->task_list, &all_tasks);
+    spin_unlock_irqrestore(&tasklist_lock, flags);
+}
+
+void task_detach(struct task_struct *task)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&tasklist_lock, flags);
+    if (list_is_linked(&task->task_list))
+        list_del_init(&task->task_list);
+    spin_unlock_irqrestore(&tasklist_lock, flags);
+}
+
+void sched_block(enum task_state state)
+{
+    struct task_struct *task = current;
+
+    task->state = state;
+    dequeue_task(task);
+}
+
 static void enqueue_task_locked(struct task_struct *task)
 {
-    if (task_on_rq(&task->run_list))
+    if (list_is_linked(&task->run_list))
         return;
 
     task->state = TASK_RUNNING;
@@ -90,7 +130,7 @@ void enqueue_task(struct task_struct *task)
 
 static void dequeue_task_locked(struct task_struct *task)
 {
-    if (!task || !task_on_rq(&task->run_list))
+    if (!task || !list_is_linked(&task->run_list))
         return;
 
     list_del_init(&task->run_list);
@@ -111,37 +151,19 @@ struct task_struct *pick_next_task(struct task_struct *prev)
 {
     struct list_head *head = &cpu_rq.tasks;
     struct list_head *pos;
-    struct list_head *start;
 
     if (list_empty(head))
         return idle_task();
 
-    if (prev && prev != idle_task() && task_on_rq(&prev->run_list))
-        start = prev->run_list.next;
+    if (prev && prev != idle_task() && list_is_linked(&prev->run_list))
+        pos = prev->run_list.next;
     else
-        start = head->next;
+        pos = head->next;
 
-    pos = start;
-    while (1) {
-        struct task_struct *task;
+    if (pos == head)
+        pos = head->next;
 
-        if (pos == head) {
-            pos = pos->next;
-            if (pos == start)
-                break;
-            continue;
-        }
-
-        task = list_entry(pos, struct task_struct, run_list);
-        if (task->state == TASK_RUNNING)
-            return task;
-
-        pos = pos->next;
-        if (pos == start)
-            break;
-    }
-
-    return idle_task();
+    return list_entry(pos, struct task_struct, run_list);
 }
 
 void sched_init(void)

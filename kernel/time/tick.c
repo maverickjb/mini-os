@@ -81,14 +81,14 @@ void tick_wake_sleepers(void)
     struct task_struct *task;
     unsigned long flags;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, task) {
         if (task->state != TASK_SLEEPING || !task->wake_jiffies)
             continue;
         if (jiffies >= task->wake_jiffies)
             wake_up_process(task);
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
 }
 
 void handle_arch_tick(struct pt_regs *regs)

@@ -61,13 +61,14 @@ long ksys_nanosleep(const struct timespec *req, struct timespec *rem)
     deadline = get_jiffies() + delta;
 
     task->wake_jiffies = deadline;
-    task->state = TASK_SLEEPING;
+    sched_block(TASK_SLEEPING);
     local_irq_enable();
     schedule();
     local_irq_disable();
 
     task->wake_jiffies = 0;
-    task->state = TASK_RUNNING;
+    if (!list_is_linked(&task->run_list))
+        enqueue_task(task);
 
     return 0;
 }

@@ -37,7 +37,7 @@ int test_list(void)
 
     EXPECT_EQ(sum, 6);
 
-    list_del(&b.list);
+    list_del_init(&b.list);
     EXPECT_TRUE(!list_empty(&head));
 
     sum = 0;

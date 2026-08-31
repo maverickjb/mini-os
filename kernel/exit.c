@@ -77,6 +77,7 @@ void do_exit(long code)
      * and breaks the next exec's maps.
      */
     task->state = TASK_ZOMBIE;
+    dequeue_task(task);
 
     notify_parent(task);
 
@@ -99,7 +100,7 @@ static struct task_struct *find_child(struct task_struct *parent, long pid,
     if (!parent)
         return NULL;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, child) {
         if (child->parent != parent)
             continue;
@@ -113,7 +114,7 @@ static struct task_struct *find_child(struct task_struct *parent, long pid,
         found = child;
         break;
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
 
     return found;
 }
@@ -124,6 +125,7 @@ static void free_task(struct task_struct *task)
         return;
 
     dequeue_task(task);
+    task_detach(task);
 
     if (task->mm) {
         mm_put(task->mm);
@@ -174,7 +176,7 @@ long ksys_wait4(long pid, int *status, long options)
             struct list_head *pos;
             unsigned long flags;
 
-            spin_lock_irqsave(&cpu_rq.lock, flags);
+            task_list_lock_irqsave(&flags);
             for_each_task(pos, child) {
                 int code;
 
@@ -186,21 +188,21 @@ long ksys_wait4(long pid, int *status, long options)
                     continue;
 
                 code = (child->stop_signal << 8) | 0x7f;
-                spin_unlock_irqrestore(&cpu_rq.lock, flags);
+                task_list_unlock_irqrestore(flags);
                 if (status &&
                     copy_to_user(status, &code, sizeof(code)))
                     return -EFAULT;
                 child->wait_event = CHILD_EVENT_NONE;
                 return (long)child->pid;
             }
-            spin_unlock_irqrestore(&cpu_rq.lock, flags);
+            task_list_unlock_irqrestore(flags);
         }
 
         if (options & WCONTINUED) {
             struct list_head *pos;
             unsigned long flags;
 
-            spin_lock_irqsave(&cpu_rq.lock, flags);
+            task_list_lock_irqsave(&flags);
             for_each_task(pos, child) {
                 int code;
 
@@ -212,14 +214,14 @@ long ksys_wait4(long pid, int *status, long options)
                     continue;
 
                 code = W_CONTINUED;
-                spin_unlock_irqrestore(&cpu_rq.lock, flags);
+                task_list_unlock_irqrestore(flags);
                 if (status &&
                     copy_to_user(status, &code, sizeof(code)))
                     return -EFAULT;
                 child->wait_event = CHILD_EVENT_NONE;
                 return (long)child->pid;
             }
-            spin_unlock_irqrestore(&cpu_rq.lock, flags);
+            task_list_unlock_irqrestore(flags);
         }
 
         if (!find_child(parent, pid, -1))
@@ -228,12 +230,12 @@ long ksys_wait4(long pid, int *status, long options)
         if (options & WNOHANG)
             return 0;
 
-        parent->state = TASK_SLEEPING;
+        sched_block(TASK_SLEEPING);
         local_irq_enable();
         schedule();
         local_irq_disable();
-        parent->state = TASK_RUNNING;
-        parent->time_slice = SCHED_TIME_SLICE;
+        if (!list_is_linked(&parent->run_list))
+            enqueue_task(parent);
 
         if (signal_pending(parent))
             return -EINTR;

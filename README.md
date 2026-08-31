@@ -147,7 +147,7 @@ States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, i
   - `wait_event_interruptible(wq, condition)` — same, but returns `-EINTR` if a signal is pending.
   - `wake_up()` marks sleeping waiters runnable via `wake_up_process()`.
   - Used by `fs/pipe.c` (read/write when the buffer is empty/full) and `drivers/tty/tty.c` (`wait_event_interruptible` on blocking read).
-- `include/linux/list.h` — doubly-linked `list_head` helpers (`list_add`, `list_del`, `list_for_each`).
+- `include/linux/list.h` — doubly-linked `list_head` helpers (`list_add`, `list_del_init`, `list_for_each`).
 - `include/linux/rbtree.h` + `lib/rbtree.c` — minimal red-black tree (insert, erase, in-order walk).
 
 There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover the current SMP-safe paths.

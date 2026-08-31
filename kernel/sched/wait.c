@@ -73,6 +73,7 @@ void prepare_to_wait(struct wait_queue_head *wq,
     }
 
     current->state = TASK_SLEEPING;
+    dequeue_task(current);
 
     spin_unlock(&wq->lock);
 }
@@ -81,8 +82,10 @@ void finish_wait(struct wait_queue_head *wq,
                  struct wait_queue_entry *entry)
 {
     remove_wait_queue(wq, entry);
-    current->state = TASK_RUNNING;
-    current->time_slice = SCHED_TIME_SLICE;
+    if (!list_is_linked(&current->run_list))
+        enqueue_task(current);
+    else
+        current->state = TASK_RUNNING;
 }
 
 void wake_up(struct wait_queue_head *wq)

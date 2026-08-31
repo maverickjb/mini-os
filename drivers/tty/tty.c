@@ -186,7 +186,7 @@ int tty_setpgrp(pid_t pgid)
     if (tty0.session_id && current->sid != tty0.session_id)
         return -ENOTTY;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
+    task_list_lock_irqsave(&flags);
     for_each_task(pos, task) {
         if (!task->is_user ||
             task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
@@ -195,11 +195,11 @@ int tty_setpgrp(pid_t pgid)
             continue;
         found = 1;
         if (tty0.session_id && task->sid != tty0.session_id) {
-            spin_unlock_irqrestore(&cpu_rq.lock, flags);
+            task_list_unlock_irqrestore(flags);
             return -EPERM;
         }
     }
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    task_list_unlock_irqrestore(flags);
 
     if (!found)
         return -ESRCH;
