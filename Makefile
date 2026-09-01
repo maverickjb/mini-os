@@ -19,7 +19,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            kernel/signal.c \
            kernel/pid.c kernel/irq.c kernel/time/tick.c kernel/time/timer.c \
            kernel/printk.c \
-           mm/page_alloc.c \
+           mm/page_alloc.c mm/slub.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
            fs/binfmt.c fs/open.c fs/stat.c fs/readdir.c fs/pipe.c fs/namei.c \
            fs/dcache.c fs/procfs.c fs/dev.c fs/devnull.c fs/devtty.c \
@@ -29,6 +29,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            tests/kernel/test_main.c tests/kernel/list_test.c \
            tests/kernel/rbtree_test.c tests/kernel/spinlock_test.c \
            tests/kernel/waitqueue_test.c tests/kernel/scheduler_test.c \
+           tests/kernel/slub_test.c \
            fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)

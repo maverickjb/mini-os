@@ -10,6 +10,7 @@ int test_rbtree(void);
 int test_spinlock(void);
 int test_waitqueue(void);
 int test_scheduler(void);
+int test_slub(void);
 
 static struct test_case tests[] = {
     { "list",       test_list },
@@ -17,6 +18,7 @@ static struct test_case tests[] = {
     { "spinlock",   test_spinlock },
     { "waitqueue",  test_waitqueue },
     { "scheduler",  test_scheduler },
+    { "slub",       test_slub },
 };
 
 void test_pass(const char *name)

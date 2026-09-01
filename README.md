@@ -15,6 +15,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
 | Page allocator + user maps | Buddy-style pages, user page tables, `mmap` / `brk` |
+| SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
 | Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
@@ -22,7 +23,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
 | Synchronization | AArch64 spinlocks; wait queues; `wait_event` helpers |
 | Kernel data structures | Doubly-linked lists, red-black tree (`list.h`, `rbtree`) |
-| Kernel tests | TAP suite at boot (`tests/kernel/`) |
+| Kernel tests | TAP suite at boot (`tests/kernel/`, 6 tests including SLUB) |
 
 Many Linux syscall numbers exist in `include/linux/unistd.h`. Only the ones wired in `kernel/sys.c` actually work.
 
@@ -57,13 +58,14 @@ Early boot prints TAP results like:
 
 ```text
 TAP version 13
-1..5
+1..6
 ok 1 - list
 ok 2 - rbtree
 ok 3 - spinlock
 ok 4 - waitqueue
 ok 5 - scheduler
-passed: 5
+ok 6 - slub
+passed: 6
 failed: 0
 ```
 
@@ -96,7 +98,7 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 
 ```text
 kernel/     boot, IRQ, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
-mm/         page allocator, mmap/brk, copy_to/from_user
+mm/         buddy page allocator, SLUB (`kmalloc`), mmap/brk, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
 drivers/    UART + console TTY
 lib/        string helpers, vsnprintf, red-black tree
@@ -114,7 +116,7 @@ Headers live under `include/linux`, `include/uapi/linux`, and `include/asm` so f
 
 - `kernel/head.S` — EL1 entry, early stack, MMU (identity + high half at `0xffff800080000000`), jump to C. QEMU loads the image at `0x40000000`.
 - `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
-- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, ramfs, unpack initramfs, procfs, scheduler, kernel tests, PID 1.
+- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, ramfs, unpack initramfs, procfs, scheduler, kernel tests, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
 
@@ -127,27 +129,32 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 
 ### Scheduling and tasks
 
-- `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, kernel `cpu_context`, user `pt_regs *`, files, cwd, signal mask.
-- `kernel/sched/core.c` — runqueue protected by `runqueue_lock`, round-robin `pick_next_task()`, `schedule()` → `switch_to`.
+- `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, kernel `cpu_context`, user `pt_regs *`, embedded `run_list` / `task_list`, files, cwd, signal mask.
+- `struct rq` — per-runqueue state: `lock`, `tasks` list head, `curr`, `nr_running`. Global `cpu_rq` holds runnable tasks only.
+- `all_tasks` — global task list (sleeping, stopped, zombie, runnable); protected by **`tasklist_lock`**, separate from `cpu_rq.lock`.
+- `kernel/sched/core.c` — round-robin `pick_next_task()`, `enqueue_task` / `dequeue_task`, `sched_block()` (sleep/off-rq), `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
 - `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
-- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table.
-- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`).
+- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table; `task_attach()` on creation.
+- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`); `task_detach()` on reap.
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
+
+**Runqueue policy:** only `TASK_RUNNING` tasks sit on `cpu_rq.tasks`. Sleep/stop/exit calls `sched_block()` → `dequeue_task()`; wake paths call `wake_up_process()` → `enqueue_task()`. Non-runnable tasks remain on `all_tasks` for `wait4`, signals, and `/proc` walks.
 
 States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
 
 ### Synchronization
 
 - `include/linux/spinlock.h` — AArch64 ticketless spinlock via `LDAXR`/`STXR` acquire and `STLR` release; `spin_lock_irqsave` / `spin_unlock_irqrestore` pair with `local_irq_save` / `local_irq_restore` (`include/asm/irqflags.h`).
-- `runqueue_lock` in `kernel/sched/core.c` — protects the global runqueue and `schedule()`’s pick-next path; all runqueue walkers take this lock.
+- **`cpu_rq.lock`** — protects the runnable runqueue (`cpu_rq.tasks`, `nr_running`, `pick_next_task`, `schedule()`).
+- **`tasklist_lock`** — protects the global `all_tasks` list (`task_attach`, `task_detach`, `for_each_task` walkers). Kept separate from `cpu_rq.lock` so runqueue and task-enumeration locking do not alias (important for SMP).
 - `include/linux/wait.h` + `kernel/sched/wait.c` — Linux-style wait queues for blocking I/O:
   - `DECLARE_WAITQUEUE` on the stack, `prepare_to_wait` → `schedule` → `finish_wait`.
   - `wait_event(wq, condition)` — sleep until a function-pointer condition is true.
   - `wait_event_interruptible(wq, condition)` — same, but returns `-EINTR` if a signal is pending.
   - `wake_up()` marks sleeping waiters runnable via `wake_up_process()`.
   - Used by `fs/pipe.c` (read/write when the buffer is empty/full) and `drivers/tty/tty.c` (`wait_event_interruptible` on blocking read).
-- `include/linux/list.h` — doubly-linked `list_head` helpers (`list_add`, `list_del_init`, `list_for_each`).
+- `include/linux/list.h` — doubly-linked `list_head` helpers (`list_add`, `list_del_init`, `list_is_linked`, `list_for_each`). Off-list nodes are self-linked (`INIT_LIST_HEAD` / `list_del_init`); never use bare `list_del`.
 - `include/linux/rbtree.h` + `lib/rbtree.c` — minimal red-black tree (insert, erase, in-order walk).
 
 There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover the current SMP-safe paths.
@@ -190,12 +197,20 @@ Unknown numbers return `-ENOSYS`.
 - `kernel/psci.c` — PSCI 0.2 `SYSTEM_RESET` / `SYSTEM_OFF` via HVC (QEMU `virt` firmware).
 - BusyBox applets `halt`, `poweroff`, and `reboot -f` exercise the `reboot(2)` path; non-`-f` shutdown sends a signal to PID 1, handled in `do_signal()`.
 
-### Virtual memory and ELF
+### Virtual memory, SLUB, and ELF
 
-- `mm/page_alloc.c` — physical page pool after the kernel image.
+- `mm/page_alloc.c` — buddy allocator for physical pages after the kernel image (`alloc_pages` / `free_pages`).
+- `mm/slub.c` — SLUB-style `kmalloc` / `kfree`:
+  - Fixed-size caches: 32, 64, 128, 256, 512, 1024, 2048 bytes.
+  - Each page starts with a `struct slab` header; free objects linked through an embedded freelist.
+  - Partial slabs kept on a per-cache list; empty slabs returned to the buddy allocator.
+  - Allocations larger than 2048 bytes use whole buddy pages (slab header stores page order).
+  - `slub_init()` runs after `page_alloc_init()`; ramfs inode/dentry/data paths use `kmalloc`.
 - `mm/mmap.c` — user page tables, `do_map`, `brk`, anonymous `mmap`/`munmap`.
 - `mm/uaccess.c` — `copy_to_user` / `copy_from_user` (EL1 access to EL0 mappings).
 - `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, build Linux-style argc/argv/envp/auxv.
+
+Task stacks and page-table pages still use `alloc_pages()` directly (multi-page, fixed-order kernel allocations).
 
 User addresses sit in a low range (stack near `0x4040000`, mmap base `0x2000000`). Kernel virtual memory is the high half. Each user task has its own `pgd`; `mm_install()` switches it on context switch.
 
@@ -264,6 +279,7 @@ In-kernel unit tests run on CPU0 after `sched_init()` and before PID 1 starts (`
 - `tests/kernel/spinlock_test.c` — lock/unlock, `spin_is_locked`.
 - `tests/kernel/waitqueue_test.c` — add/remove queue, `wait_event`, `wake_up`.
 - `tests/kernel/scheduler_test.c` — `enqueue_task`, `pick_next_task`, `dequeue_task`.
+- `tests/kernel/slub_test.c` — `kmalloc` / `kfree` (small-object caches and a 4 KiB large alloc).
 
 Tests are always linked into `mini-os.elf` (see `Makefile` `SRCS`). To add a test, implement `int test_foo(void)` returning `0` on success, register it in `tests/kernel/test_main.c`, and add the `.c` file to `SRCS`.
 
@@ -287,7 +303,7 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 
 1. `kernel/head.S` → `init/main.c`
 2. `kernel/entry.S` → `kernel/sys.c`
-3. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `kernel/fork.c` → `kernel/exit.c`
+3. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `mm/slub.c` → `kernel/fork.c` → `kernel/exit.c`
 4. `tests/kernel/test_main.c` and the individual `tests/kernel/*_test.c` files
 5. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
 6. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`

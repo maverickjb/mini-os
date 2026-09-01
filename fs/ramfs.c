@@ -3,6 +3,7 @@
  */
 
 #include <linux/ramfs.h>
+#include <linux/slab.h>
 #include <linux/dcache.h>
 #include <linux/namei.h>
 #include <linux/gfp.h>
@@ -173,37 +174,13 @@ static void ramfs_memcpy(void *dst, const void *src, unsigned long n)
 
 static void *ramfs_kmalloc(unsigned long size)
 {
-    unsigned int order = 0;
-    unsigned long bytes = PAGE_SIZE;
-
-    if (size == 0)
-        size = 1;
-
-    while (bytes < size && order < 15U) {
-        order++;
-        bytes <<= 1;
-    }
-
-    return alloc_pages((int)order);
+    return kmalloc(size);
 }
 
 static void ramfs_kfree(void *ptr, unsigned long size)
 {
-    unsigned int order = 0;
-    unsigned long bytes = PAGE_SIZE;
-
-    if (!ptr)
-        return;
-
-    if (size == 0)
-        size = 1;
-
-    while (bytes < size && order < 15U) {
-        order++;
-        bytes <<= 1;
-    }
-
-    free_pages(ptr, (int)order);
+    (void)size;
+    kfree(ptr);
 }
 
 static void ramfs_inode_init(struct ramfs_inode *ri, int type)
