@@ -5,7 +5,7 @@
 #include <linux/dcache.h>
 #include <linux/fs.h>
 #include <linux/ramfs.h>
-#include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
 #include <linux/sched.h>
@@ -49,7 +49,7 @@ struct dentry *d_alloc(struct dentry *parent, const char *name)
     if (!parent || !name || !name[0])
         return NULL;
 
-    d = alloc_pages(0);
+    d = kmalloc(sizeof(*d));
     if (!d)
         return NULL;
 
@@ -113,7 +113,7 @@ void d_drop(struct dentry *dentry)
 
     cwd_fix(dentry, dentry->parent ? dentry->parent : &root_dentry);
     d_unlink(dentry);
-    free_pages(dentry, 0);
+    kfree(dentry);
 }
 
 /*

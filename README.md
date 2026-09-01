@@ -15,7 +15,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
 | Page allocator + user maps | Buddy-style pages, user page tables, `mmap` / `brk` |
-| SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages |
+| SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
 | Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
@@ -135,8 +135,8 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 - `kernel/sched/core.c` — round-robin `pick_next_task()`, `enqueue_task` / `dequeue_task`, `sched_block()` (sleep/off-rq), `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
 - `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
-- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table; `task_attach()` on creation.
-- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`); `task_detach()` on reap.
+- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table; `task_attach()` on creation. `task_struct` and `mm_struct` allocated with `kmalloc`.
+- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`); `task_detach()` on reap; `kfree(task)` after stack and page tables are released.
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
 
 **Runqueue policy:** only `TASK_RUNNING` tasks sit on `cpu_rq.tasks`. Sleep/stop/exit calls `sched_block()` → `dequeue_task()`; wake paths call `wake_up_process()` → `enqueue_task()`. Non-runnable tasks remain on `all_tasks` for `wait4`, signals, and `/proc` walks.
@@ -205,12 +205,12 @@ Unknown numbers return `-ENOSYS`.
   - Each page starts with a `struct slab` header; free objects linked through an embedded freelist.
   - Partial slabs kept on a per-cache list; empty slabs returned to the buddy allocator.
   - Allocations larger than 2048 bytes use whole buddy pages (slab header stores page order).
-  - `slub_init()` runs after `page_alloc_init()`; ramfs inode/dentry/data paths use `kmalloc`.
-- `mm/mmap.c` — user page tables, `do_map`, `brk`, anonymous `mmap`/`munmap`.
+  - `slub_init()` runs after `page_alloc_init()`.
+- **What uses `kmalloc`:** `task_struct` (large alloc — struct exceeds 2048 B), `mm_struct`, `struct file`, VFS `dentry`, `struct pipe`, `struct proc_inode`, and ramfs `ramfs_inode` / dentry / file data.
+- **What still uses `alloc_pages`:** kernel stacks (`order` 1), page-table nodes (`pgd` and copied tables), user mapping pages (`mmap`/`brk`/ELF load), and SLUB slab backing pages.
+- `mm/mmap.c` — user page tables, `do_map`, `brk`, anonymous `mmap`/`munmap`; `mm_put()` frees the `mm_struct` with `kfree`.
 - `mm/uaccess.c` — `copy_to_user` / `copy_from_user` (EL1 access to EL0 mappings).
 - `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, build Linux-style argc/argv/envp/auxv.
-
-Task stacks and page-table pages still use `alloc_pages()` directly (multi-page, fixed-order kernel allocations).
 
 User addresses sit in a low range (stack near `0x4040000`, mmap base `0x2000000`). Kernel virtual memory is the high half. Each user task has its own `pgd`; `mm_install()` switches it on context switch.
 
@@ -233,12 +233,12 @@ The initramfs cpio is linked at the **end** of the kernel image (`linker.ld`) so
 Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 
 - `include/linux/fs.h` — inode, `file`, `file_operations`, `inode_operations`.
-- `fs/dcache.c` — dentries, path walk for `.` / `..`, `getcwd`.
+- `fs/dcache.c` — dentries (`kmalloc`), path walk for `.` / `..`, `getcwd`.
 - `fs/namei.c` — path resolve, `mkdir`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
-- `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`).
-- `fs/pipe.c` — pipe buffers and wait queues (`prepare_to_wait` / `wake_up`; `-EINTR` if a signal is pending).
-- `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table, `fcntl`, `lseek` via `f_op->llseek`.
-- `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps`.
+- `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`); nodes and data buffers via `kmalloc`.
+- `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); wait queues (`prepare_to_wait` / `wake_up`; `-EINTR` if a signal is pending).
+- `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table (`alloc_file()` → `kmalloc`), `fcntl`, `lseek` via `f_op->llseek`.
+- `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps` (`proc_inode` via `kmalloc`).
 - `fs/dev.c`, `fs/devnull.c`, `fs/devtty.c`, `fs/devconsole.c` — special `/dev/*` path hooks (not real char devices).
 - `fs/initramfs.c` — unpack a newc cpio blob into ramfs.
 

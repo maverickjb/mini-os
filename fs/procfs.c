@@ -10,7 +10,7 @@
 #include <linux/sched/task.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
-#include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/namei.h>
@@ -57,7 +57,7 @@ void proc_iput(struct inode *inode)
     if (pi->magic != PROC_MAGIC)
         return;
     pi->magic = 0;
-    free_pages(pi, 0);
+    kfree(pi);
 }
 
 static struct task_struct *proc_find_task(pid_t pid)
@@ -217,7 +217,7 @@ static struct proc_inode *proc_alloc(pid_t pid, int kind)
     if (!task)
         return NULL;
 
-    pi = alloc_pages(0);
+    pi = kmalloc(sizeof(*pi));
     if (!pi)
         return NULL;
 

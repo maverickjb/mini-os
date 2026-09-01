@@ -8,7 +8,7 @@
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
 #include <linux/errno.h>
-#include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/stddef.h>
 #include <linux/signal.h>
 #include <linux/wait.h>
@@ -163,7 +163,7 @@ static int pipe_release(struct file *file)
 
     if (p->readers == 0 && p->writers == 0) {
         local_irq_enable();
-        free_pages(p, 0);
+        kfree(p);
         return 0;
     }
 
@@ -200,7 +200,7 @@ long ksys_pipe2(int *fildes, int flags)
     if (flags != 0)
         return -EINVAL;
 
-    p = alloc_pages(0);
+    p = kmalloc(sizeof(*p));
     if (!p)
         return -ENOMEM;
 
@@ -214,7 +214,7 @@ long ksys_pipe2(int *fildes, int flags)
 
     rfile = alloc_file();
     if (!rfile) {
-        free_pages(p, 0);
+        kfree(p);
         return -ENOMEM;
     }
 
@@ -223,7 +223,7 @@ long ksys_pipe2(int *fildes, int flags)
         rfile->f_op = NULL;
         rfile->private_data = NULL;
         fput(rfile);
-        free_pages(p, 0);
+        kfree(p);
         return -ENOMEM;
     }
 

@@ -11,7 +11,7 @@
 #include <linux/uaccess.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
-#include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/proc_fs.h>
 
 static int path_parent_name(const char *path, char *parent, char *name);
@@ -359,7 +359,7 @@ static int do_mkdir(const char *path, umode_t mode)
     err = vfs_mkdir(parent->inode, d, mode);
     if (err) {
         /* d not linked yet */
-        free_pages(d, 0);
+        kfree(d);
         return err;
     }
 

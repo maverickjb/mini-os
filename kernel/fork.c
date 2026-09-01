@@ -129,7 +129,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm)
 
     pgd = alloc_pages(0);
     if (!pgd) {
-        free_pages(mm, 0);
+        kfree(mm);
         return NULL;
     }
 
@@ -148,7 +148,7 @@ struct mm_struct *mm_alloc(void)
 {
     struct mm_struct *mm;
 
-    mm = alloc_pages(0);
+    mm = kmalloc(sizeof(*mm));
     if (!mm)
         return NULL;
 
@@ -162,7 +162,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
     if (!oldmm || !oldmm->pgd)
         return NULL;
 
-    mm = alloc_pages(0);
+    mm = kmalloc(sizeof(*mm));
     if (!mm)
         return NULL;
 
@@ -175,7 +175,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
     mm->pgd = dup_pgtable(oldmm->pgd, 1);
     if (!mm->pgd) {
-        free_pages(mm, 0);
+        kfree(mm);
         return NULL;
     }
 

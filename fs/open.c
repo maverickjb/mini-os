@@ -7,7 +7,7 @@
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
 #include <linux/errno.h>
-#include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/stddef.h>
 #include <linux/serial.h>
 
@@ -37,14 +37,14 @@ void fput(struct file *file)
 
     /* uart_file is static and must never be freed. */
     if (file != &uart_file)
-        free_pages(file, 0);
+        kfree(file);
 }
 
 struct file *alloc_file(void)
 {
     struct file *file;
 
-    file = alloc_pages(0);
+    file = kmalloc(sizeof(*file));
     if (!file)
         return NULL;
 

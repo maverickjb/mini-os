@@ -5,6 +5,7 @@
 #include <linux/mm.h>
 #include <asm/memory.h>
 #include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
 #include <linux/sched/task.h>
@@ -224,7 +225,7 @@ void mm_put(struct mm_struct *mm)
         free_user_page_tables(mm->pgd);
         mm->pgd = NULL;
     }
-    free_pages(mm, 0);
+    kfree(mm);
 }
 
 #define PT_ENTRIES 512
