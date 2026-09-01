@@ -2,7 +2,7 @@
 
 #include <linux/sched.h>
 #include <linux/sched/task.h>
-#include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/list.h>
 #include <asm/irqflags.h>
@@ -14,7 +14,7 @@ int test_scheduler(void)
     struct task_struct *prev = get_current();
     unsigned long flags;
 
-    task = alloc_pages(0);
+    task = kmalloc(sizeof(*task));
     EXPECT_TRUE(task != NULL);
 
     memset(task, 0, sizeof(*task));
@@ -39,7 +39,7 @@ int test_scheduler(void)
 
     local_irq_enable();
 
-    free_pages(task, 0);
+    kfree(task);
 
     return 0;
 }

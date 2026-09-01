@@ -14,6 +14,7 @@
 
 #include <linux/mm.h>
 #include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/fs.h>
 
 extern void task_trampoline(void);
@@ -212,13 +213,13 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
     struct task_struct *tsk;
     unsigned long *stack;
 
-    tsk = alloc_pages(0);
+    tsk = kmalloc(sizeof(*tsk));
     if (!tsk)
         return NULL;
 
     stack = alloc_pages(1);
     if (!stack) {
-        free_pages(tsk, 0);
+        kfree(tsk);
         return NULL;
     }
 
@@ -254,13 +255,13 @@ long ksys_fork(struct pt_regs *regs)
     if (!parent || !parent->is_user)
         return -EINVAL;
 
-    child = alloc_pages(0);
+    child = kmalloc(sizeof(*child));
     if (!child)
         return -ENOMEM;
 
     stack = alloc_pages(1);
     if (!stack) {
-        free_pages(child, 0);
+        kfree(child);
         return -ENOMEM;
     }
 
@@ -280,7 +281,7 @@ long ksys_fork(struct pt_regs *regs)
     child->mm = dup_mm(parent->mm);
     if (!child->mm) {
         free_pages(stack, 1);
-        free_pages(child, 0);
+        kfree(child);
         return -ENOMEM;
     }
 
@@ -288,7 +289,7 @@ long ksys_fork(struct pt_regs *regs)
     if (err) {
         mm_put(child->mm);
         free_pages(stack, 1);
-        free_pages(child, 0);
+        kfree(child);
         return err;
     }
 

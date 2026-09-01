@@ -15,6 +15,7 @@
 #include <linux/fs.h>
 
 #include <linux/gfp.h>
+#include <linux/slab.h>
 
 static void exit_files(struct task_struct *task)
 {
@@ -133,7 +134,7 @@ static void free_task(struct task_struct *task)
     }
     if (task->stack)
         free_pages(task->stack, 1);
-    free_pages(task, 0);
+    kfree(task);
 }
 
 void ksys_exit(long status)
