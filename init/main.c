@@ -12,6 +12,7 @@
 
 #include <linux/gfp.h>
 #include <linux/slab.h>
+#include <linux/mm.h>
 #include <linux/ramfs.h>
 #include <linux/dcache.h>
 #include <linux/initramfs.h>
@@ -68,6 +69,7 @@ void start_kernel(void)
 
         page_alloc_init();
         slub_init();
+        mmap_init();
 
         ramfs_init();
         dcache_init();

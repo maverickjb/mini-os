@@ -126,7 +126,8 @@ static int setup_stack(struct mm_struct *mm, unsigned long *stack_top_out,
 
     *kpage_out = top_page;
     *stack_top_out = USER_STACK_TOP;
-    return 0;
+    return vma_record(mm, USER_STACK_TOP - USER_STACK_SIZE, USER_STACK_TOP,
+                      MAP_PROT_READ | MAP_PROT_WRITE | VM_STACK);
 }
 
 static int stack_put_string(char *kpage, unsigned long map_base,
@@ -315,7 +316,7 @@ static int load_segment(struct mm_struct *mm, const unsigned char *buf,
         }
     }
 
-    return 0;
+    return vma_record(mm, map_start, map_end, elf_prot(ph->p_flags));
 }
 
 int load_elf_binary(struct linux_binprm *bprm)

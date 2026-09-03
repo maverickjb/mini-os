@@ -25,12 +25,18 @@
 #define USER_STACK_SIZE 0x10000UL /* 16 pages */
 #define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_SIZE)
 
+#define VM_READ     MAP_PROT_READ
+#define VM_WRITE    MAP_PROT_WRITE
+#define VM_EXEC     MAP_PROT_EXEC
+#define VM_STACK    (1UL << 3)
+
 struct mm_struct *mm_alloc(void);
 struct mm_struct *dup_mm(struct mm_struct *oldmm);
 unsigned long *dup_pgtable(unsigned long *src, int level);
 void mm_put(struct mm_struct *mm);
 void free_user_page_tables(unsigned long *pgd);
 void mm_install(struct mm_struct *mm);
+void mmap_init(void);
 
 int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
            unsigned long size, unsigned long prot);
@@ -38,5 +44,11 @@ long do_brk(struct mm_struct *mm, unsigned long newbrk);
 long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
              unsigned long prot, unsigned long flags);
 long do_munmap(struct mm_struct *mm, unsigned long addr, unsigned long len);
+
+struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr);
+struct vm_area_struct *dup_vma_list(struct vm_area_struct *src);
+void free_all_vmas(struct mm_struct *mm);
+int vma_record(struct mm_struct *mm, unsigned long start, unsigned long end,
+               unsigned long vm_flags);
 
 #endif /* __LINUX_MM_H */

@@ -135,6 +135,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm)
 
     page_zero(pgd);
     mm->pgd = pgd;
+    mm->mmap = NULL;
     mm->entry = 0;
     mm->stack_top = 0;
     mm->start_brk = 0;
@@ -175,6 +176,13 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
     mm->pgd = dup_pgtable(oldmm->pgd, 1);
     if (!mm->pgd) {
+        kfree(mm);
+        return NULL;
+    }
+
+    mm->mmap = dup_vma_list(oldmm->mmap);
+    if (oldmm->mmap && !mm->mmap) {
+        free_user_page_tables(mm->pgd);
         kfree(mm);
         return NULL;
     }

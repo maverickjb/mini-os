@@ -8,6 +8,7 @@
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
+#include <linux/string.h>
 #include <linux/sched/task.h>
 #include <linux/syscalls.h>
 
@@ -27,7 +28,7 @@
 
 #define PTE_ENTRIES     512
 
-struct kmem_cache *vma_cache;
+static struct kmem_cache vma_cache;
 
 /* ------------------------------------------------------------------ */
 /* VMA list — sorted by vm_start, allocated from SLUB                  */
@@ -50,7 +51,7 @@ static struct vm_area_struct *vma_alloc(unsigned long start, unsigned long end,
 {
     struct vm_area_struct *vma;
 
-    vma = kmem_cache_alloc(vma_cache);
+    vma = kmem_cache_alloc(&vma_cache);
     if (!vma)
         return NULL;
 
@@ -104,6 +105,59 @@ static int remove_vma(struct mm_struct *mm, struct vm_area_struct *vma)
     return -ENOENT;
 }
 
+int vma_record(struct mm_struct *mm, unsigned long start, unsigned long end,
+               unsigned long vm_flags)
+{
+    struct vm_area_struct *vma;
+    int ret;
+
+    if (!mm || start >= end)
+        return -EINVAL;
+
+    vma = vma_alloc(start, end, vm_flags);
+    if (!vma)
+        return -ENOMEM;
+
+    ret = insert_vma(mm, vma);
+    if (ret < 0) {
+        kmem_cache_free(&vma_cache, vma);
+        return ret;
+    }
+
+    return 0;
+}
+
+static void free_vma_chain(struct vm_area_struct *vma)
+{
+    while (vma) {
+        struct vm_area_struct *next = vma->vm_next;
+
+        kmem_cache_free(&vma_cache, vma);
+        vma = next;
+    }
+}
+
+struct vm_area_struct *dup_vma_list(struct vm_area_struct *src)
+{
+    struct vm_area_struct *head = NULL;
+    struct vm_area_struct **tail = &head;
+
+    for (; src; src = src->vm_next) {
+        struct vm_area_struct *copy = vma_alloc(src->vm_start, src->vm_end,
+                                                src->vm_flags);
+
+        if (!copy) {
+            free_vma_chain(head);
+            return NULL;
+        }
+
+        *tail = copy;
+        tail = &copy->vm_next;
+    }
+
+    return head;
+}
+
 void free_all_vmas(struct mm_struct *mm)
 {
     struct vm_area_struct *vma;
@@ -114,7 +168,7 @@ void free_all_vmas(struct mm_struct *mm)
     while (mm->mmap) {
         vma = mm->mmap;
         mm->mmap = vma->vm_next;
-        kmem_cache_free(vma_cache, vma);
+        kmem_cache_free(&vma_cache, vma);
     }
 }
 
@@ -136,7 +190,7 @@ static int vma_erase_range(struct mm_struct *mm, unsigned long start,
 
 		if (start <= vstart && end >= vend) {
 			remove_vma(mm, vma);
-			kmem_cache_free(vma_cache, vma);
+			kmem_cache_free(&vma_cache, vma);
 			vma = next;
 			continue;
 		}
@@ -395,6 +449,7 @@ void mm_put(struct mm_struct *mm)
         free_user_page_tables(mm->pgd);
         mm->pgd = NULL;
     }
+    free_all_vmas(mm);
     kfree(mm);
 }
 
@@ -556,6 +611,33 @@ static int map_page(struct mm_struct *mm, unsigned long va, unsigned long pa,
     return 0;
 }
 
+int do_map(struct mm_struct *mm, unsigned long virt, unsigned long phys,
+           unsigned long size, unsigned long prot)
+{
+    unsigned long va;
+    unsigned long end;
+    int err;
+
+    if (!mm || !mm->pgd)
+        return -EINVAL;
+
+    if (size == 0)
+        return 0;
+
+    va = virt & ~(PAGE_SIZE - 1UL);
+    end = (virt + size + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+
+    for (; va < end; va += PAGE_SIZE, phys += PAGE_SIZE) {
+        err = map_page(mm, va, phys, prot);
+        if (err)
+            return err;
+    }
+
+    __asm__ volatile("dsb sy" ::: "memory");
+    tlb_flush_all();
+    return 0;
+}
+
 static int va_mapped(struct mm_struct *mm, unsigned long va)
 {
     unsigned long *ptep = l3_slot(mm, va);
@@ -599,6 +681,7 @@ long do_munmap(struct mm_struct *mm, unsigned long addr, unsigned long len)
 {
     unsigned long va;
     unsigned long end;
+    int err;
 
     if (!mm || !mm->pgd)
         return -EINVAL;
@@ -611,18 +694,12 @@ long do_munmap(struct mm_struct *mm, unsigned long addr, unsigned long len)
 
     end = (addr + len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
 
+    err = vma_erase_range(mm, addr, end);
+    if (err)
+        return err;
+
     for (va = addr; va < end; va += PAGE_SIZE)
         unmap_page(mm, va);
-
-            /*
-     * Then update VMA metadata.
-     */
-    vma_erase_range(mm, addr, end);
-
-    /*
-     * Flush TLB once for the whole range.
-     */
-    tlb_flush_all();
 
     return 0;
 }
@@ -649,20 +726,26 @@ long do_brk(struct mm_struct *mm, unsigned long newbrk)
         return (long)oldbrk;
 
     heap_vma = find_heap_vma(mm);
-    
+
     if (newbrk > oldbrk) {
         unsigned long new_end;
 
-        new_end = (newbrk + PAGE_SIZE - 1UL) &
-                  ~(PAGE_SIZE - 1UL);
+        new_end = (newbrk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
 
-        /*
-         * Heap must not overlap the next VMA.
-         */
         if (heap_vma && heap_vma->vm_next &&
             new_end > heap_vma->vm_next->vm_start)
             return (long)oldbrk;
 
+        if (!heap_vma) {
+            if (vma_record(mm, mm->start_brk, new_end,
+                           MAP_PROT_READ | MAP_PROT_WRITE) < 0)
+                return (long)oldbrk;
+            heap_vma = find_heap_vma(mm);
+        } else if (new_end > heap_vma->vm_end) {
+            heap_vma->vm_end = new_end;
+        }
+
+        addr = (oldbrk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
         end = new_end;
 
         for (; addr < end; addr += PAGE_SIZE) {
@@ -680,38 +763,34 @@ long do_brk(struct mm_struct *mm, unsigned long newbrk)
             page_zero((unsigned long *)page);
             phys = __virt_to_phys((unsigned long)page);
             err = map_page(mm, addr, phys,
-                MAP_PROT_READ | MAP_PROT_WRITE);
+                           MAP_PROT_READ | MAP_PROT_WRITE);
             if (err) {
                 free_pages(page, 0);
                 return (long)oldbrk;
             }
         }
-        /*
-         * Extend heap VMA.
-         */
-         if (heap_vma)
-         heap_vma->vm_end = new_end;
-    }
-    /*
-     * Shrinking heap.
-     */
-     else {
+    } else {
         unsigned long old_end;
         unsigned long new_end;
 
-        old_end = (oldbrk + PAGE_SIZE - 1UL) &
-                  ~(PAGE_SIZE - 1UL);
-
-        new_end = (newbrk + PAGE_SIZE - 1UL) &
-                  ~(PAGE_SIZE - 1UL);
+        old_end = (oldbrk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+        new_end = (newbrk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
 
         for (addr = new_end; addr < old_end; addr += PAGE_SIZE)
             unmap_page(mm, addr);
 
-        if (heap_vma)
-            heap_vma->vm_end = new_end;
+        if (heap_vma) {
+            if (new_end <= heap_vma->vm_start) {
+                remove_vma(mm, heap_vma);
+                kmem_cache_free(&vma_cache, heap_vma);
+            } else {
+                heap_vma->vm_end = new_end;
+            }
+        }
     }
+
     mm->brk = newbrk;
+    __asm__ volatile("dsb sy" ::: "memory");
     tlb_flush_all();
     return (long)newbrk;
 }
@@ -750,28 +829,27 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
             return -ENOMEM;
     } else {
         va = addr & ~(PAGE_SIZE - 1UL);
-        /* MAP_FIXED may target the brk heap, below USER_MMAP_BASE. */
         if (!va || va + len > stack_limit)
             return -EINVAL;
+
+        err = vma_erase_range(mm, va, va + len);
+        if (err)
+            return err;
     }
 
-    /*
-    * Create VMA metadata.
-    */
-    vma = vma_alloc(va, va + len, prot);
+    vma = vma_alloc(va, va + len, map_prot);
     if (!vma)
         return -ENOMEM;
 
     err = insert_vma(mm, vma);
     if (err) {
-        kmem_cache_free(vma_cache, vma);
+        kmem_cache_free(&vma_cache, vma);
         return err;
     }
 
     for (end = va; end < va + len; end += PAGE_SIZE) {
         void *page;
         unsigned long phys;
-        int err;
 
         if (va_mapped(mm, end)) {
             if (flags & MAP_FIXED) {
@@ -795,25 +873,18 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
         }
     }
 
-    /*
-    * One TLB flush after the whole operation.
-    */
+    __asm__ volatile("dsb sy" ::: "memory");
     tlb_flush_all();
 
-    mm->mmap_base = va + len;
+    if (va + len > mm->mmap_base)
+        mm->mmap_base = va + len;
 
     return (long)va;
 }
 
 void mmap_init(void)
 {
-	int ret;
-
-    vma_cache = kmem_cache_create(
-        "vm_area_struct",
-        sizeof(struct vm_area_struct),
-        alignof(struct vm_area_struct)
-    );
+    kmem_cache_init(&vma_cache, sizeof(struct vm_area_struct));
 }
 
 long ksys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
