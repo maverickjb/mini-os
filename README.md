@@ -14,8 +14,8 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
-| Page allocator + user maps | Buddy-style pages, user page tables, `mmap` / `brk` |
-| SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes) |
+| Page allocator + user maps | Buddy-style pages, user page tables, VMA list, `mmap` / `brk` / `munmap` |
+| SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
 | Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
@@ -98,7 +98,7 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 
 ```text
 kernel/     boot, IRQ, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
-mm/         buddy page allocator, SLUB (`kmalloc`), mmap/brk, copy_to/from_user
+mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
 drivers/    UART + console TTY
 lib/        string helpers, vsnprintf, red-black tree
@@ -116,7 +116,7 @@ Headers live under `include/linux`, `include/uapi/linux`, and `include/asm` so f
 
 - `kernel/head.S` — EL1 entry, early stack, MMU (identity + high half at `0xffff800080000000`), jump to C. QEMU loads the image at `0x40000000`.
 - `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
-- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, ramfs, unpack initramfs, procfs, scheduler, kernel tests, PID 1.
+- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, `mmap_init`, ramfs, unpack initramfs, procfs, scheduler, kernel tests, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
 
@@ -135,7 +135,7 @@ A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-t
 - `kernel/sched/core.c` — round-robin `pick_next_task()`, `enqueue_task` / `dequeue_task`, `sched_block()` (sleep/off-rq), `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0).
 - `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
-- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables and file table; `task_attach()` on creation. `task_struct` and `mm_struct` allocated with `kmalloc`.
+- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables, VMA list, and file table; `task_attach()` on creation. `task_struct` and `mm_struct` allocated with `kmalloc`.
 - `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`); `task_detach()` on reap; `kfree(task)` after stack and page tables are released.
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
 
@@ -185,7 +185,7 @@ Unknown numbers return `-ENOSYS`.
 - **`wait4`** is interruptible: if a signal arrives while sleeping, the syscall returns **`-EINTR`**; **`do_signal()`** on the syscall-return path then delivers default actions (e.g. `SIGTERM` → `do_exit()`).
 - `do_signal` on syscall return: `SIGSTOP` parks the task in `TASK_STOPPED` (not a zombie); default terminate (except ignored signals like `SIGCHLD` / `SIGCONT`); `SIG_IGN` drop; or user handler.
 - PID 1 default `SIGUSR1` / `SIGUSR2` / `SIGTERM` triggers shutdown via `kernel_init_shutdown()` (BusyBox `halt` / `poweroff` path).
-- A handler gets a **signal frame** on the user stack; musl’s restorer issues `rt_sigreturn` to restore registers and the old mask.
+- A handler gets a **signal frame** on the user stack (accepted if SP lies in a writable stack VMA, else the full `USER_STACK_SIZE` window); musl’s restorer issues `rt_sigreturn` to restore registers and the old mask.
 - `sa_mask` is applied while the handler runs.
 - `rt_sigprocmask` / `rt_sigpending` / `rt_sigsuspend` match the Linux “replace mask and sleep until a signal” idea.
 
@@ -205,14 +205,21 @@ Unknown numbers return `-ENOSYS`.
   - Each page starts with a `struct slab` header; free objects linked through an embedded freelist.
   - Partial slabs kept on a per-cache list; empty slabs returned to the buddy allocator.
   - Allocations larger than 2048 bytes use whole buddy pages (slab header stores page order).
+  - Dedicated caches via static `struct kmem_cache` + `kmem_cache_init` (no dynamic `kmem_cache_create`).
   - `slub_init()` runs after `page_alloc_init()`.
-- **What uses `kmalloc`:** `task_struct` (large alloc — struct exceeds 2048 B), `mm_struct`, `struct file`, VFS `dentry`, `struct pipe`, `struct proc_inode`, and ramfs `ramfs_inode` / dentry / file data.
+- **What uses `kmalloc` / SLUB:** `task_struct` (large alloc — struct exceeds 2048 B), `mm_struct`, `struct file`, VFS `dentry`, `struct pipe`, `struct proc_inode`, ramfs nodes / file data, and `vm_area_struct` (dedicated `vma_cache` via `kmem_cache_alloc`).
 - **What still uses `alloc_pages`:** kernel stacks (`order` 1), page-table nodes (`pgd` and copied tables), user mapping pages (`mmap`/`brk`/ELF load), and SLUB slab backing pages.
-- `mm/mmap.c` — user page tables, `do_map`, `brk`, anonymous `mmap`/`munmap`; `mm_put()` frees the `mm_struct` with `kfree`.
+- `mm/mmap.c` — user address spaces:
+  - **`struct vm_area_struct`** — sorted singly-linked list on `mm->mmap` (`vm_start` / `vm_end` exclusive / `vm_flags`).
+  - `mmap_init()` — creates the VMA SLUB cache (after `slub_init()`).
+  - Helpers: `find_vma`, `vma_record`, `vma_erase_range` (trim / split / remove; split failure returns `-ENOMEM`), `dup_vma_list`, `free_all_vmas`.
+  - `do_map` / page-table walk — map anonymous pages into TTBR0 tables.
+  - `do_brk` / `do_mmap` / `do_munmap` — grow or shrink the heap VMA, allocate anonymous regions (`MAP_ANONYMOUS`, optional `MAP_FIXED`), and unmap pages while keeping the VMA list consistent.
+  - `mm_alloc` / `dup_mm` / `mm_put` — allocate or duplicate `mm_struct` (including VMA list + full page-table copy); last user frees tables, VMAs, then `kfree(mm)`.
 - `mm/uaccess.c` — `copy_to_user` / `copy_from_user` (EL1 access to EL0 mappings).
-- `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, build Linux-style argc/argv/envp/auxv.
+- `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, `vma_record` each `PT_LOAD` and the stack, build Linux-style argc/argv/envp/auxv, then drop the old `mm`.
 
-User addresses sit in a low range (stack near `0x4040000`, mmap base `0x2000000`). Kernel virtual memory is the high half. Each user task has its own `pgd`; `mm_install()` switches it on context switch.
+User addresses sit in a low range (stack near `0x4040000`, mmap base `0x2000000`). Kernel virtual memory is the high half. Each user task has its own `pgd`; `mm_install()` switches it on context switch. Fork still fully copies page tables (`dup_pgtable`); there is no COW or shared-mm `vfork` yet.
 
 The initial user stack (SP at the low end, stack grows down):
 
@@ -295,7 +302,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk, no user SMP load balancing. No mutexes or reader/writer locks yet. No PIE loader, no `ld.so`. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
+No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk, no user SMP load balancing. No mutexes or reader/writer locks yet. No PIE loader, no `ld.so`. No file-backed `mmap`, no COW / shared page tables on fork. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 
@@ -306,9 +313,10 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 3. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `mm/slub.c` → `kernel/fork.c` → `kernel/exit.c`
 4. `tests/kernel/test_main.c` and the individual `tests/kernel/*_test.c` files
 5. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
-6. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
-7. `fs/binfmt.c` → `fs/exec.c`
-8. `fs/procfs.c` → `fs/dev.c`
-9. `drivers/tty/tty.c` → `kernel/printk.c`
-10. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
-11. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
+6. `include/linux/mm_types.h` → `mm/mmap.c` (VMAs, `do_brk` / `do_mmap` / `do_munmap`)
+7. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
+8. `fs/binfmt.c` → `fs/exec.c`
+9. `fs/procfs.c` → `fs/dev.c`
+10. `drivers/tty/tty.c` → `kernel/printk.c`
+11. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
+12. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
