@@ -182,23 +182,38 @@ static void write_user_sp(unsigned long sp)
 
 static int signal_frame_ok(unsigned long sp)
 {
-    unsigned long top;
-    unsigned long bot;
+    struct vm_area_struct *vma;
+    unsigned long frame_end;
 
     if (!sp || (sp & 15UL))
         return 0;
     if (sp > ~0UL - sizeof(struct signal_frame))
         return 0;
 
-    if (!current || !current->mm || !current->mm->stack_top)
+    if (!current || !current->mm)
         return 0;
 
-    top = current->mm->stack_top;
-    bot = top - PAGE_SIZE;
-    if (sp < bot || sp + sizeof(struct signal_frame) > top)
-        return 0;
+    frame_end = sp + sizeof(struct signal_frame);
 
-    return 1;
+    /*
+     * Prefer the stack VMA when present. Fall back to the full mapped
+     * stack window — not just the top page — so handlers still work once
+     * userspace SP has grown below stack_top - PAGE_SIZE.
+     */
+    vma = find_vma(current->mm, sp);
+    if (vma && sp >= vma->vm_start && frame_end <= vma->vm_end &&
+        (vma->vm_flags & MAP_PROT_WRITE))
+        return 1;
+
+    if (current->mm->stack_top) {
+        unsigned long top = current->mm->stack_top;
+        unsigned long bot = top - USER_STACK_SIZE;
+
+        if (sp >= bot && frame_end <= top)
+            return 1;
+    }
+
+    return 0;
 }
 
 static int setup_signal_frame(struct pt_regs *regs, int sig,

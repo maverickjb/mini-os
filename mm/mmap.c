@@ -544,7 +544,6 @@ static unsigned long *dup_pgtable_level(unsigned long *src, int level)
                 return NULL;
             }
 
-
             /*
              * Copy user memory
              */
