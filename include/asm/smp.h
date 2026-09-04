@@ -7,6 +7,8 @@ struct task_struct;
 
 struct cpu {
     unsigned int id;
+	struct rq rq;
+
     struct task_struct *idle;
     /* Named curr — `current` clashes with the current-task macro. */
     struct task_struct *curr;

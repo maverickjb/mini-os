@@ -103,7 +103,6 @@ struct task_struct {
 };
 
 extern struct task_struct idle_tasks[];
-extern struct rq cpu_rq;
 extern struct task_struct *cpu_current_export;
 
 void rq_init(struct rq *rq);
@@ -119,7 +118,7 @@ void cpu_idle(void);
 void schedule(void);
 void enqueue_task(struct task_struct *task);
 void dequeue_task(struct task_struct *task);
-struct task_struct *pick_next_task(struct task_struct *prev);
+struct task_struct *pick_next_task(struct rq *rq, struct task_struct *prev);
 
 /* Caller must hold tasklist lock via task_list_lock_irqsave(). */
 #define for_each_task(pos, task)                                        \

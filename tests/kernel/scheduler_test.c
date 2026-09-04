@@ -6,12 +6,14 @@
 #include <linux/string.h>
 #include <linux/list.h>
 #include <asm/irqflags.h>
+#include <asm/smp.h>
 
 int test_scheduler(void)
 {
     struct task_struct *task;
     struct task_struct *next;
     struct task_struct *prev = get_current();
+    struct rq *rq = &cpu_data[smp_processor_id()].rq;
     unsigned long flags;
 
     task = kmalloc(sizeof(*task));
@@ -26,16 +28,16 @@ int test_scheduler(void)
     local_irq_disable();
 
     enqueue_task(task);
-    EXPECT_TRUE(cpu_rq.nr_running > 0);
-    EXPECT_TRUE(!list_empty(&cpu_rq.tasks));
+    EXPECT_TRUE(rq->nr_running > 0);
+    EXPECT_TRUE(!list_empty(&rq->tasks));
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
-    next = pick_next_task(prev);
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    spin_lock_irqsave(&rq->lock, flags);
+    next = pick_next_task(rq, prev);
+    spin_unlock_irqrestore(&rq->lock, flags);
     EXPECT_TRUE(next == task);
 
     dequeue_task(task);
-    EXPECT_TRUE(cpu_rq.nr_running == 0);
+    EXPECT_TRUE(rq->nr_running == 0);
 
     local_irq_enable();
 

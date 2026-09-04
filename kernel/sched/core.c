@@ -27,12 +27,6 @@ struct task_struct idle_tasks[NR_CPUS] = {
 
 static spinlock_t tasklist_lock = SPINLOCK_INIT;
 static struct list_head all_tasks = LIST_HEAD_INIT(all_tasks);
-struct rq cpu_rq = {
-    .lock = SPINLOCK_INIT,
-    .tasks = { &cpu_rq.tasks, &cpu_rq.tasks },
-    .curr = NULL,
-    .nr_running = 0,
-};
 
 /* Exported for prepare_kstack_el0 in assembler (UP: CPU0 only). */
 struct task_struct *cpu_current_export;
@@ -107,54 +101,62 @@ void sched_block(enum task_state state)
     dequeue_task(task);
 }
 
-static void enqueue_task_locked(struct task_struct *task)
+static void enqueue_task_locked(struct rq *rq,
+                                struct task_struct *task)
 {
     if (list_is_linked(&task->run_list))
         return;
 
     task->state = TASK_RUNNING;
     task->time_slice = SCHED_TIME_SLICE;
-    list_add_tail(&task->run_list, &cpu_rq.tasks);
-    cpu_rq.nr_running++;
+    list_add_tail(&task->run_list, &rq->tasks);
+    rq->nr_running++;
 }
 
 void enqueue_task(struct task_struct *task)
 {
+    unsigned int cpu = smp_processor_id();
+    struct rq *rq = &cpu_data[cpu].rq;
     unsigned long flags;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
-    enqueue_task_locked(task);
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    spin_lock_irqsave(&rq->lock, flags);
+    enqueue_task_locked(rq, task);
+    spin_unlock_irqrestore(&rq->lock, flags);
 }
 
-static void dequeue_task_locked(struct task_struct *task)
+static void dequeue_task_locked(struct rq *rq,
+                                struct task_struct *task)
 {
     if (!task || !list_is_linked(&task->run_list))
         return;
 
     list_del_init(&task->run_list);
-    if (cpu_rq.nr_running)
-        cpu_rq.nr_running--;
+    if (rq->nr_running)
+        rq->nr_running--;
 }
 
 void dequeue_task(struct task_struct *task)
 {
+    unsigned int cpu = smp_processor_id();
+    struct rq *rq = &cpu_data[cpu].rq;
     unsigned long flags;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
-    dequeue_task_locked(task);
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    spin_lock_irqsave(&rq->lock, flags);
+    dequeue_task_locked(rq, task);
+    spin_unlock_irqrestore(&rq->lock, flags);
 }
 
-struct task_struct *pick_next_task(struct task_struct *prev)
+struct task_struct *pick_next_task(struct rq *rq,
+                                   struct task_struct *prev)
 {
-    struct list_head *head = &cpu_rq.tasks;
+    struct list_head *head = &rq->tasks;
     struct list_head *pos;
+    struct task_struct *idle = idle_task();
 
     if (list_empty(head))
-        return idle_task();
+        return idle;
 
-    if (prev && prev != idle_task() && list_is_linked(&prev->run_list))
+    if (prev && prev != idle && list_is_linked(&prev->run_list))
         pos = prev->run_list.next;
     else
         pos = head->next;
@@ -167,7 +169,12 @@ struct task_struct *pick_next_task(struct task_struct *prev)
 
 void sched_init(void)
 {
-    sched_init_idle(0);
+    unsigned int cpu;
+
+    for (cpu = 0; cpu < NR_CPUS; cpu++) {
+        rq_init(&cpu_data[cpu].rq);
+        sched_init_idle(cpu);
+    }
 }
 
 void sched_init_idle(unsigned int cpu)
@@ -224,17 +231,20 @@ static void context_switch(struct task_struct *prev, struct task_struct *next)
 
 void schedule(void)
 {
-    struct task_struct *prev = current;
+    unsigned int cpu = smp_processor_id();
+    struct rq *rq = &cpu_data[cpu].rq;
+    struct task_struct *prev = get_current();
     struct task_struct *next;
     unsigned long flags;
 
-    spin_lock_irqsave(&cpu_rq.lock, flags);
-    cpu_rq.curr = prev;
-    next = pick_next_task(prev);
-    spin_unlock_irqrestore(&cpu_rq.lock, flags);
+    spin_lock_irqsave(&rq->lock, flags);
+    rq->curr = prev;
+    next = pick_next_task(rq, prev);
+    spin_unlock_irqrestore(&rq->lock, flags);
 
     if (next == prev)
         return;
 
     context_switch(prev, next);
 }
+
