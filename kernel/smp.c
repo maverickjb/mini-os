@@ -22,14 +22,6 @@ unsigned int nr_cpus = NR_CPUS;
 
 static volatile unsigned char cpu_online[NR_CPUS];
 
-unsigned int smp_processor_id(void)
-{
-    unsigned long mpidr;
-
-    __asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
-    return (unsigned int)(mpidr & 0xff);
-}
-
 void smp_init(void)
 {
     unsigned int i;

@@ -8,6 +8,7 @@
 #include <linux/tty.h>
 #include <linux/tick.h>
 #include <linux/fs.h>
+#include <linux/printk.h>
 #include <asm/smp.h>
 
 #include <linux/gfp.h>
@@ -30,68 +31,51 @@ static void rest_init(void)
 
     init = kernel_thread(kernel_init, 0);
     if (!init) {
-        uart_puts("kernel_thread failed\n");
+        pr_err("kernel_thread failed\n");
         return;
     }
 
     wake_up_process(init);
     enqueue_task(init);
 
-    uart_puts("Rest init: PID 1 created, boot thread -> idle\n");
-}
-
-static unsigned int cpu_id(void)
-{
-    unsigned long mpidr;
-
-    __asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
-    return (unsigned int)(mpidr & 0xff);
+    pr_info("Rest init: PID 1 created, boot thread -> idle\n");
 }
 
 void start_kernel(void)
 {
-    unsigned int id = cpu_id();
+    serial_init();
+    time_init();
+    tty_init();
 
-    if (id == 0) {
-        serial_init();
-        time_init();
-        tty_init();
+    smp_init();
+    bringup_nonboot_cpus();
 
-        uart_puts("Hello from CPU0\n");
-        smp_init();
-        bringup_nonboot_cpus();
+    pr_info("All secondary CPUs are online\n");
 
-        page_alloc_init();
-        slub_init();
-        mmap_init();
+    page_alloc_init();
+    slub_init();
+    mmap_init();
 
-        ramfs_init();
-        dcache_init();
+    ramfs_init();
+    dcache_init();
 
-        if ((unsigned long)__initramfs_end > (unsigned long)__initramfs_start) {
-            unsigned long size = (unsigned long)(__initramfs_end -
-                                                   __initramfs_start);
-            int err = unpack_to_rootfs(__initramfs_start, size);
+    if ((unsigned long)__initramfs_end > (unsigned long)__initramfs_start) {
+        unsigned long size = (unsigned long)(__initramfs_end -
+                                               __initramfs_start);
+        int err = unpack_to_rootfs(__initramfs_start, size);
 
-            if (err)
-                uart_puts("unpack_to_rootfs failed\n");
-            else
-                uart_puts("unpack_to_rootfs: ok\n");
-        }
-
-        proc_init();
-        devnull_init();
-
-        sched_init();
-        run_kernel_tests();
-        rest_init();
-
-        for (unsigned int i = 0; i < NR_CPUS; i++) {
-            uart_puts("CPU");
-            uart_putc('0' + (char)i);
-            uart_puts(" idle task (PID 0) ready\n");
-        }
+        if (err)
+            pr_err("unpack_to_rootfs failed\n");
+        else
+            pr_info("unpack_to_rootfs: ok\n");
     }
+
+    proc_init();
+    devnull_init();
+
+    sched_init();
+    run_kernel_tests();
+    rest_init();
 
     cpu_idle();
 }
@@ -100,14 +84,12 @@ static void ramfs_list_entry(const char *name, struct inode *inode, void *arg)
 {
     (void)arg;
 
-    uart_puts("  ");
-    uart_puts(name);
-    uart_puts(inode_is_dir(inode) ? "/\n" : "\n");
+    pr_info("  %s%s\n", name, inode_is_dir(inode) ? "/" : "");
 }
 
 void initramfs_show(void)
 {
-    uart_puts("rootfs listing:\n");
+    pr_info("rootfs listing:\n");
     ramfs_readdir(ramfs_root(), ramfs_list_entry, 0);
 }
 
@@ -129,7 +111,7 @@ void kernel_init(void *arg)
 
     (void)arg;
 
-    uart_puts("Init (PID 1) running\n");
+    pr_info("Init (PID 1) running\n");
 
     init_stdio(current);
 
@@ -139,7 +121,7 @@ void kernel_init(void *arg)
     if (ret == 0)
         return;
 
-    uart_puts("Failed to execute /init\n");
+    pr_err("Failed to execute /init\n");
 
     for (;;)
         __asm__ volatile("wfi");
