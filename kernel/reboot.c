@@ -14,20 +14,14 @@ static void kernel_restart(void)
 {
     pr_info("Restarting system...\n");
     local_irq_disable();
-
-    for (;;)
-        (void)psci_hvc(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
+    psci_system_reset();
 }
 
 static void kernel_poweroff(void)
 {
     pr_info("Powering off...\n");
     local_irq_disable();
-
-    psci_hvc(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
-
-    for (;;)
-        __asm__ volatile("wfi");
+    psci_system_off();
 }
 
 void kernel_init_shutdown(int sig)

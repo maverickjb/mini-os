@@ -1,10 +1,13 @@
 #ifndef _ASM_PSCI_H
 #define _ASM_PSCI_H
 
-#define PSCI_0_2_FN_SYSTEM_OFF   0x84000008UL
-#define PSCI_0_2_FN_SYSTEM_RESET 0x84000009UL
+/*
+ * PSCI 0.2 client API (HVC conduit on QEMU virt).
+ * Callers use these helpers; the SMC/HVC invoke path stays private.
+ */
 
-unsigned long psci_hvc(unsigned long fn, unsigned long arg0,
-                       unsigned long arg1, unsigned long arg2);
+int psci_cpu_on(unsigned long cpu, unsigned long entry);
+void psci_system_off(void) __attribute__((noreturn));
+void psci_system_reset(void) __attribute__((noreturn));
 
 #endif /* _ASM_PSCI_H */

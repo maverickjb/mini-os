@@ -157,36 +157,19 @@ hang:
     b       hang
 
 secondary_park:
-    mrs     x0, mpidr_el1
-    and     x0, x0, #0xff
-
-    ldr     x3, =PHYS_VIRT_OFFSET
-
-    /* Per-CPU stack + VBAR before WFE (timer IRQ safe). */
-    ldr     x1, =__per_cpu_stacks
-    sub     x1, x1, x3
-    ldr     x2, =__per_cpu_stack_size
-    mul     x4, x0, x2
-    add     x1, x1, x4
-    add     sp, x1, x2
-
-    ldr     x1, =vectors
-    sub     x1, x1, x3
-    msr     vbar_el1, x1
-    isb
-
-1:
-    ldr     x1, =cpu_release
-    sub     x1, x1, x3
-    ldr     x2, [x1, x0, lsl #3]
-    cbz     x2, 2f
-    isb
-    br      x2
-2:
+    /*
+     * With PSCI, non-boot CPUs should not reach _start. If they do, park
+     * here; CPU_ON targets secondary_startup directly.
+     */
     wfe
-    b       1b
+    b       secondary_park
 
+/*
+ * PSCI CPU_ON entry — physical address, MMU off. x0 holds context_id.
+ */
+.global secondary_entry
 .global secondary_startup
+secondary_entry:
 secondary_startup:
     mrs     x0, mpidr_el1
     and     x0, x0, #0xff

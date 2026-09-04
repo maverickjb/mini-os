@@ -194,7 +194,7 @@ Unknown numbers return `-ENOSYS`.
 ### Reboot and power off
 
 - `kernel/reboot.c` — `reboot(2)` with Linux magic numbers; `RESTART` / `HALT` / `POWER_OFF`.
-- `kernel/psci.c` — PSCI 0.2 `SYSTEM_RESET` / `SYSTEM_OFF` via HVC (QEMU `virt` firmware).
+- `kernel/psci.c` — PSCI 0.2 client: `psci_cpu_on`, `psci_system_reset`, `psci_system_off` (HVC on QEMU `virt`).
 - BusyBox applets `halt`, `poweroff`, and `reboot -f` exercise the `reboot(2)` path; non-`-f` shutdown sends a signal to PID 1, handled in `do_signal()`.
 
 ### Virtual memory, SLUB, and ELF
@@ -257,7 +257,7 @@ There is no block layer, no ext4, no mount table beyond “everything is ramfs (
 - `kernel/printk.c` — `printk()` and Linux-style `pr_info` / `pr_err` / … macros (`include/linux/printk.h`); output goes to UART with `KERN_*` level prefixes.
 - `lib/vsnprintf.c` — minimal formatter (`%d`, `%u`, `%x`, `%lx`, `%p`, `%s`, `%c`, `%%`) used by `printk`.
 - `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), blocking read via `wait_event_interruptible`, winsize stub.
-- `kernel/smp.c` — start secondary CPUs. They print a hello and idle. User tasks currently run on CPU0’s scheduling path.
+- `kernel/smp.c` — bring up secondary CPUs with `psci_cpu_on`. They idle on their own stacks. User tasks currently run on CPU0’s scheduling path.
 
 PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
 

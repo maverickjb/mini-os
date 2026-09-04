@@ -10,6 +10,9 @@ ENTRY(_start)
 KERNEL_VIRT_BASE = 0xffff800080000000;
 KERNEL_PHYS_BASE = 0x40000000;
 
+/* Absolute — must not be assigned inside an output section (would become a VMA). */
+__per_cpu_stack_size = 0x4000;
+
 PHDRS
 {
     text PT_LOAD FLAGS(5); /* PF_R | PF_X */
@@ -58,7 +61,6 @@ SECTIONS
         _stack_top = .;
 
         . = ALIGN(16);
-        __per_cpu_stack_size = 0x4000;
         __per_cpu_stacks = .;
         . += __per_cpu_stack_size * 4;
     }

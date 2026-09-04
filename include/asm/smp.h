@@ -3,6 +3,8 @@
 
 #define NR_CPUS 4
 
+extern unsigned int nr_cpus;
+
 unsigned int smp_processor_id(void);
 
 void smp_init(void);

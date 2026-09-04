@@ -61,12 +61,6 @@ void start_kernel(void)
         smp_init();
         bringup_nonboot_cpus();
 
-        for (unsigned int i = 1; i < NR_CPUS; i++) {
-            uart_puts("Hello from CPU");
-            uart_putc('0' + (char)i);
-            uart_puts("\n");
-        }
-
         page_alloc_init();
         slub_init();
         mmap_init();
