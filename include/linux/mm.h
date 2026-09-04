@@ -2,6 +2,7 @@
 #define __LINUX_MM_H
 
 #include <linux/mm_types.h>
+#include <asm/ptrace.h>
 
 /* Internal page-table protection bits (also match Linux PROT_*). */
 #define MAP_PROT_READ   (1UL << 0)
@@ -50,5 +51,8 @@ struct vm_area_struct *dup_vma_list(struct vm_area_struct *src);
 void free_all_vmas(struct mm_struct *mm);
 int vma_record(struct mm_struct *mm, unsigned long start, unsigned long end,
                unsigned long vm_flags);
+
+int do_page_fault(struct mm_struct *mm, unsigned long addr, unsigned long esr);
+void do_data_abort(struct pt_regs *regs);
 
 #endif /* __LINUX_MM_H */

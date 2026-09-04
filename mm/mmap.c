@@ -4,6 +4,7 @@
 
 #include <linux/mm.h>
 #include <asm/memory.h>
+#include <asm/sysreg.h>
 #include <linux/gfp.h>
 #include <linux/slab.h>
 #include <linux/errno.h>
@@ -707,7 +708,6 @@ long do_brk(struct mm_struct *mm, unsigned long newbrk)
 {
     unsigned long oldbrk;
     unsigned long addr;
-    unsigned long end;
     unsigned long stack_limit;
     struct vm_area_struct *heap_vma;
 
@@ -739,35 +739,14 @@ long do_brk(struct mm_struct *mm, unsigned long newbrk)
             if (vma_record(mm, mm->start_brk, new_end,
                            MAP_PROT_READ | MAP_PROT_WRITE) < 0)
                 return (long)oldbrk;
-            heap_vma = find_heap_vma(mm);
         } else if (new_end > heap_vma->vm_end) {
             heap_vma->vm_end = new_end;
         }
 
-        addr = (oldbrk + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
-        end = new_end;
-
-        for (; addr < end; addr += PAGE_SIZE) {
-            void *page;
-            unsigned long phys;
-            int err;
-
-            if (va_mapped(mm, addr))
-                continue;
-
-            page = alloc_pages(0);
-            if (!page)
-                return (long)oldbrk;
-
-            page_zero((unsigned long *)page);
-            phys = __virt_to_phys((unsigned long)page);
-            err = map_page(mm, addr, phys,
-                           MAP_PROT_READ | MAP_PROT_WRITE);
-            if (err) {
-                free_pages(page, 0);
-                return (long)oldbrk;
-            }
-        }
+        /*
+         * Demand paging: only grow the heap VMA here. Physical pages
+         * are allocated in do_page_fault on first access.
+         */
     } else {
         unsigned long old_end;
         unsigned long new_end;
@@ -789,8 +768,6 @@ long do_brk(struct mm_struct *mm, unsigned long newbrk)
     }
 
     mm->brk = newbrk;
-    __asm__ volatile("dsb sy" ::: "memory");
-    tlb_flush_all();
     return (long)newbrk;
 }
 
@@ -834,6 +811,9 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
         err = vma_erase_range(mm, va, va + len);
         if (err)
             return err;
+
+        for (end = va; end < va + len; end += PAGE_SIZE)
+            unmap_page(mm, end);
     }
 
     vma = vma_alloc(va, va + len, map_prot);
@@ -846,35 +826,10 @@ long do_mmap(struct mm_struct *mm, unsigned long addr, unsigned long len,
         return err;
     }
 
-    for (end = va; end < va + len; end += PAGE_SIZE) {
-        void *page;
-        unsigned long phys;
-
-        if (va_mapped(mm, end)) {
-            if (flags & MAP_FIXED) {
-                err = set_page_prot(mm, end, map_prot);
-                if (err)
-                    return err;
-            }
-            continue;
-        }
-
-        page = alloc_pages(0);
-        if (!page)
-            return -ENOMEM;
-
-        page_zero((unsigned long *)page);
-        phys = __virt_to_phys((unsigned long)page);
-        err = map_page(mm, end, phys, map_prot);
-        if (err) {
-            free_pages(page, 0);
-            return err;
-        }
-    }
-
-    __asm__ volatile("dsb sy" ::: "memory");
-    tlb_flush_all();
-
+    /*
+     * Demand paging: only record the VMA here. Physical pages are
+     * allocated in do_page_fault when the process first touches them.
+     */
     if (va + len > mm->mmap_base)
         mm->mmap_base = va + len;
 
@@ -934,5 +889,59 @@ long ksys_mprotect(unsigned long addr, unsigned long len, unsigned long prot)
             return err;
     }
 
+    return 0;
+}
+
+int do_page_fault(struct mm_struct *mm, unsigned long addr, unsigned long esr)
+{
+    struct vm_area_struct *vma;
+    unsigned long va;
+    unsigned long ec;
+    int write;
+    void *page;
+    unsigned long phys;
+    int err;
+
+    if (!mm)
+        return -EFAULT;
+
+    va = addr & PAGE_MASK;
+    ec = esr_get_ec(esr);
+    write = !!(esr & ESR_ELx_WNR);
+
+    vma = find_vma(mm, addr);
+    if (!vma || addr < vma->vm_start)
+        return -EFAULT;
+
+    if (ec == ESR_ELx_EC_IABT_LOW) {
+        if (!(vma->vm_flags & VM_EXEC))
+            return -EFAULT;
+    } else if (write) {
+        if (!(vma->vm_flags & VM_WRITE))
+            return -EFAULT;
+    } else {
+        if (!(vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC)))
+            return -EFAULT;
+    }
+
+    /* Already mapped: permission / other fault — not demand-fill. */
+    if (va_mapped(mm, va))
+        return -EFAULT;
+
+    page = alloc_pages(0);
+    if (!page)
+        return -ENOMEM;
+
+    page_zero((unsigned long *)page);
+    phys = __virt_to_phys((unsigned long)page);
+
+    err = map_page(mm, va, phys, vma->vm_flags);
+    if (err) {
+        free_pages(page, 0);
+        return err;
+    }
+
+    __asm__ volatile("dsb sy" ::: "memory");
+    tlb_flush_page(va);
     return 0;
 }

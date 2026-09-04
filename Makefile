@@ -24,7 +24,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            fs/binfmt.c fs/open.c fs/stat.c fs/readdir.c fs/pipe.c fs/namei.c \
            fs/dcache.c fs/procfs.c fs/dev.c fs/devnull.c fs/devtty.c \
            fs/devconsole.c \
-           mm/mmap.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
+           mm/mmap.c mm/fault.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
            lib/vsnprintf.c lib/rbtree.c \
            tests/kernel/test_main.c tests/kernel/list_test.c \
            tests/kernel/rbtree_test.c tests/kernel/spinlock_test.c \

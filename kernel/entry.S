@@ -177,9 +177,13 @@ sync_el0_entry:
 sync_el0_fault:
     add     x19, sp, #SYNC_C_STACK
     mov     x0, x19
-    mov     x1, x23
-    bl      report_el0_fault
-    b       exc_hang
+    bl      do_data_abort
+    /*
+     * Fault resolved (demand page filled). Retry the faulting
+     * instruction — ELR still points at it.
+     */
+    mov     x0, x19
+    bl      finish_eret
 
 /*
  * IRQ from EL0 or EL1 — pt_regs on current kernel stack (SP_EL1).
