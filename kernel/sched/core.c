@@ -54,7 +54,6 @@ void rq_init(struct rq *rq)
 {
     spin_lock_init(&rq->lock);
     INIT_LIST_HEAD(&rq->tasks);
-    rq->curr = NULL;
     rq->nr_running = 0;
 }
 
@@ -102,13 +101,16 @@ void sched_block(enum task_state state)
 }
 
 static void enqueue_task_locked(struct rq *rq,
-                                struct task_struct *task)
+                                struct task_struct *task,
+                                unsigned int cpu)
 {
     if (list_is_linked(&task->run_list))
         return;
 
     task->state = TASK_RUNNING;
     task->time_slice = SCHED_TIME_SLICE;
+    task->cpu = cpu;
+
     list_add_tail(&task->run_list, &rq->tasks);
     rq->nr_running++;
 }
@@ -120,7 +122,7 @@ void enqueue_task(struct task_struct *task)
     unsigned long flags;
 
     spin_lock_irqsave(&rq->lock, flags);
-    enqueue_task_locked(rq, task);
+    enqueue_task_locked(rq, task, cpu);
     spin_unlock_irqrestore(&rq->lock, flags);
 }
 
@@ -137,9 +139,18 @@ static void dequeue_task_locked(struct rq *rq,
 
 void dequeue_task(struct task_struct *task)
 {
-    unsigned int cpu = smp_processor_id();
-    struct rq *rq = &cpu_data[cpu].rq;
+    unsigned int cpu;
+    struct rq *rq;
     unsigned long flags;
+
+    if (!task)
+        return;
+
+    cpu = task->cpu;
+    if (cpu >= NR_CPUS)
+        return;
+
+    rq = &cpu_data[cpu].rq;
 
     spin_lock_irqsave(&rq->lock, flags);
     dequeue_task_locked(rq, task);
@@ -180,6 +191,7 @@ void sched_init(void)
 void sched_init_idle(unsigned int cpu)
 {
     idle_tasks[cpu].daif = 0x3c0UL; /* masked until idle enables IRQs */
+    idle_tasks[cpu].cpu = cpu;
     INIT_LIST_HEAD(&idle_tasks[cpu].run_list);
     cpu_data[cpu].idle = &idle_tasks[cpu];
     cpu_data[cpu].curr = &idle_tasks[cpu];
@@ -238,7 +250,6 @@ void schedule(void)
     unsigned long flags;
 
     spin_lock_irqsave(&rq->lock, flags);
-    rq->curr = prev;
     next = pick_next_task(rq, prev);
     spin_unlock_irqrestore(&rq->lock, flags);
 

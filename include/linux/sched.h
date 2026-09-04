@@ -49,7 +49,6 @@ struct cpu_context {
 struct rq {
     spinlock_t lock;
     struct list_head tasks;
-    struct task_struct *curr;
     unsigned int nr_running;
 };
 
@@ -64,6 +63,7 @@ struct task_struct {
     struct mm_struct *mm;
     struct file *files[NR_OPEN];
     unsigned long close_on_exec; /* bit i => FD_CLOEXEC on files[i] */
+	unsigned int cpu;
     struct list_head run_list;
     struct list_head task_list;
     struct task_struct *parent;

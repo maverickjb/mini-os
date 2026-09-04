@@ -32,6 +32,7 @@ static void cpu_init(unsigned int cpu)
     cpu_data[cpu].id = cpu;
     cpu_data[cpu].idle = &idle_tasks[cpu];
     cpu_data[cpu].curr = &idle_tasks[cpu];
+    rq_init(&cpu_data[cpu].rq);
     sched_init_idle(cpu);
 }
 

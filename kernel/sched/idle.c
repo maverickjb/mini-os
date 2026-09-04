@@ -20,7 +20,7 @@ void cpu_idle(void)
     pr_info("CPU%u: idle task running\n", cpu);
 
     for (;;) {
-        if (cpu == 0)
+//        if (cpu == 0)
             schedule();
         if (get_current() == idle)
             __asm__ volatile("wfi");
