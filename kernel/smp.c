@@ -20,9 +20,19 @@ extern void secondary_startup(void);
 
 static volatile unsigned char cpu_online_map[NR_CPUS];
 
+struct cpu cpu_data[NR_CPUS];
+
 static void cpu_mark_online(unsigned int cpu)
 {
     cpu_online_map[cpu] = 1;
+}
+
+static void cpu_init(unsigned int cpu)
+{
+    cpu_data[cpu].id = cpu;
+    cpu_data[cpu].idle = &idle_tasks[cpu];
+    cpu_data[cpu].curr = &idle_tasks[cpu];
+    sched_init_idle(cpu);
 }
 
 void smp_init(void)
@@ -31,9 +41,10 @@ void smp_init(void)
 
     for (cpu = 0; cpu < NR_CPUS; cpu++) {
         cpu_online_map[cpu] = 0;
+        cpu_init(cpu);
     }
 
-    cpu_online_map[0] = 1;
+    cpu_mark_online(0);
 
     pr_info("SMP: boot CPU is CPU0\n");
 }
@@ -79,7 +90,7 @@ int cpu_up(unsigned int cpu)
     }
 
     pr_info("CPU%u: online\n", cpu);
-    
+
     return 0;
 }
 
@@ -101,8 +112,9 @@ void secondary_main(void)
 {
     unsigned int cpu = smp_processor_id();
 
+    pr_info("CPU%u: secondary CPU started\n", cpu);
+
     cpu_mark_online(cpu);
 
-    for (;;)
-        asm volatile("wfi");
+    cpu_idle();
 }

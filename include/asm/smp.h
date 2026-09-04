@@ -3,6 +3,17 @@
 
 #define NR_CPUS 4
 
+struct task_struct;
+
+struct cpu {
+    unsigned int id;
+    struct task_struct *idle;
+    /* Named curr — `current` clashes with the current-task macro. */
+    struct task_struct *curr;
+};
+
+extern struct cpu cpu_data[NR_CPUS];
+
 /*
  * always_inline: at -O0 GCC will not inline a plain static inline and
  * still emits an external call, which then fails to link.

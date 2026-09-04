@@ -25,7 +25,6 @@ struct task_struct idle_tasks[NR_CPUS] = {
     [3] = { .pid = 0, .state = TASK_IDLE },
 };
 
-static struct task_struct *cpu_current[NR_CPUS];
 static spinlock_t tasklist_lock = SPINLOCK_INIT;
 static struct list_head all_tasks = LIST_HEAD_INIT(all_tasks);
 struct rq cpu_rq = {
@@ -40,21 +39,21 @@ struct task_struct *cpu_current_export;
 
 struct task_struct *get_current(void)
 {
-    return cpu_current[smp_processor_id()];
+    return cpu_data[smp_processor_id()].curr;
 }
 
 void set_current(struct task_struct *task)
 {
     unsigned int cpu = smp_processor_id();
 
-    cpu_current[cpu] = task;
+    cpu_data[cpu].curr = task;
     if (cpu == 0)
         cpu_current_export = task;
 }
 
 static struct task_struct *idle_task(void)
 {
-    return &idle_tasks[smp_processor_id()];
+    return cpu_data[smp_processor_id()].idle;
 }
 
 void rq_init(struct rq *rq)
@@ -175,7 +174,8 @@ void sched_init_idle(unsigned int cpu)
 {
     idle_tasks[cpu].daif = 0x3c0UL; /* masked until idle enables IRQs */
     INIT_LIST_HEAD(&idle_tasks[cpu].run_list);
-    cpu_current[cpu] = &idle_tasks[cpu];
+    cpu_data[cpu].idle = &idle_tasks[cpu];
+    cpu_data[cpu].curr = &idle_tasks[cpu];
     if (cpu == 0)
         cpu_current_export = &idle_tasks[cpu];
 }

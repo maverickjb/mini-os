@@ -4,23 +4,20 @@
 
 #include <linux/sched.h>
 #include <linux/sched/task.h>
-#include <linux/serial.h>
+#include <linux/printk.h>
 
 #include <asm/smp.h>
 
 void cpu_idle(void)
 {
     unsigned int cpu = smp_processor_id();
-    struct task_struct *idle = &idle_tasks[cpu];
+    struct cpu *c = &cpu_data[cpu];
+    struct task_struct *idle = c->idle;
 
     set_current(idle);
     idle->state = TASK_IDLE;
 
-    if (cpu == 0) {
-        uart_puts("CPU");
-        uart_putc('0' + (char)cpu);
-        uart_puts(" idle task (PID 0) running\n");
-    }
+    pr_info("CPU%u: idle task running\n", cpu);
 
     for (;;) {
         if (cpu == 0)
