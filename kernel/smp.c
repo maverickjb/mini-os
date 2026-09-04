@@ -18,20 +18,24 @@
 /* Entry stub in head.S — entered with MMU off at its physical address. */
 extern void secondary_startup(void);
 
-unsigned int nr_cpus = NR_CPUS;
+static volatile unsigned char cpu_online_map[NR_CPUS];
 
-static volatile unsigned char cpu_online[NR_CPUS];
+static void cpu_mark_online(unsigned int cpu)
+{
+    cpu_online_map[cpu] = 1;
+}
 
 void smp_init(void)
 {
-    unsigned int i;
+    unsigned int cpu;
 
-    for (i = 0; i < nr_cpus; i++) {
-        cpu_online[i] = 0;
-        sched_init_idle(i);
+    for (cpu = 0; cpu < NR_CPUS; cpu++) {
+        cpu_online_map[cpu] = 0;
     }
 
-    cpu_online[0] = 1;
+    cpu_online_map[0] = 1;
+
+    pr_info("SMP: boot CPU is CPU0\n");
 }
 
 #define CPU_UP_TIMEOUT  1000000U
@@ -40,7 +44,7 @@ static int wait_cpu_online(unsigned int cpu)
 {
     unsigned int spins = 0;
 
-    while (!cpu_online[cpu]) {
+    while (!cpu_online_map[cpu]) {
         if (++spins >= CPU_UP_TIMEOUT)
             return -ETIMEDOUT;
 
@@ -55,10 +59,10 @@ int cpu_up(unsigned int cpu)
     unsigned long entry;
     int ret;
 
-    if (cpu == 0 || cpu >= nr_cpus)
+    if (cpu == 0 || cpu >= NR_CPUS)
         return -EINVAL;
 
-    if (cpu_online[cpu])
+    if (cpu_online_map[cpu])
         return 0;
 
     entry = __virt_to_phys((unsigned long)secondary_startup);
@@ -69,27 +73,35 @@ int cpu_up(unsigned int cpu)
     }
 
     ret = wait_cpu_online(cpu);
-    if (ret)
-        pr_err("CPU%u: timed out waiting to come online\n", cpu);
+    if (ret) {
+        pr_err("CPU%u: failed to come online: %d\n", cpu, ret);
+        return ret;
+    }
 
-    return ret;
+    pr_info("CPU%u: online\n", cpu);
+    
+    return 0;
 }
 
 void bringup_nonboot_cpus(void)
 {
     unsigned int cpu;
+    int ret;
 
-    for (cpu = 1; cpu < nr_cpus; cpu++)
-        (void)cpu_up(cpu);
+    for (cpu = 1; cpu < NR_CPUS; cpu++) {
+        ret = cpu_up(cpu);
+        if (ret) {
+            pr_err("CPU%u: failed to come online: %d\n", cpu, ret);
+            return;
+        }
+    }
 }
 
 void secondary_main(void)
 {
-    unsigned int id = smp_processor_id();
+    unsigned int cpu = smp_processor_id();
 
-    pr_info("CPU%u: Hello\n", id);
-
-    cpu_online[id] = 1;
+    cpu_mark_online(cpu);
 
     for (;;)
         asm volatile("wfi");

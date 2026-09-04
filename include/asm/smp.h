@@ -3,8 +3,6 @@
 
 #define NR_CPUS 4
 
-extern unsigned int nr_cpus;
-
 /*
  * always_inline: at -O0 GCC will not inline a plain static inline and
  * still emits an external call, which then fails to link.
