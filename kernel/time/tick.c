@@ -7,7 +7,6 @@
 #include <linux/sched/task.h>
 #include <linux/sched.h>
 #include <linux/serial.h>
-#include <asm/exception.h>
 #include <asm/irqflags.h>
 
 static unsigned long jiffies;
@@ -93,6 +92,8 @@ void tick_wake_sleepers(void)
 
 void handle_arch_tick(struct pt_regs *regs)
 {
+    (void)regs;
+
     do_timer();
     tick_wake_sleepers();
 
@@ -100,11 +101,12 @@ void handle_arch_tick(struct pt_regs *regs)
     serial_irq();
 
     if (current && current->pid != 0 && current->state == TASK_RUNNING) {
-        current->time_slice--;
-        if (current->time_slice <= 0) {
+        if (current->time_slice > 0)
+            current->time_slice--;
+
+        if (current->time_slice == 0) {
             current->time_slice = SCHED_TIME_SLICE;
-            if (current->is_user && interrupted_el0(regs))
-                schedule();
+            set_need_resched();
         }
     }
 

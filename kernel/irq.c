@@ -5,10 +5,12 @@
 #include <linux/irq.h>
 #include <linux/errno.h>
 #include <linux/tick.h>
+#include <linux/sched.h>
 #include <linux/sched/task.h>
 #include <linux/serial.h>
 #include <asm/ptrace.h>
 #include <asm/memory.h>
+#include <asm/exception.h>
 
 #define GICD_VIRT       ((unsigned long)__phys_to_virt(0x08000000UL))
 #define GICC_VIRT       ((unsigned long)__phys_to_virt(0x08010000UL))
@@ -144,6 +146,17 @@ void irq_enable(unsigned int irq)
     GICD_ISENABLER[word] = 1U << bit;
 }
 
+void irq_exit(struct pt_regs *regs)
+{
+    /*
+     * Timer (and others) only set need_resched; scheduling happens here
+     * once the handler has finished and before returning from the exception.
+     * Restrict to EL0 for now — matches userspace-return scheduling.
+     */
+    if (need_resched() && interrupted_el0(regs))
+        schedule();
+}
+
 void handle_arch_irq(struct pt_regs *regs)
 {
     unsigned int irq;
@@ -170,4 +183,6 @@ void handle_arch_irq(struct pt_regs *regs)
     } else {
         GICC_EOIR = irq;
     }
+
+    irq_exit(regs);
 }

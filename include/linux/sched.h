@@ -68,6 +68,7 @@ struct task_struct {
     struct list_head task_list;
     struct task_struct *parent;
     int time_slice;
+    volatile int need_resched;
     int is_user;
     unsigned long user_sp;
     /* TPIDR_EL0 — musl TLS base; must be saved/restored across switches. */
@@ -104,6 +105,31 @@ struct task_struct {
 
 extern struct task_struct idle_tasks[];
 extern struct task_struct *cpu_current_export;
+
+struct task_struct *get_current(void);
+
+static inline void set_need_resched(void)
+{
+    struct task_struct *task = get_current();
+
+    if (task)
+        task->need_resched = 1;
+}
+
+static inline void clear_need_resched(void)
+{
+    struct task_struct *task = get_current();
+
+    if (task)
+        task->need_resched = 0;
+}
+
+static inline int need_resched(void)
+{
+    struct task_struct *task = get_current();
+
+    return task && task->need_resched;
+}
 
 void rq_init(struct rq *rq);
 void task_list_lock_irqsave(unsigned long *flags);

@@ -79,6 +79,7 @@ static void task_zero(struct task_struct *tsk)
     INIT_LIST_HEAD(&tsk->task_list);
     tsk->parent = NULL;
     tsk->time_slice = 0;
+    tsk->need_resched = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
     tsk->tpidr_el0 = 0;

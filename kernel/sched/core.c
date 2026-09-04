@@ -218,6 +218,7 @@ static void context_switch(struct task_struct *prev, struct task_struct *next)
     prev->daif = daif;
 
     next->time_slice = SCHED_TIME_SLICE;
+    next->need_resched = 0;
 
     set_current(next);
     __asm__ volatile("msr daif, %0" : : "r"(next->daif) : "memory");
@@ -250,6 +251,13 @@ void schedule(void)
     unsigned long flags;
 
     spin_lock_irqsave(&rq->lock, flags);
+    /*
+     * Clear under the rq lock (IRQs off). Clearing earlier races with a
+     * tick that sets need_resched again before we pick; leaving it set
+     * across a switch makes irq_exit() schedule() forever when prev
+     * resumes.
+     */
+    clear_need_resched();
     next = pick_next_task(rq, prev);
     spin_unlock_irqrestore(&rq->lock, flags);
 
