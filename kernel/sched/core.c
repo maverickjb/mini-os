@@ -50,11 +50,12 @@ static struct task_struct *idle_task(void)
     return cpu_data[smp_processor_id()].idle;
 }
 
-void rq_init(struct rq *rq)
+void rq_init(struct rq *rq, unsigned int cpu)
 {
     spin_lock_init(&rq->lock);
     INIT_LIST_HEAD(&rq->tasks);
     rq->nr_running = 0;
+	rq->cpu = cpu;
 }
 
 void task_list_lock_irqsave(unsigned long *flags)
@@ -201,12 +202,7 @@ struct task_struct *pick_next_task(struct rq *rq,
 
 void sched_init(void)
 {
-    unsigned int cpu;
 
-    for (cpu = 0; cpu < NR_CPUS; cpu++) {
-        rq_init(&cpu_data[cpu].rq);
-        sched_init_idle(cpu);
-    }
 }
 
 void sched_init_idle(unsigned int cpu)

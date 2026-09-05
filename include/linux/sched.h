@@ -50,6 +50,7 @@ struct rq {
     spinlock_t lock;
     struct list_head tasks;
     unsigned int nr_running;
+	unsigned int cpu;
 };
 
 struct task_struct {
@@ -131,7 +132,7 @@ static inline int need_resched(void)
     return task && task->need_resched;
 }
 
-void rq_init(struct rq *rq);
+void rq_init(struct rq *rq, unsigned int cpu);
 void task_list_lock_irqsave(unsigned long *flags);
 void task_list_unlock_irqrestore(unsigned long flags);
 struct list_head *task_list_head(void);
