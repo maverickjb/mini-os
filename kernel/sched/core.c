@@ -13,6 +13,8 @@
 #include <linux/sched.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
+#include <linux/errno.h>
+#include <linux/printk.h>
 
 #include <asm/smp.h>
 
@@ -177,6 +179,101 @@ void dequeue_task(struct task_struct *task)
     spin_lock_irqsave(&rq->lock, flags);
     dequeue_task_locked(rq, task);
     spin_unlock_irqrestore(&rq->lock, flags);
+}
+
+int migrate_task(struct task_struct *task, unsigned int new_cpu)
+{
+    unsigned int old_cpu;
+    struct rq *old_rq;
+    struct rq *new_rq;
+    unsigned long flags;
+
+    if (!task)
+        return -EINVAL;
+
+    if (new_cpu >= NR_CPUS)
+        return -EINVAL;
+
+    old_cpu = task->cpu;
+
+    if (old_cpu >= NR_CPUS)
+        return -EINVAL;
+
+    if (old_cpu == new_cpu)
+        return 0;
+
+    old_rq = &cpu_data[old_cpu].rq;
+    new_rq = &cpu_data[new_cpu].rq;
+
+    /*
+     * Lock both runqueues in CPU-number order.
+     * This prevents deadlock when two CPUs migrate tasks
+     * in opposite directions.
+     */
+    if (old_cpu < new_cpu) {
+        spin_lock_irqsave(&old_rq->lock, flags);
+        spin_lock(&new_rq->lock);
+    } else {
+        spin_lock_irqsave(&new_rq->lock, flags);
+        spin_lock(&old_rq->lock);
+    }
+
+    /*
+     * Only migrate a task that is currently runnable.
+     */
+    if (task->state != TASK_RUNNING ||
+        !list_is_linked(&task->run_list)) {
+        if (old_cpu < new_cpu) {
+            spin_unlock(&new_rq->lock);
+            spin_unlock_irqrestore(&old_rq->lock, flags);
+        } else {
+            spin_unlock(&old_rq->lock);
+            spin_unlock_irqrestore(&new_rq->lock, flags);
+        }
+
+        return -EINVAL;
+    }
+
+    list_del_init(&task->run_list);
+
+    if (old_rq->nr_running)
+        old_rq->nr_running--;
+
+    task->cpu = new_cpu;
+
+    list_add_tail(&task->run_list, &new_rq->tasks);
+    new_rq->nr_running++;
+
+    if (old_cpu < new_cpu) {
+        spin_unlock(&new_rq->lock);
+        spin_unlock_irqrestore(&old_rq->lock, flags);
+    } else {
+        spin_unlock(&old_rq->lock);
+        spin_unlock_irqrestore(&new_rq->lock, flags);
+    }
+
+    return 0;
+}
+
+void dump_rq(struct rq *rq)
+{
+    struct list_head *pos;
+    struct task_struct *task;
+
+    if (!rq)
+        return;
+
+    pr_info("CPU %u: nr_running=%u\n",
+            rq->cpu, rq->nr_running);
+
+    list_for_each(pos, &rq->tasks) {
+        task = list_entry(pos, struct task_struct, run_list);
+
+        pr_info("  PID=%d cpu=%u state=%d\n",
+                task->pid,
+                task->cpu,
+                task->state);
+    }
 }
 
 struct task_struct *pick_next_task(struct rq *rq,

@@ -145,6 +145,8 @@ void cpu_idle(void);
 void schedule(void);
 void enqueue_task(struct task_struct *task);
 void dequeue_task(struct task_struct *task);
+int migrate_task(struct task_struct *task, unsigned int new_cpu);
+void dump_rq(struct rq *rq);
 struct task_struct *pick_next_task(struct rq *rq, struct task_struct *prev);
 
 /* Caller must hold tasklist lock via task_list_lock_irqsave(). */
