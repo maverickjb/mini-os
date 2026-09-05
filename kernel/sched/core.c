@@ -104,6 +104,9 @@ static void enqueue_task_locked(struct rq *rq,
                                 struct task_struct *task,
                                 unsigned int cpu)
 {
+    if (!task)
+        return;
+
     if (list_is_linked(&task->run_list))
         return;
 
@@ -115,15 +118,33 @@ static void enqueue_task_locked(struct rq *rq,
     rq->nr_running++;
 }
 
-void enqueue_task(struct task_struct *task)
+void enqueue_task_cpu(struct task_struct *task, unsigned int cpu)
 {
-    unsigned int cpu = smp_processor_id();
-    struct rq *rq = &cpu_data[cpu].rq;
+    struct rq *rq;
     unsigned long flags;
+
+    if (!task)
+        return;
+
+    if (cpu >= NR_CPUS)
+        return;
+
+    rq = &cpu_data[cpu].rq;
 
     spin_lock_irqsave(&rq->lock, flags);
     enqueue_task_locked(rq, task, cpu);
     spin_unlock_irqrestore(&rq->lock, flags);
+}
+
+void enqueue_task(struct task_struct *task)
+{
+    if (!task)
+        return;
+
+    if (task->cpu >= NR_CPUS)
+        task->cpu = smp_processor_id();
+
+    enqueue_task_cpu(task, task->cpu);
 }
 
 static void dequeue_task_locked(struct rq *rq,
