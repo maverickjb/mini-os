@@ -249,8 +249,12 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
 void wake_up_process(struct task_struct *task)
 {
+    if (!task)
+        return;
+
     if (task->state == TASK_RUNNING && list_is_linked(&task->run_list))
         return;
+
     enqueue_task(task);
 }
 

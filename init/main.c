@@ -36,7 +36,6 @@ static void rest_init(void)
     }
 
     wake_up_process(init);
-    enqueue_task(init);
 
     pr_info("Rest init: PID 1 created, boot thread -> idle\n");
 }
