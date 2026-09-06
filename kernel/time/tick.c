@@ -10,6 +10,7 @@
 #include <linux/sched/task.h>
 #include <linux/sched.h>
 #include <linux/serial.h>
+#include <linux/uaccess.h>
 #include <asm/irqflags.h>
 #include <asm/smp.h>
 
@@ -143,5 +144,6 @@ void time_init(void)
     vectors_init();
     init_IRQ();
     tick_init();
+    uaccess_enable();
     local_irq_enable();
 }

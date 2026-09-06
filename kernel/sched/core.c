@@ -220,10 +220,13 @@ int migrate_task(struct task_struct *task, unsigned int new_cpu)
     }
 
     /*
-     * Only migrate a task that is currently runnable.
+     * Only migrate a task that is currently runnable on the source rq,
+     * and never the task that CPU is executing right now.
      */
     if (task->state != TASK_RUNNING ||
-        !list_is_linked(&task->run_list)) {
+        !list_is_linked(&task->run_list) ||
+        task->cpu != old_cpu ||
+        task == cpu_data[old_cpu].curr) {
         if (old_cpu < new_cpu) {
             spin_unlock(&new_rq->lock);
             spin_unlock_irqrestore(&old_rq->lock, flags);
@@ -359,9 +362,6 @@ static struct task_struct *pick_migratable_task(struct rq *rq,
             continue;
         if (task->pid == 0)
             continue;
-        /* Secondaries are not yet safe for EL0; keep user tasks on CPU0. */
-        if (task->is_user)
-            continue;
         return task;
     }
 
@@ -468,6 +468,17 @@ static void context_switch(struct task_struct *prev, struct task_struct *next)
          */
         __asm__ volatile("msr sp_el0, %0" : : "r"(next->user_sp));
         __asm__ volatile("msr tpidr_el0, %0" : : "r"(next->tpidr_el0));
+    } else {
+        /* Drop any previous user AS while running idle / kthreads. */
+        __asm__ volatile(
+            "msr ttbr0_el1, %0\n"
+            "isb\n"
+            "tlbi vmalle1\n"
+            "dsb ish\n"
+            "isb\n"
+            :
+            : "r"(0UL)
+            : "memory");
     }
 
     /*
@@ -484,7 +495,9 @@ void schedule(void)
     struct rq *rq = &cpu_data[cpu].rq;
     struct task_struct *prev = get_current();
     struct task_struct *next;
+    struct task_struct *idle = idle_task();
     unsigned long flags;
+    int was_empty;
 
     spin_lock_irqsave(&rq->lock, flags);
     /*
@@ -495,9 +508,26 @@ void schedule(void)
      */
     clear_need_resched();
     next = pick_next_task(rq, prev);
+    was_empty = list_empty(&rq->tasks);
     spin_unlock_irqrestore(&rq->lock, flags);
 
+    /*
+     * No local work → pull from a busier CPU (may be a user task on SMP),
+     * then pick again. Pull outside this rq lock; migrate_task takes both.
+     */
+    if (next == idle && was_empty) {
+        if (try_pull_task(cpu)) {
+            spin_lock_irqsave(&rq->lock, flags);
+            next = pick_next_task(rq, prev);
+            spin_unlock_irqrestore(&rq->lock, flags);
+        }
+    }
+
     if (next == prev)
+        return;
+
+    /* Stub / incomplete tasks must not be switched to. */
+    if (next != idle && !next->stack)
         return;
 
     context_switch(prev, next);

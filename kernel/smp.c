@@ -11,6 +11,7 @@
 #include <linux/printk.h>
 #include <linux/smp.h>
 #include <linux/tick.h>
+#include <linux/uaccess.h>
 
 #include <asm/memory.h>
 #include <asm/smp.h>
@@ -124,6 +125,8 @@ void secondary_main(void)
     gic_secondary_init(cpu);
     /* CNTP is per-CPU — program this core's local timer. */
     tick_init_secondary();
+    /* EL0 syscall copy_* needs UAO on this CPU's SCTLR. */
+    uaccess_enable();
     local_irq_enable();
 
     cpu_mark_online(cpu);

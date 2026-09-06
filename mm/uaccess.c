@@ -1,6 +1,6 @@
 #include <linux/uaccess.h>
 
-static void uaccess_enable(void)
+void uaccess_enable(void)
 {
     unsigned long sctlr;
 

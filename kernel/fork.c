@@ -256,6 +256,8 @@ void wake_up_process(struct task_struct *task)
         return;
 
     enqueue_task(task);
+    /* Task may live on another CPU's rq — kick that CPU out of WFI/idle. */
+    resched_cpu(task->cpu);
 }
 
 long ksys_fork(struct pt_regs *regs)
