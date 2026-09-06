@@ -10,7 +10,8 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | --- | --- |
 | Privilege levels | Kernel at EL1, user programs at EL0 |
 | Exception vectors | SVC syscalls and IRQs in `kernel/entry.S` |
-| Tasks / `task_struct` | Round-robin user and kernel threads |
+| Tasks / `task_struct` | Round-robin user and kernel threads on per-CPU runqueues |
+| SMP | 4 CPUs on QEMU virt; PSCI bring-up; reschedule IPI; pull load balance |
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
@@ -23,7 +24,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
 | Synchronization | AArch64 spinlocks; wait queues; `wait_event` helpers |
 | Kernel data structures | Doubly-linked lists, red-black tree (`list.h`, `rbtree`) |
-| Kernel tests | TAP suite at boot (`tests/kernel/`, 6 tests including SLUB) |
+| Kernel tests | TAP suite at boot (`tests/kernel/`, 7 tests including SLUB and load balance) |
 
 Many Linux syscall numbers exist in `include/linux/unistd.h`. Only the ones wired in `kernel/sys.c` actually work.
 
@@ -52,20 +53,21 @@ QEMU is started as:
 qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic -kernel mini-os.elf
 ```
 
-Boot CPU0 brings up three secondary CPUs, unpacks the initramfs, runs the **kernel test suite** (TAP output on UART), creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts.
+Boot CPU0 brings up three secondary CPUs (per-CPU idle, timer, runqueue), unpacks the initramfs, runs the **kernel test suite** (TAP output on UART), creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts. User tasks may be pulled onto secondary CPUs by the idle load balancer.
 
 Early boot prints TAP results like:
 
 ```text
 TAP version 13
-1..6
+1..7
 ok 1 - list
 ok 2 - rbtree
 ok 3 - spinlock
 ok 4 - waitqueue
 ok 5 - scheduler
 ok 6 - slub
-passed: 6
+ok 7 - load_balance
+passed: 7
 failed: 0
 ```
 
@@ -97,10 +99,10 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 ## Layout
 
 ```text
-kernel/     boot, IRQ, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
+kernel/     boot, IRQ, SMP, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
 mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
-drivers/    UART + console TTY
+drivers/    UART + console TTY (SMP-safe locks)
 lib/        string helpers, vsnprintf, red-black tree
 include/    linux/, uapi/linux/, and asm/ headers (Linux-shaped, not Linux)
 tests/      in-kernel unit tests (TAP on UART)
@@ -122,32 +124,37 @@ This is the “CPU trap into the kernel, then `eret` back” story.
 
 ### Interrupts and time
 
-- `kernel/irq.c` — GICv2/GICv3 on QEMU virt; timer IRQ.
-- `kernel/time/tick.c` — ARM generic timer, jiffies, time slice.
+- `kernel/irq.c` — GICv3 on QEMU virt; per-CPU timer PPI; SGI for reschedule IPI (`IPI_RESCHEDULE`).
+- `kernel/time/tick.c` — ARM generic timer on each CPU; `jiffies` / sleeper wakeups / UART RX poll stay on **CPU0** so SMP does not advance time N×.
+- **`need_resched`** — the tick (and reschedule IPI) only set a flag on the current task. `irq_exit()` calls `schedule()` when `need_resched && interrupted_el0`. Idle CPUs still schedule from their WFI loop after an IPI wake.
 
-A tick can preempt a user task (`schedule()` from IRQ). Kernel stacks stay per-task so a syscall or IRQ frame survives a context switch.
+A tick can preempt a user task without calling `schedule()` from the IRQ handler itself. Kernel stacks stay per-task so a syscall or IRQ frame survives a context switch.
 
 ### Scheduling and tasks
 
-- `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, kernel `cpu_context`, user `pt_regs *`, embedded `run_list` / `task_list`, files, cwd, signal mask.
-- `struct rq` — per-runqueue state: `lock`, `tasks` list head, `curr`, `nr_running`. Global `cpu_rq` holds runnable tasks only.
-- `all_tasks` — global task list (sleeping, stopped, zombie, runnable); protected by **`tasklist_lock`**, separate from `cpu_rq.lock`.
-- `kernel/sched/core.c` — round-robin `pick_next_task()`, `enqueue_task` / `dequeue_task`, `sched_block()` (sleep/off-rq), `schedule()` → `switch_to`.
-- `kernel/sched/idle.c` — per-CPU idle (PID 0).
+- `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, `cpu`, `need_resched`, kernel `cpu_context`, user `pt_regs *`, embedded `run_list` / `task_list`, files, cwd, signal mask.
+- `struct rq` — per-CPU runqueue: `lock`, `tasks`, `nr_running`, `cpu`. Embedded in `cpu_data[cpu].rq` (`include/asm/smp.h`).
+- **`current`** — `TPIDR_EL1` holds `&cpu_data[this_cpu]`; `this_cpu_ptr()->curr` is the running task (also used from `prepare_kstack_el0` in asm).
+- `all_tasks` — global task list (sleeping, stopped, zombie, runnable); protected by **`tasklist_lock`**, separate from each `rq.lock`.
+- `kernel/sched/core.c` — round-robin `pick_next_task()`, `enqueue_task` / `enqueue_task_cpu` / `dequeue_task`, `migrate_task()`, `resched_cpu()`, pull-based `try_pull_task()`, `sched_block()`, `schedule()` → `switch_to`.
+- `kernel/sched/idle.c` — per-CPU idle (PID 0); IRQs enabled in `cpu_idle()` so secondaries take timer/IPI.
 - `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
-- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables, VMA list, and file table; `task_attach()` on creation. `task_struct` and `mm_struct` allocated with `kmalloc`.
+- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables, VMA list, and file table; `task_attach()` on creation; `wake_up_process()` enqueues then `resched_cpu(task->cpu)`. `task_struct` and `mm_struct` allocated with `kmalloc`.
 - `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`); `task_detach()` on reap; `kfree(task)` after stack and page tables are released.
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
 
-**Runqueue policy:** only `TASK_RUNNING` tasks sit on `cpu_rq.tasks`. Sleep/stop/exit calls `sched_block()` → `dequeue_task()`; wake paths call `wake_up_process()` → `enqueue_task()`. Non-runnable tasks remain on `all_tasks` for `wait4`, signals, and `/proc` walks.
+**Runqueue policy:** only `TASK_RUNNING` tasks sit on a CPU’s `rq.tasks`. Sleep/stop/exit calls `sched_block()` → `dequeue_task()`; wake paths call `wake_up_process()` → `enqueue_task()` (or `enqueue_task_cpu`) and may IPI the target CPU. Non-runnable tasks remain on `all_tasks` for `wait4`, signals, and `/proc` walks.
+
+**Load balance:** when `schedule()` would run idle on an empty local rq, `try_pull_task()` steals one runnable task from a busier CPU (`source->nr_running > dest->nr_running + 1`), never the source’s `curr` and never its last task. User tasks may run on any online CPU (TTBR0 / UAO set up on secondaries).
 
 States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
 
 ### Synchronization
 
 - `include/linux/spinlock.h` — AArch64 ticketless spinlock via `LDAXR`/`STXR` acquire and `STLR` release; `spin_lock_irqsave` / `spin_unlock_irqrestore` pair with `local_irq_save` / `local_irq_restore` (`include/asm/irqflags.h`).
-- **`cpu_rq.lock`** — protects the runnable runqueue (`cpu_rq.tasks`, `nr_running`, `pick_next_task`, `schedule()`).
-- **`tasklist_lock`** — protects the global `all_tasks` list (`task_attach`, `task_detach`, `for_each_task` walkers). Kept separate from `cpu_rq.lock` so runqueue and task-enumeration locking do not alias (important for SMP).
+- **`rq.lock`** — protects that CPU’s runnable list (`tasks`, `nr_running`, `pick_next_task`, `schedule()`). `migrate_task()` locks two rqs in CPU-id order.
+- **`tasklist_lock`** — protects the global `all_tasks` list (`task_attach`, `task_detach`, `for_each_task` walkers). Kept separate from `rq.lock` so runqueue and task-enumeration locking do not alias.
+- **`uart_lock` / `tty0.lock`** — serialize PL011 MMIO and the console TTY RX ring / termios (see Console below).
 - `include/linux/wait.h` + `kernel/sched/wait.c` — Linux-style wait queues for blocking I/O:
   - `DECLARE_WAITQUEUE` on the stack, `prepare_to_wait` → `schedule` → `finish_wait`.
   - `wait_event(wq, condition)` — sleep until a function-pointer condition is true.
@@ -253,11 +260,11 @@ There is no block layer, no ext4, no mount table beyond “everything is ramfs (
 
 ### Console, printk, and SMP
 
-- `drivers/tty/serial.c` — PL011 UART; `uart_putc` / `uart_puts` / `uart_write` and user `write` to stdout.
+- `drivers/tty/serial.c` — PL011 UART; **`uart_lock`** serializes all MMIO so concurrent `printk` / `tty_write` / RX on different CPUs cannot corrupt TX or wedge the FIFO. `uart_write` / `serial_write_n` hold the lock for a whole string so lines stay intact. RX IRQ drops the lock before `tty_receive_char()` so echo cannot deadlock.
 - `kernel/printk.c` — `printk()` and Linux-style `pr_info` / `pr_err` / … macros (`include/linux/printk.h`); output goes to UART with `KERN_*` level prefixes.
 - `lib/vsnprintf.c` — minimal formatter (`%d`, `%u`, `%x`, `%lx`, `%p`, `%s`, `%c`, `%%`) used by `printk`.
-- `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), blocking read via `wait_event_interruptible`, winsize stub.
-- `kernel/smp.c` — bring up secondary CPUs with `psci_cpu_on`. They idle on their own stacks. User tasks currently run on CPU0’s scheduling path.
+- `drivers/tty/tty.c` — canonical line discipline, echo, job-control signals, termios (`TCGETS`/`TCSETS`), controlling TTY (`TIOCSCTTY`), blocking read via `wait_event_interruptible`, winsize stub. **`tty0.lock`** protects the RX ring, termios flags, and session/pgrp against readers and `serial_irq` on another CPU; echo calls `serial_putc` outside that lock.
+- `kernel/smp.c` — bring up secondary CPUs with `psci_cpu_on`; each gets its own idle task, runqueue, timer, and `TPIDR_EL1`. `send_reschedule_ipi` / `handle_reschedule_ipi` set `need_resched` on the target CPU after migration or wake.
 
 PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
 
@@ -287,6 +294,7 @@ In-kernel unit tests run on CPU0 after `sched_init()` and before PID 1 starts (`
 - `tests/kernel/waitqueue_test.c` — add/remove queue, `wait_event`, `wake_up`.
 - `tests/kernel/scheduler_test.c` — `enqueue_task`, `pick_next_task`, `dequeue_task`.
 - `tests/kernel/slub_test.c` — `kmalloc` / `kfree` (small-object caches and a 4 KiB large alloc).
+- `tests/kernel/load_balance_test.c` — pull-based steal from a busier per-CPU runqueue.
 
 Tests are always linked into `mini-os.elf` (see `Makefile` `SRCS`). To add a test, implement `int test_foo(void)` returning `0` on success, register it in `tests/kernel/test_main.c`, and add the `.c` file to `SRCS`.
 
@@ -302,7 +310,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk, no user SMP load balancing. No mutexes or reader/writer locks yet. No PIE loader, no `ld.so`. No file-backed `mmap`, no COW / shared page tables on fork. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
+No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`, no COW / shared page tables on fork. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 
@@ -310,13 +318,14 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 
 1. `kernel/head.S` → `init/main.c`
 2. `kernel/entry.S` → `kernel/sys.c`
-3. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `mm/slub.c` → `kernel/fork.c` → `kernel/exit.c`
-4. `tests/kernel/test_main.c` and the individual `tests/kernel/*_test.c` files
-5. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
-6. `include/linux/mm_types.h` → `mm/mmap.c` (VMAs, `do_brk` / `do_mmap` / `do_munmap`)
-7. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
-8. `fs/binfmt.c` → `fs/exec.c`
-9. `fs/procfs.c` → `fs/dev.c`
-10. `drivers/tty/tty.c` → `kernel/printk.c`
-11. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
-12. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
+3. `kernel/smp.c` → `include/asm/smp.h` → `kernel/irq.c` → `kernel/time/tick.c`
+4. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `mm/slub.c` → `kernel/fork.c` → `kernel/exit.c`
+5. `tests/kernel/test_main.c` and the individual `tests/kernel/*_test.c` files
+6. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
+7. `include/linux/mm_types.h` → `mm/mmap.c` (VMAs, `do_brk` / `do_mmap` / `do_munmap`)
+8. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
+9. `fs/binfmt.c` → `fs/exec.c`
+10. `fs/procfs.c` → `fs/dev.c`
+11. `drivers/tty/serial.c` → `drivers/tty/tty.c` → `kernel/printk.c`
+12. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
+13. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
