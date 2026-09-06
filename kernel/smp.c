@@ -9,6 +9,7 @@
 #include <linux/errno.h>
 #include <linux/sched/task.h>
 #include <linux/printk.h>
+#include <linux/smp.h>
 
 #include <asm/memory.h>
 #include <asm/smp.h>
@@ -114,6 +115,8 @@ void secondary_main(void)
     unsigned int cpu = smp_processor_id();
 
     pr_info("CPU%u: secondary CPU started\n", cpu);
+
+    gic_secondary_init(cpu);
 
     cpu_mark_online(cpu);
 

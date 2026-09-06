@@ -15,6 +15,7 @@
 #include <linux/list.h>
 #include <linux/errno.h>
 #include <linux/printk.h>
+#include <linux/smp.h>
 
 #include <asm/smp.h>
 
@@ -252,6 +253,9 @@ int migrate_task(struct task_struct *task, unsigned int new_cpu)
         spin_unlock_irqrestore(&new_rq->lock, flags);
     }
 
+    /* Doorbell: ask the destination CPU to reconsider its runqueue. */
+    resched_cpu(new_cpu);
+
     return 0;
 }
 
@@ -274,6 +278,24 @@ void dump_rq(struct rq *rq)
                 task->cpu,
                 task->state);
     }
+}
+
+/*
+ * Ask `cpu` to reconsider scheduling. Same CPU: set need_resched locally.
+ * Other CPU: SGI doorbell — handler only sets need_resched; irq_exit /
+ * idle loop performs schedule().
+ */
+void resched_cpu(unsigned int cpu)
+{
+    if (cpu >= NR_CPUS)
+        return;
+
+    if (cpu == smp_processor_id()) {
+        set_need_resched();
+        return;
+    }
+
+    send_reschedule_ipi(cpu);
 }
 
 struct task_struct *pick_next_task(struct rq *rq,

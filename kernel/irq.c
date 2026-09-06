@@ -8,9 +8,11 @@
 #include <linux/sched.h>
 #include <linux/sched/task.h>
 #include <linux/serial.h>
+#include <linux/smp.h>
 #include <asm/ptrace.h>
 #include <asm/memory.h>
 #include <asm/exception.h>
+#include <asm/smp.h>
 
 #define GICD_VIRT       ((unsigned long)__phys_to_virt(0x08000000UL))
 #define GICC_VIRT       ((unsigned long)__phys_to_virt(0x08010000UL))
@@ -21,6 +23,7 @@
 #define GICD_IGROUPR    ((volatile unsigned int *)(GICD_VIRT + 0x0080))
 #define GICD_ISENABLER  ((volatile unsigned int *)(GICD_VIRT + 0x0100))
 #define GICD_IPRIORITYR ((volatile unsigned char *)(GICD_VIRT + 0x0400))
+#define GICD_SGIR       (*(volatile unsigned int *)(GICD_VIRT + 0x0F00))
 #define GICD_IROUTER    ((volatile unsigned long *)(GICD_VIRT + 0x6000))
 #define GICD_PIDR2      (*(volatile unsigned int *)(GICD_VIRT + 0xFFE8))
 
@@ -47,7 +50,7 @@ static int gicr_wait_ready(unsigned int cpu)
     return timeout ? 0 : -ETIMEDOUT;
 }
 
-static int gic_v3_redist_init(unsigned int cpu, unsigned int irq)
+static int gic_v3_redist_init(unsigned int cpu)
 {
     unsigned char *sgi = gicr_rd_base(cpu) + 0x10000;
     volatile unsigned int *igroupr0 = (volatile unsigned int *)(sgi + 0x0080);
@@ -58,8 +61,10 @@ static int gic_v3_redist_init(unsigned int cpu, unsigned int irq)
         return -ETIMEDOUT;
 
     *igroupr0 = 0xffffffffU;
-    *isenabler0 = 1U << irq;
-    pri[irq] = 0x80;
+    /* SGI 0 (reschedule IPI) + PPI timer */
+    *isenabler0 = (1U << IPI_RESCHEDULE) | (1U << IRQ_TIMER);
+    pri[IPI_RESCHEDULE] = 0x80;
+    pri[IRQ_TIMER] = 0x80;
     return 0;
 }
 
@@ -101,18 +106,31 @@ static int gic_v3_init(void)
     if (gic_v3_dist_init() < 0)
         return -ETIMEDOUT;
 
-    if (gic_v3_redist_init(0, IRQ_TIMER) < 0)
+    if (gic_v3_redist_init(0) < 0)
         return -ETIMEDOUT;
 
     gic_v3_cpu_init();
     return 0;
 }
 
+void gic_secondary_init(unsigned int cpu)
+{
+    if (!gic_is_v3)
+        return;
+
+    if (gic_v3_redist_init(cpu) < 0)
+        return;
+
+    gic_v3_cpu_init();
+}
+
 static void gic_v2_init(void)
 {
     GICD_CTLR = 0;
     GICD_IPRIORITYR[IRQ_TIMER] = 0x80;
+    GICD_IPRIORITYR[IPI_RESCHEDULE] = 0x80;
     GICD_ISENABLER[IRQ_TIMER / 32] = 1U << (IRQ_TIMER % 32);
+    GICD_ISENABLER[0] |= 1U << IPI_RESCHEDULE;
     GICD_CTLR = 1;
 
     GICC_PMR = 0xff;
@@ -146,12 +164,60 @@ void irq_enable(unsigned int irq)
     GICD_ISENABLER[word] = 1U << bit;
 }
 
+/*
+ * Generate an SGI to `cpu`. Scheduler code must not call this directly —
+ * use send_reschedule_ipi() / resched_cpu().
+ *
+ * GICv3: ICC_SGI1R_EL1 with Aff0 targeting (QEMU virt MPIDR Aff0 == cpu).
+ * GICv2: GICD_SGIR CPU target list.
+ */
+void gic_send_sgi(unsigned int cpu, unsigned int sgi)
+{
+    if (cpu >= NR_CPUS || sgi > 15U)
+        return;
+
+    if (gic_is_v3) {
+        unsigned long val;
+
+        /* INTID[27:24] | TargetList bit for Aff0 == cpu */
+        val = ((unsigned long)sgi << 24) | (1UL << cpu);
+        __asm__ volatile("dsb ishst");
+        __asm__ volatile("msr ICC_SGI1R_EL1, %0" : : "r"(val));
+        __asm__ volatile("isb");
+    } else {
+        /* TargetListFilter=0b00, CPUTargetList bit, SGIID */
+        GICD_SGIR = (1U << (16 + cpu)) | sgi;
+    }
+}
+
+void send_reschedule_ipi(unsigned int cpu)
+{
+    gic_send_sgi(cpu, IPI_RESCHEDULE);
+}
+
+void handle_reschedule_ipi(void)
+{
+    set_need_resched();
+}
+
+void handle_ipi(unsigned int ipi)
+{
+    switch (ipi) {
+    case IPI_RESCHEDULE:
+        handle_reschedule_ipi();
+        break;
+    default:
+        break;
+    }
+}
+
 void irq_exit(struct pt_regs *regs)
 {
     /*
-     * Timer (and others) only set need_resched; scheduling happens here
+     * Timer / IPI only set need_resched; scheduling happens here
      * once the handler has finished and before returning from the exception.
      * Restrict to EL0 for now — matches userspace-return scheduling.
+     * Idle CPUs still call schedule() from their WFI loop after IPI wake.
      */
     if (need_resched() && interrupted_el0(regs))
         schedule();
@@ -173,7 +239,9 @@ void handle_arch_irq(struct pt_regs *regs)
     if (irq == 1023U)
         return;
 
-    if (irq == (unsigned int)IRQ_TIMER)
+    if (irq < 16U)
+        handle_ipi(irq);
+    else if (irq == (unsigned int)IRQ_TIMER)
         handle_arch_tick(regs);
     else if (irq == (unsigned int)IRQ_UART)
         serial_irq();
