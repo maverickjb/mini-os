@@ -10,11 +10,13 @@
 #include <linux/sched/task.h>
 #include <linux/printk.h>
 #include <linux/smp.h>
+#include <linux/tick.h>
 
 #include <asm/memory.h>
 #include <asm/smp.h>
 #include <asm/psci.h>
 #include <asm/processor.h>
+#include <asm/irqflags.h>
 
 /* Entry stub in head.S — entered with MMU off at its physical address. */
 extern void secondary_startup(void);
@@ -120,6 +122,9 @@ void secondary_main(void)
     pr_info("CPU%u: secondary CPU started\n", cpu);
 
     gic_secondary_init(cpu);
+    /* CNTP is per-CPU — program this core's local timer. */
+    tick_init_secondary();
+    local_irq_enable();
 
     cpu_mark_online(cpu);
 

@@ -1,5 +1,8 @@
 /*
  * Timekeeping — Linux-inspired names on the ARM Generic Timer.
+ *
+ * CNTP is per-CPU: every online CPU must program its own timer. Global
+ * jiffies / sleeper wakeups stay on CPU0 so SMP does not advance time Nx.
  */
 
 #include <linux/tick.h>
@@ -8,6 +11,7 @@
 #include <linux/sched.h>
 #include <linux/serial.h>
 #include <asm/irqflags.h>
+#include <asm/smp.h>
 
 static unsigned long jiffies;
 static unsigned long timer_freq;
@@ -50,7 +54,18 @@ static void timer_set_delta(unsigned long ticks)
 
 void tick_setup(void)
 {
+    if (!timer_freq)
+        return;
+
     timer_set_delta(timer_freq / HZ);
+}
+
+/* Program this CPU's physical timer (CNTP). timer_freq must already be set. */
+static void tick_cpu_init(void)
+{
+    timer_el1_access_enable();
+    tick_setup();
+    timer_enable();
 }
 
 void tick_init(void)
@@ -59,9 +74,12 @@ void tick_init(void)
     if (timer_freq == 0)
         timer_freq = 62500000UL;
 
-    timer_el1_access_enable();
-    tick_setup();
-    timer_enable();
+    tick_cpu_init();
+}
+
+void tick_init_secondary(void)
+{
+    tick_cpu_init();
 }
 
 void do_timer(void)
@@ -94,11 +112,16 @@ void handle_arch_tick(struct pt_regs *regs)
 {
     (void)regs;
 
-    do_timer();
-    tick_wake_sleepers();
-
-    /* Pick up RX if the PL011 IRQ was missed (FIFO watermark / GIC). */
-    serial_irq();
+    /*
+     * Global timekeeping once per tick period — only CPU0. Every CPU still
+     * reprograms its own CNTP and accounts the local task's time slice.
+     */
+    if (smp_processor_id() == 0) {
+        do_timer();
+        tick_wake_sleepers();
+        /* Pick up RX if the PL011 IRQ was missed (FIFO watermark / GIC). */
+        serial_irq();
+    }
 
     if (current && current->pid != 0 && current->state == TASK_RUNNING) {
         if (current->time_slice > 0)

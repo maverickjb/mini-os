@@ -7,6 +7,7 @@
 
 void time_init(void);
 void tick_init(void);
+void tick_init_secondary(void);
 void tick_setup(void);
 void handle_arch_tick(struct pt_regs *regs);
 void do_timer(void);
