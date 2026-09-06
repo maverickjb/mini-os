@@ -29,7 +29,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            tests/kernel/test_main.c tests/kernel/list_test.c \
            tests/kernel/rbtree_test.c tests/kernel/spinlock_test.c \
            tests/kernel/waitqueue_test.c tests/kernel/scheduler_test.c \
-           tests/kernel/slub_test.c \
+           tests/kernel/slub_test.c tests/kernel/load_balance_test.c \
            fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)

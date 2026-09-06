@@ -11,6 +11,7 @@ int test_spinlock(void);
 int test_waitqueue(void);
 int test_scheduler(void);
 int test_slub(void);
+int test_load_balance(void);
 
 static struct test_case tests[] = {
     { "list",       test_list },
@@ -19,6 +20,7 @@ static struct test_case tests[] = {
     { "waitqueue",  test_waitqueue },
     { "scheduler",  test_scheduler },
     { "slub",       test_slub },
+    { "load_balance", test_load_balance },
 };
 
 void test_pass(const char *name)

@@ -298,6 +298,107 @@ void resched_cpu(unsigned int cpu)
     send_reschedule_ipi(cpu);
 }
 
+/*
+ * Pull-based load balancing: idle/empty CPUs steal from a busier CPU.
+ * Reuses migrate_task(); never steals the source CPU's current task or
+ * its last runnable task.
+ */
+static int find_busiest_cpu(unsigned int this_cpu)
+{
+    unsigned int cpu;
+    unsigned int busiest = this_cpu;
+    unsigned int dest_load;
+    unsigned int max_load;
+    unsigned long flags;
+    struct rq *this_rq = &cpu_data[this_cpu].rq;
+
+    spin_lock_irqsave(&this_rq->lock, flags);
+    dest_load = this_rq->nr_running;
+    spin_unlock_irqrestore(&this_rq->lock, flags);
+
+    /* Worth migrating only if source > dest + 1 */
+    max_load = dest_load + 1;
+
+    for (cpu = 0; cpu < NR_CPUS; cpu++) {
+        struct rq *rq;
+        unsigned int load;
+
+        if (cpu == this_cpu)
+            continue;
+
+        rq = &cpu_data[cpu].rq;
+        spin_lock_irqsave(&rq->lock, flags);
+        load = rq->nr_running;
+        spin_unlock_irqrestore(&rq->lock, flags);
+
+        if (load > max_load) {
+            max_load = load;
+            busiest = cpu;
+        }
+    }
+
+    if (busiest == this_cpu)
+        return -1;
+
+    return (int)busiest;
+}
+
+/* Caller must hold rq->lock. */
+static struct task_struct *pick_migratable_task(struct rq *rq,
+                                               struct task_struct *exclude)
+{
+    struct list_head *pos;
+    struct task_struct *task;
+
+    if (!rq || rq->nr_running <= 1)
+        return NULL;
+
+    list_for_each_prev(pos, &rq->tasks) {
+        task = list_entry(pos, struct task_struct, run_list);
+        if (task == exclude)
+            continue;
+        if (task->pid == 0)
+            continue;
+        /* Secondaries are not yet safe for EL0; keep user tasks on CPU0. */
+        if (task->is_user)
+            continue;
+        return task;
+    }
+
+    return NULL;
+}
+
+int try_pull_task(unsigned int this_cpu)
+{
+    int busiest;
+    struct rq *busiest_rq;
+    struct task_struct *task;
+    struct task_struct *exclude;
+    unsigned long flags;
+
+    if (this_cpu >= NR_CPUS)
+        return 0;
+
+    busiest = find_busiest_cpu(this_cpu);
+    if (busiest < 0)
+        return 0;
+
+    busiest_rq = &cpu_data[busiest].rq;
+
+    spin_lock_irqsave(&busiest_rq->lock, flags);
+    exclude = cpu_data[busiest].curr;
+    task = pick_migratable_task(busiest_rq, exclude);
+    spin_unlock_irqrestore(&busiest_rq->lock, flags);
+
+    if (!task)
+        return 0;
+
+    if (migrate_task(task, this_cpu) != 0)
+        return 0;
+
+    return 1;
+}
+
 struct task_struct *pick_next_task(struct rq *rq,
                                    struct task_struct *prev)
 {

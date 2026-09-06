@@ -73,4 +73,7 @@ static inline int list_is_linked(const struct list_head *entry)
 #define list_for_each(pos, head) \
     for (pos = (head)->next; pos != (head); pos = pos->next)
 
+#define list_for_each_prev(pos, head) \
+    for (pos = (head)->prev; pos != (head); pos = pos->prev)
+
 #endif /* _LINUX_LIST_H */
