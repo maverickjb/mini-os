@@ -1,5 +1,8 @@
 /*
  * PL011 UART console driver for QEMU virt (MMIO 0x09000000).
+ *
+ * All MMIO access is serialized with uart_lock so printk / tty_write /
+ * RX IRQ handlers on different CPUs cannot corrupt the UART or wedge TX.
  */
 
 #include <linux/fs.h>
@@ -7,6 +10,7 @@
 #include <linux/tty.h>
 #include <linux/errno.h>
 #include <linux/stddef.h>
+#include <linux/spinlock.h>
 #include <asm/memory.h>
 
 #define UART0_VIRT      ((unsigned long)__phys_to_virt(0x09000000UL))
@@ -26,49 +30,103 @@
 #define UART_IMSC_RXIM  (1u << 4)
 #define UART_IMSC_RTIM  (1u << 6)
 
-void serial_putc(char c)
+static spinlock_t uart_lock = SPINLOCK_INIT;
+
+static void serial_putc_unlocked(char c)
 {
     if (c == '\n')
-        serial_putc('\r');
+        serial_putc_unlocked('\r');
 
     while (UART_FR & UART_FR_TXFF)
         ;
     UART_DR = (unsigned int)c;
 }
 
-int serial_rx_ready(void)
+static int serial_rx_ready_unlocked(void)
 {
     return !(UART_FR & UART_FR_RXFE);
 }
 
-char serial_getc(void)
+static char serial_getc_unlocked(void)
 {
     return (char)(UART_DR & 0xff);
 }
 
+void serial_putc(char c)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&uart_lock, flags);
+    serial_putc_unlocked(c);
+    spin_unlock_irqrestore(&uart_lock, flags);
+}
+
+int serial_rx_ready(void)
+{
+    unsigned long flags;
+    int ready;
+
+    spin_lock_irqsave(&uart_lock, flags);
+    ready = serial_rx_ready_unlocked();
+    spin_unlock_irqrestore(&uart_lock, flags);
+    return ready;
+}
+
+char serial_getc(void)
+{
+    unsigned long flags;
+    char c;
+
+    spin_lock_irqsave(&uart_lock, flags);
+    c = serial_getc_unlocked();
+    spin_unlock_irqrestore(&uart_lock, flags);
+    return c;
+}
+
 void serial_irq(void)
 {
-    while (serial_rx_ready())
-        tty_receive_char(serial_getc());
+    unsigned long flags;
+    char c;
+
+    spin_lock_irqsave(&uart_lock, flags);
+    while (serial_rx_ready_unlocked()) {
+        c = serial_getc_unlocked();
+        /*
+         * Drop uart_lock before tty_receive_char(): echo may call
+         * serial_putc() and must not deadlock on this lock.
+         */
+        spin_unlock_irqrestore(&uart_lock, flags);
+        tty_receive_char(c);
+        spin_lock_irqsave(&uart_lock, flags);
+    }
     UART_ICR = 0x7ff;
+    spin_unlock_irqrestore(&uart_lock, flags);
 }
 
 void serial_rx_enable(void)
 {
-    while (serial_rx_ready())
-        (void)serial_getc();
+    unsigned long flags;
+
+    spin_lock_irqsave(&uart_lock, flags);
+    while (serial_rx_ready_unlocked())
+        (void)serial_getc_unlocked();
     UART_ICR = 0x7ff;
     /* RXIM plus receive-timeout: a 1-byte FIFO fill does not raise RXIM. */
     UART_IMSC = UART_IMSC_RXIM | UART_IMSC_RTIM;
+    spin_unlock_irqrestore(&uart_lock, flags);
 }
 
 void serial_init(void)
 {
+    unsigned long flags;
+
+    spin_lock_irqsave(&uart_lock, flags);
     UART_CR = 0;
     UART_ICR = 0x7ff;
     /* 8N1, FIFOs off so each byte raises an RX interrupt. */
     UART_LCRH = UART_LCRH_WLEN8;
     UART_CR = UART_CR_UARTEN | UART_CR_TXE | UART_CR_RXE;
+    spin_unlock_irqrestore(&uart_lock, flags);
 }
 
 void uart_putc(char c)
@@ -83,27 +141,42 @@ void uart_puts(const char *s)
 
 void uart_write(const char *s)
 {
+    unsigned long flags;
+
     if (!s)
         return;
 
+    /* Hold the lock across the string so SMP printk lines stay intact. */
+    spin_lock_irqsave(&uart_lock, flags);
     while (*s)
-        uart_putc(*s++);
+        serial_putc_unlocked(*s++);
+    spin_unlock_irqrestore(&uart_lock, flags);
+}
+
+void serial_write_n(const char *buf, unsigned long count)
+{
+    unsigned long i;
+    unsigned long flags;
+
+    if (!buf || !count)
+        return;
+
+    spin_lock_irqsave(&uart_lock, flags);
+    for (i = 0; i < count; i++)
+        serial_putc_unlocked(buf[i]);
+    spin_unlock_irqrestore(&uart_lock, flags);
 }
 
 static long serial_write(struct file *file, const char *buf,
                          unsigned long count, long *pos)
 {
-    unsigned long i;
-
     (void)file;
     (void)pos;
 
     if (!buf)
         return -EFAULT;
 
-    for (i = 0; i < count; i++)
-        serial_putc(buf[i]);
-
+    serial_write_n(buf, count);
     return (long)count;
 }
 
@@ -120,4 +193,3 @@ struct file uart_file = {
     .f_flags = 0,
     .f_mode = 0,
 };
-

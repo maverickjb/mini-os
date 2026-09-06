@@ -3,6 +3,7 @@
 
 #include <linux/types.h>
 #include <linux/wait.h>
+#include <linux/spinlock.h>
 
 struct file;
 struct serial_device;
@@ -87,6 +88,8 @@ struct tty {
     struct user_termios termios;
 
     struct wait_queue_head read_wait;
+    /* Serializes ring + termios against RX IRQ / readers / writers. */
+    spinlock_t lock;
 };
 
 extern struct tty tty0;

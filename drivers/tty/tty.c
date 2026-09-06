@@ -1,5 +1,8 @@
 /*
  * Console TTY — UART-backed, with a small RX ring and foreground pgrp.
+ *
+ * tty0.lock protects the RX ring and termios-derived flags against
+ * concurrent readers and serial_irq() on another CPU.
  */
 
 #include <linux/tty.h>
@@ -13,6 +16,7 @@
 #include <linux/irq.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
+#include <linux/spinlock.h>
 #include <asm/irqflags.h>
 
 struct tty tty0;
@@ -25,7 +29,8 @@ static unsigned int tty_rx_next(unsigned int i)
     return i;
 }
 
-static unsigned int tty_rx_count(void)
+/* Caller must hold tty0.lock. */
+static unsigned int tty_rx_count_locked(void)
 {
     unsigned int n;
 
@@ -36,7 +41,8 @@ static unsigned int tty_rx_count(void)
     return n;
 }
 
-static unsigned int tty_rx_line_length(void)
+/* Caller must hold tty0.lock. */
+static unsigned int tty_rx_line_length_locked(void)
 {
     unsigned int n = 0;
     unsigned int i;
@@ -51,22 +57,38 @@ static unsigned int tty_rx_line_length(void)
     return 0;
 }
 
-static int tty_read_ready(void)
+/* Caller must hold tty0.lock. */
+static int tty_read_ready_locked(void)
 {
     if (tty0.canonical)
-        return tty_rx_line_length() > 0;
+        return tty_rx_line_length_locked() > 0;
 
-    return tty_rx_count() > 0;
+    return tty_rx_count_locked() > 0;
+}
+
+static int tty_read_ready(void)
+{
+    unsigned long flags;
+    int ready;
+
+    spin_lock_irqsave(&tty0.lock, flags);
+    ready = tty_read_ready_locked();
+    spin_unlock_irqrestore(&tty0.lock, flags);
+    return ready;
 }
 
 static void tty_wake_reader(void);
 
 static void tty_apply_termios(const struct user_termios *t)
 {
+    unsigned long flags;
+
+    spin_lock_irqsave(&tty0.lock, flags);
     tty0.termios = *t;
     tty0.canonical = !!(t->c_lflag & ICANON);
     tty0.echo = !!(t->c_lflag & ECHO);
     tty0.isig = !!(t->c_lflag & ISIG);
+    spin_unlock_irqrestore(&tty0.lock, flags);
     tty_wake_reader();
 }
 
@@ -94,19 +116,35 @@ static void tty_wake_reader(void)
 void tty_receive_char(char c)
 {
     unsigned int next;
+    int do_echo = 0;
+    unsigned long flags;
 
     if (c == '\r')
         c = '\n';
 
+    spin_lock_irqsave(&tty0.lock, flags);
+
     if (c == 0x03) {
-        if (tty0.isig && tty0.foreground_pgid)
-            ksys_kill(-(long)tty0.foreground_pgid, SIGINT);
+        if (tty0.isig && tty0.foreground_pgid) {
+            pid_t pgid = tty0.foreground_pgid;
+
+            spin_unlock_irqrestore(&tty0.lock, flags);
+            ksys_kill(-(long)pgid, SIGINT);
+            return;
+        }
+        spin_unlock_irqrestore(&tty0.lock, flags);
         return;
     }
 
     if (c == 0x1a) {
-        if (tty0.isig && tty0.foreground_pgid)
-            ksys_kill(-(long)tty0.foreground_pgid, SIGTSTP);
+        if (tty0.isig && tty0.foreground_pgid) {
+            pid_t pgid = tty0.foreground_pgid;
+
+            spin_unlock_irqrestore(&tty0.lock, flags);
+            ksys_kill(-(long)pgid, SIGTSTP);
+            return;
+        }
+        spin_unlock_irqrestore(&tty0.lock, flags);
         return;
     }
 
@@ -116,7 +154,11 @@ void tty_receive_char(char c)
         tty0.rx_head = next;
     }
 
-    if (tty0.echo)
+    do_echo = tty0.echo;
+    spin_unlock_irqrestore(&tty0.lock, flags);
+
+    /* Echo outside tty lock — serial_putc takes uart_lock. */
+    if (do_echo)
         serial_putc(c);
 
     tty_wake_reader();
@@ -126,6 +168,7 @@ long tty_read(char *buf, unsigned long count)
 {
     unsigned long n;
     unsigned long i;
+    unsigned long flags;
 
     if (!buf)
         return -EFAULT;
@@ -136,10 +179,17 @@ long tty_read(char *buf, unsigned long count)
     if (wait_event_interruptible(&tty0.read_wait, tty_read_ready))
         return -EINTR;
 
+    spin_lock_irqsave(&tty0.lock, flags);
+
+    if (!tty_read_ready_locked()) {
+        spin_unlock_irqrestore(&tty0.lock, flags);
+        return 0;
+    }
+
     if (tty0.canonical)
-        n = tty_rx_line_length();
+        n = tty_rx_line_length_locked();
     else
-        n = tty_rx_count();
+        n = tty_rx_count_locked();
 
     if (n > count)
         n = count;
@@ -149,25 +199,30 @@ long tty_read(char *buf, unsigned long count)
         tty0.rx_tail = tty_rx_next(tty0.rx_tail);
     }
 
+    spin_unlock_irqrestore(&tty0.lock, flags);
+
     return (long)n;
 }
 
 long tty_write(const char *buf, unsigned long count)
 {
-    unsigned long i;
-
     if (!buf)
         return -EFAULT;
 
-    for (i = 0; i < count; i++)
-        serial_putc(buf[i]);
-
+    /* One lock for the whole write so concurrent CPUs don't interleave. */
+    serial_write_n(buf, count);
     return (long)count;
 }
 
 pid_t tty_getpgrp(void)
 {
-    return tty0.foreground_pgid;
+    unsigned long flags;
+    pid_t pgid;
+
+    spin_lock_irqsave(&tty0.lock, flags);
+    pgid = tty0.foreground_pgid;
+    spin_unlock_irqrestore(&tty0.lock, flags);
+    return pgid;
 }
 
 int tty_setpgrp(pid_t pgid)
@@ -176,6 +231,8 @@ int tty_setpgrp(pid_t pgid)
     struct task_struct *task;
     int found = 0;
     unsigned long flags;
+    unsigned long tty_flags;
+    pid_t session;
 
     if (pgid <= 0)
         return -EINVAL;
@@ -183,8 +240,13 @@ int tty_setpgrp(pid_t pgid)
     if (!current)
         return -ENOTTY;
 
-    if (tty0.session_id && current->sid != tty0.session_id)
+    spin_lock_irqsave(&tty0.lock, tty_flags);
+    session = tty0.session_id;
+    if (session && current->sid != session) {
+        spin_unlock_irqrestore(&tty0.lock, tty_flags);
         return -ENOTTY;
+    }
+    spin_unlock_irqrestore(&tty0.lock, tty_flags);
 
     task_list_lock_irqsave(&flags);
     for_each_task(pos, task) {
@@ -194,7 +256,7 @@ int tty_setpgrp(pid_t pgid)
         if (task->pgid != pgid)
             continue;
         found = 1;
-        if (tty0.session_id && task->sid != tty0.session_id) {
+        if (session && task->sid != session) {
             task_list_unlock_irqrestore(flags);
             return -EPERM;
         }
@@ -204,13 +266,16 @@ int tty_setpgrp(pid_t pgid)
     if (!found)
         return -ESRCH;
 
+    spin_lock_irqsave(&tty0.lock, tty_flags);
     tty0.foreground_pgid = pgid;
+    spin_unlock_irqrestore(&tty0.lock, tty_flags);
     return 0;
 }
 
 int tty_sets_controlling(struct file *file, int force)
 {
     struct task_struct *task = current;
+    unsigned long flags;
 
     (void)file;
     (void)force;
@@ -221,23 +286,30 @@ int tty_sets_controlling(struct file *file, int force)
     if (task->sid != task->pid)
         return -ENOTTY;
 
+    spin_lock_irqsave(&tty0.lock, flags);
     tty0.session_id = task->sid;
     tty0.foreground_pgid = task->pgid;
+    spin_unlock_irqrestore(&tty0.lock, flags);
     return 0;
 }
 
 int tty_release_controlling(void)
 {
     struct task_struct *task = current;
+    unsigned long flags;
 
     if (!task || !task->is_user)
         return -ENOTTY;
 
-    if (tty0.session_id != task->sid)
+    spin_lock_irqsave(&tty0.lock, flags);
+    if (tty0.session_id != task->sid) {
+        spin_unlock_irqrestore(&tty0.lock, flags);
         return -ENOTTY;
+    }
 
     tty0.session_id = 0;
     tty0.foreground_pgid = 0;
+    spin_unlock_irqrestore(&tty0.lock, flags);
     return 0;
 }
 
@@ -261,15 +333,23 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
                            unsigned long arg)
 {
     pid_t pgid;
+    unsigned long flags;
 
     (void)file;
 
     switch (cmd) {
-    case TCGETS:
-        if (!arg || copy_to_user((void *)arg, &tty0.termios,
-                                 sizeof(tty0.termios)))
+    case TCGETS: {
+        struct user_termios t;
+
+        if (!arg)
+            return -EFAULT;
+        spin_lock_irqsave(&tty0.lock, flags);
+        t = tty0.termios;
+        spin_unlock_irqrestore(&tty0.lock, flags);
+        if (copy_to_user((void *)arg, &t, sizeof(t)))
             return -EFAULT;
         return 0;
+    }
     case TCSETS: {
         struct user_termios t;
 
@@ -290,7 +370,9 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
     case TIOCSCTTY:
         return tty_sets_controlling(file, (int)arg);
     case TIOCGSID:
+        spin_lock_irqsave(&tty0.lock, flags);
         pgid = tty0.session_id;
+        spin_unlock_irqrestore(&tty0.lock, flags);
         if (copy_to_user((pid_t *)arg, &pgid, sizeof(pgid)))
             return -EFAULT;
         return 0;
@@ -321,8 +403,12 @@ struct file_ops tty_fops = {
 
 void tty_attach_session(pid_t sid, pid_t pgid)
 {
+    unsigned long flags;
+
+    spin_lock_irqsave(&tty0.lock, flags);
     tty0.session_id = sid;
     tty0.foreground_pgid = pgid;
+    spin_unlock_irqrestore(&tty0.lock, flags);
 }
 
 void tty_init(void)
@@ -332,6 +418,7 @@ void tty_init(void)
     tty0.rx_tail = 0;
     tty0.session_id = 0;
     tty0.foreground_pgid = 0;
+    spin_lock_init(&tty0.lock);
     init_waitqueue_head(&tty0.read_wait);
 
     tty_default_termios(&tty0.termios);

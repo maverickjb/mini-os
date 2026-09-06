@@ -12,6 +12,7 @@ void serial_irq(void);
 void uart_putc(char c);
 void uart_puts(const char *s);
 void uart_write(const char *s);
+void serial_write_n(const char *buf, unsigned long count);
 
 extern struct file uart_file;
 
