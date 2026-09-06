@@ -11,6 +11,12 @@
 #define TASK_stack        136
 
 /*
+ * struct cpu — offsets for assembly (must match asm/smp.h).
+ * TPIDR_EL1 points at the current CPU's struct cpu.
+ */
+#define CPU_CURR          48
+
+/*
  * struct task_struct::ctx — must match struct cpu_context in linux/sched.h.
  */
 #define TASK_CTX          16

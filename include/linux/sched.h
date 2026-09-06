@@ -105,7 +105,6 @@ struct task_struct {
 };
 
 extern struct task_struct idle_tasks[];
-extern struct task_struct *cpu_current_export;
 
 struct task_struct *get_current(void);
 

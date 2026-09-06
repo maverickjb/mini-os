@@ -114,6 +114,9 @@ void secondary_main(void)
 {
     unsigned int cpu = smp_processor_id();
 
+    /* Per-CPU base before any IRQ / schedule path uses current. */
+    set_cpu_local(&cpu_data[cpu]);
+
     pr_info("CPU%u: secondary CPU started\n", cpu);
 
     gic_secondary_init(cpu);

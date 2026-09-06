@@ -31,26 +31,26 @@ struct task_struct idle_tasks[NR_CPUS] = {
 static spinlock_t tasklist_lock = SPINLOCK_INIT;
 static struct list_head all_tasks = LIST_HEAD_INIT(all_tasks);
 
-/* Exported for prepare_kstack_el0 in assembler (UP: CPU0 only). */
-struct task_struct *cpu_current_export;
-
 struct task_struct *get_current(void)
 {
-    return cpu_data[smp_processor_id()].curr;
+    struct cpu *cpu = this_cpu_ptr();
+
+    return cpu ? cpu->curr : NULL;
 }
 
 void set_current(struct task_struct *task)
 {
-    unsigned int cpu = smp_processor_id();
+    struct cpu *cpu = this_cpu_ptr();
 
-    cpu_data[cpu].curr = task;
-    if (cpu == 0)
-        cpu_current_export = task;
+    if (cpu)
+        cpu->curr = task;
 }
 
 static struct task_struct *idle_task(void)
 {
-    return cpu_data[smp_processor_id()].idle;
+    struct cpu *cpu = this_cpu_ptr();
+
+    return cpu ? cpu->idle : NULL;
 }
 
 void rq_init(struct rq *rq, unsigned int cpu)
@@ -331,8 +331,6 @@ void sched_init_idle(unsigned int cpu)
     INIT_LIST_HEAD(&idle_tasks[cpu].run_list);
     cpu_data[cpu].idle = &idle_tasks[cpu];
     cpu_data[cpu].curr = &idle_tasks[cpu];
-    if (cpu == 0)
-        cpu_current_export = &idle_tasks[cpu];
 }
 
 static void context_switch(struct task_struct *prev, struct task_struct *next)

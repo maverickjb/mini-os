@@ -7,7 +7,7 @@ struct task_struct;
 
 struct cpu {
     unsigned int id;
-	struct rq rq;
+    struct rq rq;
 
     struct task_struct *idle;
     /* Named curr — `current` clashes with the current-task macro. */
@@ -27,6 +27,24 @@ static inline __attribute__((always_inline)) unsigned int smp_processor_id(void)
     __asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 
     return (unsigned int)(mpidr & 0xff);
+}
+
+/*
+ * TPIDR_EL1 holds &cpu_data[this_cpu] for fast per-CPU access from C and asm.
+ * Distinct from TPIDR_EL0 (userspace TLS).
+ */
+static inline __attribute__((always_inline)) struct cpu *this_cpu_ptr(void)
+{
+    unsigned long ptr;
+
+    __asm__ volatile("mrs %0, tpidr_el1" : "=r"(ptr));
+    return (struct cpu *)ptr;
+}
+
+static inline __attribute__((always_inline)) void set_cpu_local(struct cpu *cpu)
+{
+    __asm__ volatile("msr tpidr_el1, %0" : : "r"(cpu) : "memory");
+    __asm__ volatile("isb");
 }
 
 void smp_init(void);

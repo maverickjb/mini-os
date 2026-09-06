@@ -42,6 +42,13 @@ static void rest_init(void)
 
 void start_kernel(void)
 {
+    /*
+     * Point TPIDR_EL1 at cpu_data[0] before IRQs are enabled so
+     * get_current() / prepare_kstack_el0 work on the boot CPU.
+     * smp_init() fills in curr/idle and refreshes the same offset.
+     */
+    set_cpu_local(&cpu_data[0]);
+
     serial_init();
     time_init();
     tty_init();

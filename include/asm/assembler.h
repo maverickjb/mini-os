@@ -6,13 +6,16 @@
 /*
  * Set SP_EL1 to current task kernel stack top when returning to EL0.
  * Clobbers x9–x11. Call only before those user regs are restored.
+ *
+ * TPIDR_EL1 → struct cpu → curr → stack (per-CPU; no global export).
  */
 .macro prepare_kstack_el0
 	mrs	x11, spsr_el1
 	and	x11, x11, #0xf
 	cbnz	x11, 999f
-	adr	x10, cpu_current_export
-	ldr	x10, [x10]
+	mrs	x10, tpidr_el1
+	cbz	x10, 999f
+	ldr	x10, [x10, #CPU_CURR]
 	cbz	x10, 999f
 	ldr	x9, [x10, #TASK_stack]
 	cbz	x9, 999f
