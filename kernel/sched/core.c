@@ -427,7 +427,8 @@ void sched_init(void)
 
 void sched_init_idle(unsigned int cpu)
 {
-    idle_tasks[cpu].daif = 0x3c0UL; /* masked until idle enables IRQs */
+    /* Masked until cpu_idle() enables IRQs and refreshes daif. */
+    idle_tasks[cpu].daif = 0x3c0UL;
     idle_tasks[cpu].cpu = cpu;
     INIT_LIST_HEAD(&idle_tasks[cpu].run_list);
     cpu_data[cpu].idle = &idle_tasks[cpu];
