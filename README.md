@@ -24,7 +24,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
 | Synchronization | AArch64 spinlocks; wait queues; `wait_event` helpers |
 | Kernel data structures | Doubly-linked lists, red-black tree (`list.h`, `rbtree`) |
-| Kernel tests | TAP suite at boot (`tests/kernel/`, 7 tests including SLUB and load balance) |
+| Userspace kselftests | `tools/testing/selftests/` (TAP); in-kernel KUnit-style tests TBD |
 
 Many Linux syscall numbers exist in `include/linux/unistd.h`. Only the ones wired in `kernel/sys.c` actually work.
 
@@ -53,25 +53,9 @@ QEMU is started as:
 qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic -kernel mini-os.elf
 ```
 
-Boot CPU0 brings up three secondary CPUs (per-CPU idle, timer, runqueue), unpacks the initramfs, runs the **kernel test suite** (TAP output on UART), creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts. User tasks may be pulled onto secondary CPUs by the idle load balancer.
+Boot CPU0 brings up three secondary CPUs (per-CPU idle, timer, runqueue), unpacks the initramfs, creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts. User tasks may be pulled onto secondary CPUs by the idle load balancer.
 
-Early boot prints TAP results like:
-
-```text
-TAP version 13
-1..7
-ok 1 - list
-ok 2 - rbtree
-ok 3 - spinlock
-ok 4 - waitqueue
-ok 5 - scheduler
-ok 6 - slub
-ok 7 - load_balance
-passed: 7
-failed: 0
-```
-
-You should see a `~ #` prompt. Try `ls`, `ps`, `cat /etc/inittab`, `halt`, or `poweroff`. Use `reboot -f` to restart (BusyBox calls `reboot(2)` directly; plain `reboot` notifies init via signal).
+You should see a `~ #` prompt. Try `ls`, `ps`, `cat /etc/inittab`, `halt`, or `poweroff`. Use `reboot -f` to restart (BusyBox calls `reboot(2)` directly; plain `reboot` notifies init via signal). Userspace kselftests live under `/kselftests/` (see below).
 
 `make clean` removes objects, `mini-os.elf`, `mini-os.bin`, and the generated initramfs tree (`initramfs/root`).
 
@@ -99,13 +83,13 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 ## Layout
 
 ```text
+tools/testing/selftests/   userspace kselftests (Linux-shaped TAP)
 kernel/     boot, IRQ, SMP, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
 mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
 drivers/    UART + console TTY (SMP-safe locks)
 lib/        string helpers, vsnprintf, red-black tree
 include/    linux/, uapi/linux/, and asm/ headers (Linux-shaped, not Linux)
-tests/      in-kernel unit tests (TAP on UART)
 initramfs/  BusyBox rootfs sources, musl test programs (hello)
 init/       kernel boot C entry (start_kernel)
 ```
@@ -118,7 +102,7 @@ Headers live under `include/linux`, `include/uapi/linux`, and `include/asm` so f
 
 - `kernel/head.S` — EL1 entry, early stack, MMU (identity + high half at `0xffff800080000000`), jump to C. QEMU loads the image at `0x40000000`.
 - `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
-- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, `mmap_init`, ramfs, unpack initramfs, procfs, scheduler, kernel tests, PID 1.
+- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, `mmap_init`, ramfs, unpack initramfs, procfs, scheduler, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
 
@@ -282,21 +266,21 @@ Boot chain:
 
 A glibc or dynamically linked userspace will not run. Programs must be static AArch64 `ET_EXEC` ELFs.
 
-### Kernel tests
+### Userspace kselftests
 
-In-kernel unit tests run on CPU0 after `sched_init()` and before PID 1 starts (`run_kernel_tests()` in `init/main.c`). Output is [TAP](https://testanything.org/) on the UART.
+Linux-shaped tree under `tools/testing/selftests/` (header + `lib.mk` + per-suite dirs + `run_kselftest.sh`). Built with the musl toolchain and installed into the initramfs as `/kselftests/`. In-kernel KUnit-style tests are not present yet.
 
-- `tests/kernel/test.h` — `EXPECT_EQ`, `EXPECT_TRUE` (return `-1` from the test on failure).
-- `tests/kernel/test_main.c` — test registry and TAP runner.
-- `tests/kernel/list_test.c` — `list_head` add/delete/iterate.
-- `tests/kernel/rbtree_test.c` — insert, search, in-order walk, erase.
-- `tests/kernel/spinlock_test.c` — lock/unlock, `spin_is_locked`.
-- `tests/kernel/waitqueue_test.c` — add/remove queue, `wait_event`, `wake_up`.
-- `tests/kernel/scheduler_test.c` — `enqueue_task`, `pick_next_task`, `dequeue_task`.
-- `tests/kernel/slub_test.c` — `kmalloc` / `kfree` (small-object caches and a 4 KiB large alloc).
-- `tests/kernel/load_balance_test.c` — pull-based steal from a busier per-CPU runqueue.
+```sh
+make kselftest          # build + install into initramfs/root/kselftests
+# after boot (no shebang exec yet — invoke via ash):
+sh /kselftests/run_kselftest.sh
+/kselftests/yield/yield_test
+```
 
-Tests are always linked into `mini-os.elf` (see `Makefile` `SRCS`). To add a test, implement `int test_foo(void)` returning `0` on success, register it in `tests/kernel/test_main.c`, and add the `.c` file to `SRCS`.
+- `kselftest.h` — TAP helpers (`ksft_print_header`, `ksft_set_plan`, `ksft_test_result`, `ksft_finished`), same usage pattern as Linux.
+- `yield/yield_test.c` — sample suite: `sched_yield` returns 0.
+
+To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.
 
 ## How a syscall looks
 
@@ -320,12 +304,12 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 2. `kernel/entry.S` → `kernel/sys.c`
 3. `kernel/smp.c` → `include/asm/smp.h` → `kernel/irq.c` → `kernel/time/tick.c`
 4. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `mm/slub.c` → `kernel/fork.c` → `kernel/exit.c`
-5. `tests/kernel/test_main.c` and the individual `tests/kernel/*_test.c` files
-6. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
-7. `include/linux/mm_types.h` → `mm/mmap.c` (VMAs, `do_brk` / `do_mmap` / `do_munmap`)
-8. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
-9. `fs/binfmt.c` → `fs/exec.c`
-10. `fs/procfs.c` → `fs/dev.c`
-11. `drivers/tty/serial.c` → `drivers/tty/tty.c` → `kernel/printk.c`
-12. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
-13. `initramfs/etc/inittab`, `initramfs/etc/profile`, and `initramfs/src/hello.c`
+5. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
+6. `include/linux/mm_types.h` → `mm/mmap.c` (VMAs, `do_brk` / `do_mmap` / `do_munmap`)
+7. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
+8. `fs/binfmt.c` → `fs/exec.c`
+9. `fs/procfs.c` → `fs/dev.c`
+10. `drivers/tty/serial.c` → `drivers/tty/tty.c` → `kernel/printk.c`
+11. `kernel/signal.c` → `kernel/reboot.c` → `kernel/psci.c`
+12. `tools/testing/selftests/` (userspace TAP) and `initramfs/src/hello.c`
+13. `initramfs/etc/inittab`, `initramfs/etc/profile`

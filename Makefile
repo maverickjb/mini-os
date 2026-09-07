@@ -8,7 +8,7 @@ OBJCOPY := $(CROSS)objcopy
 
 CFLAGS  := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
            -Wall -Wextra -O0 -g -fno-pie -fno-PIE \
-           -I. -I include -I fs -I mm -I kernel -I tests/kernel
+           -I. -I include -I fs -I mm -I kernel
 ASFLAGS :=
 LDFLAGS := -T linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
            -Wl,--entry=0x40000000
@@ -26,17 +26,15 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            fs/devconsole.c \
            mm/mmap.c mm/fault.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
            lib/vsnprintf.c lib/rbtree.c \
-           tests/kernel/test_main.c tests/kernel/list_test.c \
-           tests/kernel/rbtree_test.c tests/kernel/spinlock_test.c \
-           tests/kernel/waitqueue_test.c tests/kernel/scheduler_test.c \
-           tests/kernel/slub_test.c tests/kernel/load_balance_test.c \
            fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 
-.PHONY: all clean run initramfs
+.PHONY: all clean run initramfs kselftest kselftest-clean
 
 INITRAMFS_CPIO := initramfs/initramfs.cpio
+KSELFTEST_DIR  := tools/testing/selftests
+KSELFTEST_ROOT := initramfs/root/kselftests
 
 all: initramfs mini-os.elf mini-os.bin
 
@@ -51,7 +49,17 @@ BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
 BUSYBOX_APPLETS := sh ash ls echo cat sleep ps uname true false pwd reboot poweroff halt
 
-$(INITRAMFS_CPIO): $(HELLO_BIN) $(BUSYBOX_BIN) \
+# Userspace kselftests (Linux-shaped tree under tools/testing/selftests/).
+kselftest:
+	$(MAKE) -C $(KSELFTEST_DIR) \
+		USER_CC="$(USER_CC)" USER_CFLAGS="$(USER_CFLAGS)" USER_PATH="$(USER_PATH)" \
+		install INSTALL_PATH="$(abspath $(KSELFTEST_ROOT))"
+
+kselftest-clean:
+	$(MAKE) -C $(KSELFTEST_DIR) clean
+	rm -rf $(KSELFTEST_ROOT)
+
+$(INITRAMFS_CPIO): $(HELLO_BIN) $(BUSYBOX_BIN) kselftest \
 	initramfs/etc/profile initramfs/etc/inittab initramfs/etc/init.d/rcS
 	mkdir -p initramfs/root/tmp initramfs/root/etc/init.d initramfs/root/sbin
 	cp -f initramfs/etc/profile initramfs/root/etc/profile
@@ -90,7 +98,7 @@ mini-os.elf: $(OBJS) linker.ld
 mini-os.bin: mini-os.elf
 	$(OBJCOPY) -O binary $< $@
 
-clean:
+clean: kselftest-clean
 	rm -f $(OBJS) mini-os.elf mini-os.bin initramfs/initramfs.cpio
 	rm -rf initramfs/root
 
