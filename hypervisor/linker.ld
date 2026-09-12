@@ -1,26 +1,31 @@
 /*
- * Minimal EL2 “hypervisor” stub for QEMU virt (AArch64).
+ * Hypervisor memory layout (QEMU virt):
  *
- * Stage 1 goal only:
- *   boot in EL2 → print → eret → EL1 → print → park
- *
- * Does NOT load mini-OS yet. mini-OS stays untouched.
+ *   0x40000000  .guest   — mini-os.bin
+ *   0x44000000  .text…   — EL2 hypervisor (entry = el2_start)
  */
 
 OUTPUT_ARCH(aarch64)
 ENTRY(el2_start)
 
-/* Same load address QEMU -kernel uses; fine while guest OS is not linked in. */
-HYP_PHYS_BASE = 0x40000000;
+GUEST_PHYS_BASE = 0x40000000;
+HYP_PHYS_BASE   = 0x44000000;
 
 PHDRS
 {
-    text PT_LOAD FLAGS(5);
-    data PT_LOAD FLAGS(6);
+    guest PT_LOAD FLAGS(7); /* PF_R|PF_W|PF_X — guest runs in-place */
+    text  PT_LOAD FLAGS(5); /* PF_R | PF_X */
 }
 
 SECTIONS
 {
+    .guest GUEST_PHYS_BASE : {
+        guest_start = .;
+        KEEP(*(.guest))
+        . = ALIGN(4096);
+        guest_end = .;
+    } :guest
+
     . = HYP_PHYS_BASE;
 
     .text : {
@@ -34,14 +39,14 @@ SECTIONS
 
     .data : {
         *(.data .data.*)
-    } :data
+    } :text
 
-    .bss : {
+    .bss (NOLOAD) : {
         __bss_start = .;
         *(.bss .bss.*)
         *(COMMON)
         __bss_end = .;
-    } :data
+    }
 
     .stack (NOLOAD) : {
         . = ALIGN(16);

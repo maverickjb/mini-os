@@ -1,10 +1,9 @@
 /*
- * EL2 ↔ EL1 via HVC (no mini-OS yet).
+ * EL2 boots hypervisor @ 0x44000000, then eret into mini-OS @ 0x40000000.
  *
- *   EL2 boot → eret → EL1 → hvc #0 → EL2 → print → eret → EL1 continues
+ * HVC from EL1 still trapped here (handler kept for later use).
  *
- * Note: on QEMU virt, ELR_EL2 for HVC already points at the following
- * instruction, so the handler must NOT add 4 (that would skip the next insn).
+ * Note: on QEMU virt, ELR_EL2 for HVC already points past the HVC insn.
  */
 
 #define UART_DR		0x09000000
@@ -36,6 +35,28 @@ at_el2:
 	adr	x0, msg_el2
 	bl	uart_puts
 
+	/* guest @ 0x40000000, hyp @ 0x44000000, guest must not overlap hyp */
+	ldr	x0, =guest_start
+	ldr	x1, =0x40000000
+	cmp	x0, x1
+	b.ne	layout_bad
+	ldr	x0, =el2_start
+	ldr	x1, =0x44000000
+	cmp	x0, x1
+	b.ne	layout_bad
+	ldr	x0, =guest_end
+	ldr	x1, =0x44000000
+	cmp	x0, x1
+	b.hi	layout_bad
+	adr	x0, msg_layout_ok
+	bl	uart_puts
+	b	layout_done
+layout_bad:
+	adr	x0, msg_layout_bad
+	bl	uart_puts
+	b	park
+layout_done:
+
 	adr	x0, el2_vectors
 	msr	vbar_el2, x0
 	isb
@@ -49,30 +70,22 @@ at_el2:
 	msr	hcr_el2, x0
 	msr	sctlr_el1, xzr
 
+	/*
+	 * Guest sets SP itself in _start; seed SP_EL1 anyway.
+	 * ELR = physical entry of mini-OS (same as former QEMU -kernel PC).
+	 */
 	ldr	x0, =el1_stack_top
 	msr	sp_el1, x0
 
-	ldr	x0, =el1_entry
+	adr	x0, msg_enter_guest
+	bl	uart_puts
+
+	ldr	x0, =guest_start		/* 0x40000000 */
 	msr	elr_el2, x0
 	mov	x0, #SPSR_EL1h
 	msr	spsr_el2, x0
 	isb
 	eret
-
-.global el1_entry
-el1_entry:
-	ldr	x0, =el1_stack_top
-	mov	sp, x0
-
-	adr	x0, msg_el1
-	bl	uart_puts
-
-	mov	x0, #0
-	hvc	#0
-
-	adr	x0, msg_el1_after
-	bl	uart_puts
-	b	park
 
 park:
 	wfi
@@ -148,8 +161,6 @@ el2_sync_el1:
 	adr	x0, msg_hvc
 	bl	uart_puts
 
-	/* ELR already points past HVC on QEMU — do not add 4. */
-
 	ldp	x0, x1, [sp, #0]
 	ldp	x2, x3, [sp, #16]
 	ldp	x4, x5, [sp, #32]
@@ -165,12 +176,14 @@ el2_sync_el1:
 .section .rodata
 msg_el2:
 	.asciz	"[hyp] running at EL2\r\n"
-msg_el1:
-	.asciz	"[hyp] now at EL1, issuing HVC\r\n"
+msg_layout_ok:
+	.asciz	"[hyp] layout: guest@0x40000000 hyp@0x44000000\r\n"
+msg_layout_bad:
+	.asciz	"[hyp] layout check FAILED\r\n"
+msg_enter_guest:
+	.asciz	"[hyp] eret -> mini-OS guest\r\n"
 msg_hvc:
 	.asciz	"[hyp] HVC received\r\n"
-msg_el1_after:
-	.asciz	"[hyp] back at EL1 after HVC\r\n"
 msg_el2_bad:
 	.asciz	"[hyp] unexpected EL2 exception\r\n"
 msg_el2_sync:

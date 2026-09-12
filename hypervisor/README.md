@@ -1,33 +1,33 @@
 # Hypervisor stub
 
-Independent from mini-OS. Own `Makefile` + `linker.ld`.
+Boots **mini-OS as an EL1 guest**. Own `Makefile` + `linker.ld` (mini-OS sources untouched).
 
-## Current stage: HVC round-trip
+## Memory layout
 
 ```text
-EL2 boot
-  → eret → EL1
-  → hvc #0
-  → EL2 handler prints "[hyp] HVC received"
-  → eret
-  → EL1 continues
+0x40000000  .guest      mini-os.bin  (EL1 guest)
+0x44000000  hypervisor  EL2 code, VBAR_EL2, stacks
 ```
 
+## Run
+
 ```sh
-cd hypervisor
-make run
+# from repo root (builds mini-os.bin if needed):
+make -C hypervisor run
 ```
 
 Expect:
 
 ```text
 [hyp] running at EL2
-[hyp] now at EL1, issuing HVC
-[hyp] HVC received
-[hyp] back at EL1 after HVC
+[hyp] layout: guest@0x40000000 hyp@0x44000000
+[hyp] eret -> mini-OS guest
+<6>SMP: ...
+~ #
 ```
 
-## Later
+Use `-smp 1` for now (secondaries would skip this EL2 entry).
 
-- Load mini-OS as EL1 guest
-- Stage-2 MMU, traps, virt devices
+## HVC
+
+Guest PSCI (`psci_cpu_on`) uses `hvc`, so you may see `[hyp] HVC received` during SMP bring-up. With `-smp 1` secondary bring-up fails harmlessly; a later step can emulate or forward PSCI.

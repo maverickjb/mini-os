@@ -84,6 +84,7 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 
 ```text
 tools/testing/selftests/   userspace kselftests (Linux-shaped TAP)
+hypervisor/ EL2 boots mini-OS guest @ 0x40000000 (hyp @ 0x44000000)
 kernel/     boot, IRQ, SMP, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
 mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
