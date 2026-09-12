@@ -1,6 +1,6 @@
-# Standalone EL2 stub — does not build or modify mini-OS.
+# Standalone EL2 stub — independent of mini-OS.
 #
-# Stage 1: prove EL2 boot + eret into EL1 on QEMU virt.
+# Stage 2: EL2 → EL1 → HVC → EL2 → ERET → EL1
 
 CROSS   ?= aarch64-linux-gnu-
 CC      := $(CROSS)gcc
@@ -30,7 +30,6 @@ clean:
 	rm -f $(OBJS) hypervisor.elf hypervisor.bin
 
 QEMU    ?= qemu-system-aarch64
-# Single CPU for stage 1. virt starts the -kernel image in EL2 on common setups.
 QFLAGS  ?= -machine virt,gic-version=3,virtualization=on \
            -cpu cortex-a72 -smp 1 -nographic -m 128M
 
