@@ -15,7 +15,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
-| Page allocator + user maps | Buddy pages + `struct page` / `get_page`/`put_page`; user page tables, VMA list, `mmap` / `brk` / `munmap` |
+| Page allocator + user maps | Buddy + `struct page`; fork shares leaf pages RO (COW Step 3; write break TBD) |
 | SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |

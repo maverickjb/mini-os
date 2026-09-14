@@ -29,6 +29,41 @@
 
 #define PTE_ENTRIES     512
 
+/*
+ * COW convention:
+ *
+ *   Shared writable pages use the same PA with PTE_RDONLY set (fork).
+ *   A write fault where
+ *        (vma->vm_flags & VM_WRITE) && (pte & PTE_RDONLY)
+ *   is a COW candidate (pte_cow_candidate): break in do_page_fault.
+ *
+ *   No extra software PTE bit — VMA writable + PTE read-only is enough.
+ */
+static inline int pte_present(unsigned long pte)
+{
+    return (pte & 1UL) != 0;
+}
+
+static inline int pte_write(unsigned long pte)
+{
+    return pte_present(pte) && !(pte & PTE_RDONLY);
+}
+
+static inline unsigned long pte_wrprotect(unsigned long pte)
+{
+    return pte | PTE_RDONLY;
+}
+
+static inline unsigned long pte_mkwrite(unsigned long pte)
+{
+    return pte & ~PTE_RDONLY;
+}
+
+static inline int pte_cow_candidate(unsigned long pte, unsigned long vm_flags)
+{
+    return pte_present(pte) && (pte & PTE_RDONLY) && (vm_flags & VM_WRITE);
+}
+
 static struct kmem_cache vma_cache;
 
 /* ------------------------------------------------------------------ */
@@ -420,8 +455,10 @@ static void free_pgtable_level(unsigned long *table, int level)
             free_pgtable_level(child, level + 1);
         } else {
             void *page = __phys_to_virt(ent & PTE_ADDR_MASK);
+            struct page *p = virt_to_page(page);
 
-            free_pages(page, 0);
+            if (p)
+                put_page(p);
         }
     }
 
@@ -456,10 +493,23 @@ void mm_put(struct mm_struct *mm)
 
 #define PT_ENTRIES 512
 
-static unsigned long *dup_pgtable_level(unsigned long *src, int level)
+/*
+ * Duplicate page tables for fork (Step 3 — share leaves).
+ *
+ * Intermediate tables are cloned. Leaf pages share the same PA:
+ * both PTEs are wrprotected, get_page() bumps _refcount.
+ *
+ * Write faults are NOT handled yet (Step 4). Writable pages become
+ * read-only after fork until COW break is implemented.
+ *
+ * va_base is the VA of index 0 in this table level.
+ */
+static unsigned long *dup_pgtable_level(unsigned long *src, int level,
+                                        unsigned long va_base)
 {
     unsigned long *dst;
     unsigned int i;
+    unsigned long idx_shift;
 
     dst = alloc_pages(0);
     if (!dst)
@@ -468,93 +518,55 @@ static unsigned long *dup_pgtable_level(unsigned long *src, int level)
     page_zero(dst);
     dcache_clean_poc(dst, PAGE_SIZE);
 
+    if (level == 1)
+        idx_shift = 30;
+    else if (level == 2)
+        idx_shift = 21;
+    else
+        idx_shift = 12;
+
     for (i = 0; i < PT_ENTRIES; i++) {
-
         unsigned long ent = src[i];
+        unsigned long va = va_base + ((unsigned long)i << idx_shift);
 
-        /* invalid entry */
         if (!(ent & 1UL))
             continue;
 
-
-        /*
-         * Levels 0-2 contain pointers to lower page tables
-         */
         if (level < 3) {
-
             unsigned long *child_src;
             unsigned long *child_dst;
 
             child_src =
-                (unsigned long *)__phys_to_virt(
-                    ent & PTE_ADDR_MASK);
+                (unsigned long *)__phys_to_virt(ent & PTE_ADDR_MASK);
 
-            /*
-             * Allocate and copy lower-level table
-             */
-            child_dst =
-                dup_pgtable_level(child_src, level + 1);
-
+            child_dst = dup_pgtable_level(child_src, level + 1, va);
             if (!child_dst) {
-                free_pages(dst, 0);
+                free_pgtable_level(dst, level);
                 return NULL;
             }
 
-
-            /*
-             * Put new child table address
-             */
             pte_set(&dst[i],
                     __virt_to_phys((unsigned long)child_dst) |
                     (ent & PTE_FLAGS_MASK));
-
         } else {
+            unsigned long old_pa = ent & PTE_ADDR_MASK;
+            void *old_page = __phys_to_virt(old_pa);
+            struct page *page = virt_to_page(old_page);
+            unsigned long shared = ent;
 
-            /*
-             * Level 3: actual page mapping
-             *
-             * Parent:
-             *
-             *   VA ---> PA A
-             *
-             * Child:
-             *
-             *   VA ---> PA B
-             *
-             */
-
-            unsigned long old_pa;
-            unsigned long new_pa;
-
-            void *old_page;
-            void *new_page;
-
-
-            old_pa = ent & PTE_ADDR_MASK;
-
-            old_page = __phys_to_virt(old_pa);
-
-
-            /*
-             * Allocate child's physical page
-             */
-            new_page = alloc_pages(0);
-
-            if (!new_page) {
-                free_pages(dst, 0);
+            if (!page) {
+                free_pgtable_level(dst, level);
                 return NULL;
             }
 
-            /*
-             * Copy user memory
-             */
-            memcpy(new_page, old_page, PAGE_SIZE);
-            dcache_clean_poc(new_page, PAGE_SIZE);
+            /* Writable → RO on both sides; already-RO pages shared as-is. */
+            if (pte_write(ent))
+                shared = pte_wrprotect(ent);
 
-            new_pa =
-                __virt_to_phys((unsigned long)new_page);
-
-            pte_set(&dst[i], new_pa | (ent & PTE_FLAGS_MASK));
+            get_page(page);
+            pte_set(&src[i], shared);
+            pte_set(&dst[i], shared);
+            tlb_flush_page(va);
         }
     }
 
@@ -563,12 +575,11 @@ static unsigned long *dup_pgtable_level(unsigned long *src, int level)
 
 /*
  * Duplicate a user page-table tree. level=1 is the PGD (L1).
- * Intermediate tables are cloned; leaf pages get private physical copies
- * so parent and child do not share mm_struct or mapped pages.
+ * Leaf pages are shared RO; write faults break COW in do_page_fault.
  */
 unsigned long *dup_pgtable(unsigned long *src, int level)
 {
-    return dup_pgtable_level(src, level);
+    return dup_pgtable_level(src, level, 0);
 }
 
 void mm_install(struct mm_struct *mm)
@@ -654,6 +665,7 @@ static int unmap_page(struct mm_struct *mm, unsigned long va)
     unsigned long l3_idx = (va >> 12) & 0x1ffUL;
     unsigned long entry;
     void *page;
+    struct page *p;
 
     entry = mm->pgd[l1_idx];
     if (!(entry & 1UL) || (entry & 3UL) != PTE_TABLE)
@@ -670,8 +682,13 @@ static int unmap_page(struct mm_struct *mm, unsigned long va)
         return 0;
 
     page = __phys_to_virt(entry & PTE_ADDR_MASK);
+    p = virt_to_page(page);
+
     pte_set(&l3[l3_idx], 0);
-    free_pages(page, 0);
+
+    if (p)
+        put_page(p);
+
     tlb_flush_page(va);
 
     return 0;
@@ -892,6 +909,58 @@ long ksys_mprotect(unsigned long addr, unsigned long len, unsigned long prot)
     return 0;
 }
 
+/*
+ * Break COW on a write fault: exclusive page → clear PTE_RDONLY;
+ * shared → private copy, then put_page(old).
+ */
+static int do_cow_fault(struct mm_struct *mm, unsigned long va,
+                        struct vm_area_struct *vma)
+{
+    unsigned long *ptep;
+    unsigned long old_pte;
+    void *old_kva;
+    struct page *old;
+    void *new_page;
+    unsigned long new_pte;
+
+    ptep = l3_slot(mm, va);
+    if (!ptep)
+        return -EFAULT;
+
+    old_pte = *ptep;
+    if (!pte_cow_candidate(old_pte, vma->vm_flags))
+        return -EFAULT;
+
+    old_kva = __phys_to_virt(old_pte & PTE_ADDR_MASK);
+    old = virt_to_page(old_kva);
+    if (!old)
+        return -EFAULT;
+
+    /* Sole owner — just restore write permission. */
+    if (page_count(old) == 1) {
+        pte_set(ptep, pte_mkwrite(old_pte));
+        tlb_flush_page(va);
+        return 0;
+    }
+
+    new_page = alloc_pages(0);
+    if (!new_page)
+        return -ENOMEM;
+
+    memcpy(new_page, old_kva, PAGE_SIZE);
+    dcache_clean_poc(new_page, PAGE_SIZE);
+
+    new_pte = (__virt_to_phys((unsigned long)new_page) & PTE_ADDR_MASK) |
+              (old_pte & PTE_FLAGS_MASK);
+    new_pte = pte_mkwrite(new_pte);
+
+    /* Install private PTE before dropping the shared page. */
+    pte_set(ptep, new_pte);
+    tlb_flush_page(va);
+    put_page(old);
+    return 0;
+}
+
 int do_page_fault(struct mm_struct *mm, unsigned long addr, unsigned long esr)
 {
     struct vm_area_struct *vma;
@@ -924,9 +993,12 @@ int do_page_fault(struct mm_struct *mm, unsigned long addr, unsigned long esr)
             return -EFAULT;
     }
 
-    /* Already mapped: permission / other fault — not demand-fill. */
-    if (va_mapped(mm, va))
+    /* Mapped: COW break on write; otherwise a hard fault. */
+    if (va_mapped(mm, va)) {
+        if (write)
+            return do_cow_fault(mm, va, vma);
         return -EFAULT;
+    }
 
     page = alloc_pages(0);
     if (!page)
