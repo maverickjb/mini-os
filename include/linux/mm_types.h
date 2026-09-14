@@ -1,6 +1,16 @@
 #ifndef __LINUX_MM_TYPES_H
 #define __LINUX_MM_TYPES_H
 
+#include <linux/atomic.h>
+
+/*
+ * Physical page descriptor (mem_map[] entry).
+ * One struct page per buddy-pool page; indexed by pool PFN.
+ */
+struct page {
+	atomic_t _refcount;
+};
+
 struct vm_area_struct {
     unsigned long vm_start;
     unsigned long vm_end;       /* exclusive */

@@ -15,7 +15,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
-| Page allocator + user maps | Buddy-style pages, user page tables, VMA list, `mmap` / `brk` / `munmap` |
+| Page allocator + user maps | Buddy pages + `struct page` / `get_page`/`put_page`; user page tables, VMA list, `mmap` / `brk` / `munmap` |
 | SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
@@ -191,7 +191,9 @@ Unknown numbers return `-ENOSYS`.
 
 ### Virtual memory, SLUB, and ELF
 
-- `mm/page_alloc.c` — buddy allocator for physical pages after the kernel image (`alloc_pages` / `free_pages`).
+- `mm/page_alloc.c` — buddy allocator (`alloc_pages` / `free_pages`); `mem_map[]` of `struct page` with `atomic_t _refcount`; `virt_to_page` / `page_address` / `get_page` / `put_page` / `page_count` (for upcoming COW).
+- `include/linux/atomic.h` — minimal `atomic_t` helpers.
+- `include/linux/mm_types.h` — `struct page`, VMA, `mm_struct`.
 - `mm/slub.c` — SLUB-style `kmalloc` / `kfree`:
   - Fixed-size caches: 32, 64, 128, 256, 512, 1024, 2048 bytes.
   - Each page starts with a `struct slab` header; free objects linked through an embedded freelist.
