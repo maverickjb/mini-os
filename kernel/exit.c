@@ -146,10 +146,83 @@ void ksys_exit(long status)
     do_exit((status & 0xff) << 8);
 }
 
+static long wait_event_child(struct task_struct *parent,
+    long pid,
+    int event,
+    int *status)
+{
+    struct list_head *pos;
+    struct task_struct *child;
+    unsigned long flags;
+    long ret = -1;
+    int code = 0;
+
+    task_list_lock_irqsave(&flags);
+
+    for_each_task(pos, child) {
+        if (child->parent != parent)
+            continue;
+
+        if (pid != -1 && child->pid != (pid_t)pid)
+            continue;
+
+        if (child->wait_event != event)
+            continue;
+
+        ret = (long)child->pid;
+
+        if (event == CHILD_EVENT_STOPPED)
+            code = (child->stop_signal << 8) | 0x7f;
+        else
+            code = W_CONTINUED;
+
+        child->wait_event = CHILD_EVENT_NONE;
+        break;
+    }
+
+    task_list_unlock_irqrestore(flags);
+
+    if (ret < 0)
+        return -1;
+
+    if (status && copy_to_user(status, &code, sizeof(code)))
+        return -EFAULT;
+
+    return ret;
+}
+
+static long wait_reap_zombie(struct task_struct *parent,
+                                long pid,
+                                int *status)
+{
+    struct task_struct *child;
+    long ret;
+    int code;
+
+    child = find_child(parent, pid, TASK_ZOMBIE);
+    if (!child)
+        return -1;
+
+    ret = (long)child->pid;
+    code = child->exit_code;
+
+    if (status && copy_to_user(status, &code, sizeof(code)))
+        return -EFAULT;
+
+    /*
+     * Child exit already queued SIGCHLD. After a successful reap, drop it
+     * so return-to-user do_signal() does not deliver a stale wake-up.
+     */
+    parent->pending &= ~SIG_BIT(SIGCHLD);
+    free_task(child);
+
+    return ret;
+}
+
 long ksys_wait4(long pid, int *status, long options)
 {
     struct task_struct *parent = current;
-    struct task_struct *child;
+    long ret;
 
     if (!parent || !parent->is_user)
         return -EINVAL;
@@ -158,87 +231,87 @@ long ksys_wait4(long pid, int *status, long options)
         return -EINVAL;
 
     for (;;) {
-        child = find_child(parent, pid, TASK_ZOMBIE);
-        if (child) {
-            long ret = (long)child->pid;
-
-            if (status) {
-                int code = child->exit_code;
-
-                if (copy_to_user(status, &code, sizeof(code)))
-                    return -EFAULT;
-            }
-
-            free_task(child);
+        /*
+         * 1. Zombie child: reap it immediately.
+         */
+        ret = wait_reap_zombie(parent, pid, status);
+        if (ret >= 0)
             return ret;
-        }
 
+        /*
+         * 2. Stopped child.
+         */
         if (options & WUNTRACED) {
-            struct list_head *pos;
-            unsigned long flags;
+            ret = wait_event_child(parent, pid,
+                                   CHILD_EVENT_STOPPED, status);
+            if (ret >= 0)
+                return ret;
 
-            task_list_lock_irqsave(&flags);
-            for_each_task(pos, child) {
-                int code;
-
-                if (child->parent != parent)
-                    continue;
-                if (pid != -1 && child->pid != (pid_t)pid)
-                    continue;
-                if (child->wait_event != CHILD_EVENT_STOPPED)
-                    continue;
-
-                code = (child->stop_signal << 8) | 0x7f;
-                task_list_unlock_irqrestore(flags);
-                if (status &&
-                    copy_to_user(status, &code, sizeof(code)))
-                    return -EFAULT;
-                child->wait_event = CHILD_EVENT_NONE;
-                return (long)child->pid;
-            }
-            task_list_unlock_irqrestore(flags);
+            if (ret == -EFAULT)
+                return ret;
         }
 
+        /*
+         * 3. Continued child.
+         */
         if (options & WCONTINUED) {
-            struct list_head *pos;
-            unsigned long flags;
+            ret = wait_event_child(parent, pid,
+                                   CHILD_EVENT_CONTINUED, status);
+            if (ret >= 0)
+                return ret;
 
-            task_list_lock_irqsave(&flags);
-            for_each_task(pos, child) {
-                int code;
-
-                if (child->parent != parent)
-                    continue;
-                if (pid != -1 && child->pid != (pid_t)pid)
-                    continue;
-                if (child->wait_event != CHILD_EVENT_CONTINUED)
-                    continue;
-
-                code = W_CONTINUED;
-                task_list_unlock_irqrestore(flags);
-                if (status &&
-                    copy_to_user(status, &code, sizeof(code)))
-                    return -EFAULT;
-                child->wait_event = CHILD_EVENT_NONE;
-                return (long)child->pid;
-            }
-            task_list_unlock_irqrestore(flags);
+            if (ret == -EFAULT)
+                return ret;
         }
 
+        /*
+         * 4. Does the requested child exist at all?
+         */
         if (!find_child(parent, pid, -1))
             return -ECHILD;
 
+        /*
+         * 5. WNOHANG: child exists, but nothing to report.
+         */
         if (options & WNOHANG)
             return 0;
 
+        /*
+         * 6. Check whether a pending signal should interrupt wait4().
+         */
+        if (signal_pending(parent)) {
+            sighandler_t chld_h =
+                parent->actions[SIGCHLD].sa_handler;
+
+            /*
+             * SIGCHLD with default/ignored disposition should
+             * not make wait4() fail with EINTR.
+             */
+            if ((parent->pending & SIG_BIT(SIGCHLD)) &&
+                (chld_h == SIG_DFL || chld_h == SIG_IGN)) {
+
+                parent->pending &= ~SIG_BIT(SIGCHLD);
+                continue;
+            }
+
+            return -EINTR;
+        }
+
+        /*
+         * 7. Sleep until a child event wakes us.
+         */
         sched_block(TASK_SLEEPING);
+
         local_irq_enable();
         schedule();
         local_irq_disable();
+
+        /*
+         * Reinsert ourselves if the scheduler did not already
+         * put us back on the run queue.
+         */
         if (!list_is_linked(&parent->run_list))
             enqueue_task(parent);
-
-        if (signal_pending(parent))
-            return -EINTR;
     }
 }
+

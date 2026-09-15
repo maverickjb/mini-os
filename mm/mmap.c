@@ -494,13 +494,11 @@ void mm_put(struct mm_struct *mm)
 #define PT_ENTRIES 512
 
 /*
- * Duplicate page tables for fork (Step 3 — share leaves).
+ * Duplicate page tables for fork.
  *
  * Intermediate tables are cloned. Leaf pages share the same PA:
  * both PTEs are wrprotected, get_page() bumps _refcount.
- *
- * Write faults are NOT handled yet (Step 4). Writable pages become
- * read-only after fork until COW break is implemented.
+ * Write faults break COW in do_page_fault.
  *
  * va_base is the VA of index 0 in this table level.
  */

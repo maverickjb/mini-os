@@ -15,6 +15,7 @@
 #include <linux/auxvec.h>
 #include <linux/string.h>
 #include <linux/tick.h>
+#include <linux/signal.h>
 
 #define EI_MAG0         0
 #define EI_MAG1         1
@@ -406,6 +407,24 @@ int load_elf_binary(struct linux_binprm *bprm)
     bprm->task->user_sp = user_sp;
     /* New image installs its own TLS; drop the previous TPIDR_EL0. */
     bprm->task->tpidr_el0 = 0;
+
+    /*
+     * Like Linux flush_signal_handlers(): caught handlers are addresses in
+     * the old image. Keeping them after exec makes the next delivered
+     * signal (often SIGCHLD after wait4) jump into garbage and SEGV.
+     * SIG_IGN is preserved across exec.
+     */
+    {
+        unsigned int si;
+
+        for (si = 0; si < MAX_SIG; si++) {
+            if (bprm->task->actions[si].sa_handler != SIG_IGN)
+                bprm->task->actions[si].sa_handler = SIG_DFL;
+            bprm->task->actions[si].sa_flags = 0;
+            bprm->task->actions[si].sa_restorer = NULL;
+            bprm->task->actions[si].sa_mask.sig[0] = 0;
+        }
+    }
 
     close_on_exec_fds(bprm->task);
 

@@ -15,7 +15,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
-| Page allocator + user maps | Buddy + `struct page`; fork shares leaf pages RO (COW Step 3; write break TBD) |
+| Page allocator + user maps | Buddy + `struct page`; fork COW (share RO, break on write) |
 | SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
@@ -278,10 +278,12 @@ make kselftest          # build + install into initramfs/root/kselftests
 # after boot (no shebang exec yet — invoke via ash):
 sh /kselftests/run_kselftest.sh
 /kselftests/yield/yield_test
+/kselftests/mm/cow_test
 ```
 
 - `kselftest.h` — TAP helpers (`ksft_print_header`, `ksft_set_plan`, `ksft_test_result`, `ksft_finished`), same usage pattern as Linux.
 - `yield/yield_test.c` — sample suite: `sched_yield` returns 0.
+- `mm/cow_test.c` — basic anon COW after `fork` (child write; inspired by Linux `selftests/mm/cow.c`).
 
 To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.
 
@@ -297,7 +299,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`, no COW / shared page tables on fork. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
+No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 

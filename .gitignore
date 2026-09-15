@@ -4,3 +4,4 @@
 initramfs/initramfs.cpio
 initramfs/root/
 .vscode/
+tools/testing/selftests/build

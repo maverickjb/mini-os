@@ -10,7 +10,7 @@ USER_PATH   ?= $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
 OUTPUT      ?= $(CURDIR)/build
 
 # Subdirectories with tests (add new suites here, Linux-style).
-TARGETS := yield
+TARGETS := yield mm
 
 export top_srcdir USER_CC USER_CFLAGS USER_PATH OUTPUT
 
