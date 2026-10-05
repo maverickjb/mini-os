@@ -5,7 +5,6 @@
 
 struct stat;
 
-int devtty_is_path(const char *path);
 struct file *devtty_open(int flags);
 int devtty_file_is(const struct file *file);
 void devtty_fill_stat(struct stat *st);

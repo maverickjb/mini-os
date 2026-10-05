@@ -188,6 +188,7 @@ static void ramfs_inode_init(struct ramfs_inode *ri, int type)
     ri->inode.ino = next_ino++;
     ri->inode.size = 0;
     ri->inode.type = type;
+    ri->inode.i_rdev = 0;
     ri->inode.i_op = NULL;
     ri->inode.i_fop = NULL;
     if (type == S_IFREG) {
@@ -312,6 +313,41 @@ static int ramfs_inode_mkdir(struct inode *dir, struct dentry *dentry,
     ri = ramfs_alloc_inode(S_IFDIR);
     if (!ri)
         return -ENOMEM;
+
+    err = ramfs_add_child(parent, dentry->name, ri);
+    if (err) {
+        ramfs_kfree(ri, sizeof(*ri));
+        return err;
+    }
+
+    dentry->inode = &ri->inode;
+    return 0;
+}
+
+static int ramfs_inode_mknod(struct inode *dir, struct dentry *dentry,
+                             umode_t mode, dev_t rdev)
+{
+    struct ramfs_inode *parent;
+    struct ramfs_inode *ri;
+    int type = (int)(mode & S_IFMT);
+    int err;
+
+    if (!dir || !dentry || !dentry->name[0])
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+    if (type != S_IFCHR)
+        return -EPERM;
+
+    parent = RAMFS_I(dir);
+    if (ramfs_find_child(parent, dentry->name))
+        return -EEXIST;
+
+    ri = ramfs_alloc_inode(S_IFCHR);
+    if (!ri)
+        return -ENOMEM;
+
+    ri->inode.i_rdev = rdev;
 
     err = ramfs_add_child(parent, dentry->name, ri);
     if (err) {
@@ -488,6 +524,7 @@ static int ramfs_inode_rmdir(struct inode *dir, struct dentry *dentry)
 
 static const struct inode_operations ramfs_dir_inode_ops = {
     .mkdir = ramfs_inode_mkdir,
+    .mknod = ramfs_inode_mknod,
     .unlink = ramfs_inode_unlink,
     .rmdir = ramfs_inode_rmdir,
     .link = ramfs_inode_link,
@@ -727,6 +764,33 @@ int ramfs_create(const char *path)
     }
 
     return 0;
+}
+
+int ramfs_mknod(const char *path, umode_t mode, dev_t rdev)
+{
+    char name[RAMFS_NAME_MAX + 1];
+    struct ramfs_inode *parent;
+    struct dentry dentry;
+    unsigned long i;
+
+    if (!path || path[0] != '/')
+        return -EINVAL;
+
+    parent = ramfs_lookup_parent(path, name);
+    if (!parent)
+        return -ENOENT;
+
+    for (i = 0; i < sizeof(dentry.name); i++)
+        dentry.name[i] = 0;
+    for (i = 0; name[i] && i + 1 < sizeof(dentry.name); i++)
+        dentry.name[i] = name[i];
+    dentry.name[i] = '\0';
+    dentry.inode = NULL;
+    dentry.parent = NULL;
+    dentry.child = NULL;
+    dentry.next = NULL;
+
+    return vfs_mknod(&parent->inode, &dentry, mode, rdev);
 }
 
 int ramfs_symlink(const char *path, const char *target)

@@ -7,6 +7,8 @@ struct dentry;
 
 struct inode *vfs_lookup(const char *path);
 int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode);
+int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
+              dev_t rdev);
 int vfs_unlink(struct inode *dir, struct dentry *dentry);
 int vfs_rmdir(struct inode *dir, struct dentry *dentry);
 int vfs_link(struct dentry *old_dentry, struct inode *dir,

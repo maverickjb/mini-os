@@ -14,7 +14,6 @@
 
 #include <linux/namei.h>
 #include <linux/proc_fs.h>
-#include <linux/dev.h>
 #include <linux/devnull.h>
 #include <linux/devtty.h>
 #include <linux/devconsole.h>
@@ -38,7 +37,14 @@ static void cp_inode_stat(struct inode *inode, struct stat *st)
         st->st_mode |= 0755;
     else if (inode_is_lnk(inode))
         st->st_mode |= 0777;
-    else
+    else if (inode_is_chr(inode)) {
+        /* Match traditional /dev/console mode; others 0666. */
+        if (inode->i_rdev == ((5U << 8) | 1U))
+            st->st_mode |= 0600;
+        else
+            st->st_mode |= 0666;
+        st->st_rdev = inode->i_rdev;
+    } else
         st->st_mode |= 0644;
 
     st->st_nlink = inode->nlink ? inode->nlink : 1;
@@ -163,17 +169,6 @@ long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
     err = getname_from_user(path, filename);
     if (err)
         return err;
-
-    if (dev_is_path(path)) {
-        struct stat st;
-
-        if (dev_fill_stat_path(path, &st) < 0)
-            return -ENOENT;
-
-        if (copy_to_user(statbuf, &st, sizeof(st)))
-            return -EFAULT;
-        return 0;
-    }
 
     inode = vfs_lookup(path);
     if (!inode)

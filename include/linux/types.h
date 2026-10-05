@@ -5,5 +5,6 @@ typedef int pid_t;
 typedef long off_t;
 typedef long long loff_t;
 typedef unsigned int fmode_t;
+typedef unsigned int dev_t;
 
 #endif /* _LINUX_TYPES_H */

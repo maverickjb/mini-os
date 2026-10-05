@@ -19,7 +19,7 @@
 #include <linux/initramfs.h>
 #include <linux/binfmts.h>
 #include <linux/proc_fs.h>
-#include <linux/devnull.h>
+#include <linux/dev.h>
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];
@@ -76,7 +76,7 @@ void start_kernel(void)
     }
 
     proc_init();
-    devnull_init();
+    dev_init();
 
     sched_init();
     rest_init();

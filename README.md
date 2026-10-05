@@ -19,7 +19,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
-| Device nodes | Path hooks for `/dev/null`, `/dev/tty`, `/dev/console` |
+| Device nodes | `mknod` + `register_chrdev`; `/dev/null`, `/dev/tty`, `/dev/console` |
 | Initramfs + BusyBox | cpio rootfs; PID 1 is BusyBox `init` via `/init` → `busybox` |
 | Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
 | Synchronization | AArch64 spinlocks; wait queues; `wait_event` helpers |
@@ -74,7 +74,7 @@ The cpio image is built under `initramfs/root/`:
 /etc/passwd        # minimal root entry
 /tmp/
 /proc/             # created by kernel proc_init()
-/dev/              # directory; /dev/null, /dev/tty, /dev/console are VFS hooks
+/dev/              # char nodes (null, tty, console) via mknod + chrdev
 /bin/hello         # musl syscall/regression test binary
 ```
 
@@ -235,15 +235,16 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 
 - `include/linux/fs.h` — inode, `file`, `file_operations`, `inode_operations`.
 - `fs/dcache.c` — dentries (`kmalloc`), path walk for `.` / `..`, `getcwd`.
-- `fs/namei.c` — path resolve, `mkdir`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
-- `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`); nodes and data buffers via `kmalloc`.
+- `fs/namei.c` — path resolve, `mkdir`/`mknod`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
+- `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`), char nodes (`S_IFCHR`); nodes and data buffers via `kmalloc`.
 - `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); wait queues (`prepare_to_wait` / `wake_up`; `-EINTR` if a signal is pending).
 - `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table (`alloc_file()` → `kmalloc`), `fcntl`, `lseek` via `f_op->llseek`.
 - `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps` (`proc_inode` via `kmalloc`).
-- `fs/dev.c`, `fs/devnull.c`, `fs/devtty.c`, `fs/devconsole.c` — special `/dev/*` path hooks (not real char devices).
+- `fs/char_dev.c` — `register_chrdev` / `chrdev_open` by major (mem=1, tty=5).
+- `fs/dev.c`, `fs/devnull.c`, `fs/devtty.c`, `fs/devconsole.c` — create `/dev` nodes with `mknod` and open via the chrdev table.
 - `fs/initramfs.c` — unpack a newc cpio blob into ramfs.
 
-There is no block layer, no ext4, no mount table beyond “everything is ramfs (+ proc + dev hooks).” Shebang (`#!`) execution is not supported — run scripts as `/bin/sh script`.
+There is no block layer, no ext4, no mount table beyond “everything is ramfs (+ proc + char devices).” Shebang (`#!`) execution is not supported — run scripts as `/bin/sh script`.
 
 ### Console, printk, and SMP
 
@@ -299,7 +300,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No real device driver model (`mknod`, block/char dev layers). No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
+No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `dup2` (musl usually uses `dup3`), `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 

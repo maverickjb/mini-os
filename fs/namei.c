@@ -88,6 +88,21 @@ int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
     return dir->i_op->mkdir(dir, dentry, mode);
 }
 
+int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
+              dev_t rdev)
+{
+    if (!dir || !dentry)
+        return -EINVAL;
+    if (!inode_is_dir(dir))
+        return -ENOTDIR;
+    if (!dir->i_op || !dir->i_op->mknod)
+        return -EPERM;
+    if ((mode & S_IFMT) != S_IFCHR)
+        return -EINVAL;
+
+    return dir->i_op->mknod(dir, dentry, mode, rdev);
+}
+
 int vfs_unlink(struct inode *dir, struct dentry *dentry)
 {
     if (!dir || !dentry)
@@ -367,6 +382,42 @@ static int do_mkdir(const char *path, umode_t mode)
     return 0;
 }
 
+static int do_mknod(const char *path, umode_t mode, dev_t rdev)
+{
+    char parent_path[PATH_MAX];
+    char name[DNAME_INLINE_LEN];
+    struct dentry *parent;
+    struct dentry *d;
+    int err;
+
+    if ((mode & S_IFMT) != S_IFCHR)
+        return -EINVAL;
+
+    err = path_parent_name(path, parent_path, name);
+    if (err)
+        return err;
+
+    parent = d_lookup_path(parent_path);
+    if (!parent)
+        return -ENOENT;
+
+    if (d_lookup_path(path))
+        return -EEXIST;
+
+    d = d_alloc(parent, name);
+    if (!d)
+        return -ENOMEM;
+
+    err = vfs_mknod(parent->inode, d, mode, rdev);
+    if (err) {
+        kfree(d);
+        return err;
+    }
+
+    d_add(d);
+    return 0;
+}
+
 static int do_unlink(const char *path)
 {
     char parent_path[PATH_MAX];
@@ -428,6 +479,20 @@ long ksys_mkdirat(int dfd, const char *filename, umode_t mode)
         return err;
 
     return do_mkdir(path, mode);
+}
+
+long ksys_mknodat(int dfd, const char *filename, umode_t mode, unsigned int dev)
+{
+    char path[PATH_MAX];
+    long err;
+
+    (void)dfd;
+
+    err = getname_from_user(path, filename);
+    if (err)
+        return err;
+
+    return do_mknod(path, mode, (dev_t)dev);
 }
 
 long ksys_rmdir(const char *pathname)

@@ -14,8 +14,7 @@
 #include <linux/namei.h>
 #include <linux/ramfs.h>
 #include <linux/proc_fs.h>
-#include <linux/dev.h>
-#include <linux/devtty.h>
+#include <linux/chrdev.h>
 
 void get_file(struct file *file)
 {
@@ -145,26 +144,6 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     if (err)
         return err;
 
-    if (dev_is_path(path)) {
-        if (flags & O_DIRECTORY)
-            return -ENOTDIR;
-
-        file = dev_open_path(path, flags);
-        if (!file) {
-            if (devtty_is_path(path))
-                return -ENXIO;
-            return -ENOMEM;
-        }
-
-        fd = install_fd(task, file);
-        if (fd < 0) {
-            fput(file);
-            return fd;
-        }
-
-        return fd;
-    }
-
     /* No creating files under /proc. */
     if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' &&
         path[3] == 'o' && path[4] == 'c' && path[5] == '/' &&
@@ -193,6 +172,23 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     } else if (flags & O_DIRECTORY) {
         proc_iput(inode);
         return -ENOTDIR;
+    } else if (inode_is_chr(inode)) {
+        if (flags & O_DIRECTORY) {
+            proc_iput(inode);
+            return -ENOTDIR;
+        }
+        err = chrdev_open(inode->i_rdev, flags, &file);
+        if (err) {
+            proc_iput(inode);
+            return err;
+        }
+        file->inode = inode;
+        fd = install_fd(task, file);
+        if (fd < 0) {
+            fput(file);
+            return fd;
+        }
+        return fd;
     } else if (!inode_is_reg(inode)) {
         proc_iput(inode);
         return -ENOENT;

@@ -12,6 +12,7 @@ typedef unsigned short umode_t;
 
 #define PATH_MAX        256
 
+#define S_IFMT          00170000
 #define S_IFIFO         0010000
 #define S_IFCHR         0020000
 #define S_IFDIR         0040000
@@ -37,6 +38,8 @@ struct file_ops {
 
 struct inode_operations {
     int (*mkdir)(struct inode *dir, struct dentry *dentry, umode_t mode);
+    int (*mknod)(struct inode *dir, struct dentry *dentry, umode_t mode,
+                 dev_t rdev);
     int (*unlink)(struct inode *dir, struct dentry *dentry);
     int (*rmdir)(struct inode *dir, struct dentry *dentry);
     int (*link)(struct dentry *old_dentry, struct inode *dir,
@@ -49,6 +52,7 @@ struct inode {
     unsigned long ino;
     unsigned long size;
     int type;
+    dev_t i_rdev;
     const struct inode_operations *i_op;
     const struct file_ops *i_fop;
     void *private_data;
@@ -113,6 +117,11 @@ static inline int inode_is_reg(const struct inode *inode)
 static inline int inode_is_lnk(const struct inode *inode)
 {
     return inode && inode->type == S_IFLNK;
+}
+
+static inline int inode_is_chr(const struct inode *inode)
+{
+    return inode && inode->type == S_IFCHR;
 }
 
 #endif /* _LINUX_FS_H */

@@ -9,18 +9,8 @@
 #include <linux/stat.h>
 #include <linux/string.h>
 #include <linux/tty.h>
-#include <linux/errno.h>
-
-int devtty_is_path(const char *path)
-{
-    return path && strcmp(path, "/dev/tty") == 0;
-}
-
-int devtty_file_is(const struct file *file)
-{
-    return file && file->f_op == &tty_fops &&
-           file->private_data == DEV_FD_TTY;
-}
+#include <linux/kdev_t.h>
+#include <linux/chrdev.h>
 
 struct file *devtty_open(int flags)
 {
@@ -41,6 +31,12 @@ struct file *devtty_open(int flags)
     return file;
 }
 
+int devtty_file_is(const struct file *file)
+{
+    return file && file->f_op == &tty_fops &&
+           file->private_data == DEV_FD_TTY;
+}
+
 void devtty_fill_stat(struct stat *st)
 {
     if (!st)
@@ -48,7 +44,7 @@ void devtty_fill_stat(struct stat *st)
 
     memset(st, 0, sizeof(*st));
     st->st_mode = S_IFCHR | 0666;
-    st->st_rdev = (5UL << 8) | 0UL; /* Linux /dev/tty is 5:0 */
+    st->st_rdev = MKDEV(TTYAUX_MAJOR, 0);
     st->st_nlink = 1;
     st->st_blksize = 1024;
 }

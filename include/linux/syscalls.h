@@ -16,6 +16,7 @@ long ksys_sendfile(unsigned long out_fd, unsigned long in_fd, long *offset,
 long ksys_read(unsigned long fd, char *buf, unsigned long count);
 long ksys_open(const char *filename, int flags, unsigned long mode);
 long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode);
+long ksys_mknodat(int dfd, const char *filename, umode_t mode, unsigned int dev);
 long ksys_mkdirat(int dfd, const char *filename, umode_t mode);
 long ksys_unlinkat(int dfd, const char *filename, int flag);
 long ksys_symlinkat(const char *target, int dfd, const char *linkpath);
