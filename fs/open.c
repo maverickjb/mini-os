@@ -275,6 +275,19 @@ long ksys_dup(unsigned long oldfd)
 
 long ksys_dup2(unsigned long oldfd, unsigned long newfd)
 {
+    struct task_struct *task = current;
+
+    /*
+     * POSIX / Linux dup2: dup2(fd, fd) is a no-op that still checks the
+     * descriptor. AArch64 has no dup2 syscall; musl uses fcntl(F_GETFD)
+     * for this case and dup3 otherwise. Keep the helper Linux-shaped.
+     */
+    if (oldfd == newfd) {
+        if (!task || oldfd >= NR_OPEN || !task->files[oldfd])
+            return -EBADF;
+        return (long)newfd;
+    }
+
     return ksys_dup3(oldfd, newfd, 0);
 }
 
@@ -284,18 +297,19 @@ long ksys_dup3(unsigned long oldfd, unsigned long newfd, int flags)
     struct file *file;
     struct file *old_new;
 
-    if (!task || oldfd >= NR_OPEN || newfd >= NR_OPEN)
-        return -EBADF;
-
     if (flags & ~O_CLOEXEC)
         return -EINVAL;
+
+    /* Linux dup3(fd, fd, flags) is EINVAL even when fd is valid. */
+    if (oldfd == newfd)
+        return -EINVAL;
+
+    if (!task || oldfd >= NR_OPEN || newfd >= NR_OPEN)
+        return -EBADF;
 
     file = task->files[oldfd];
     if (!file)
         return -EBADF;
-
-    if (oldfd == newfd)
-        return (long)newfd;
 
     get_file(file);
     old_new = task->files[newfd];

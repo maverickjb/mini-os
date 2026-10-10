@@ -202,6 +202,10 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_close(regs->x0);
     case __NR_dup:
         return ksys_dup(regs->x0);
+#ifdef __NR_dup2
+    case __NR_dup2:
+        return ksys_dup2(regs->x0, regs->x1);
+#endif
     case __NR_dup3:
         return ksys_dup3(regs->x0, regs->x1, (int)regs->x2);
     case __NR_pipe2:
