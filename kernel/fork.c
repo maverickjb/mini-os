@@ -96,6 +96,8 @@ static void task_zero(struct task_struct *tsk)
     tsk->blocked = 0;
     tsk->saved_blocked = 0;
     tsk->restore_sigmask = 0;
+    tsk->in_syscall = 0;
+    tsk->orig_x0 = 0;
     tsk->clear_child_tid = NULL;
     tsk->wake_jiffies = 0;
     memset(tsk->comm, 0, sizeof(tsk->comm));

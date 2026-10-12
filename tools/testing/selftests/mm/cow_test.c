@@ -4,8 +4,7 @@
  * tools/testing/selftests/mm/cow.c (basic cases only).
  *
  * Child modifies a shared anon page; parent must still see the pre-fork
- * bytes. Keep the child alive until after the parent check so SIGCHLD
- * cannot EINTR the pipe sync (no SA_RESTART yet).
+ * bytes.
  */
 
 #include <unistd.h>
@@ -21,7 +20,7 @@ static void test_cow_child_writes(void)
 {
 	char *mem;
 	char *old;
-	int go[2], done[2], die[2];
+	int go[2], done[2];
 	pid_t pid;
 	int status;
 	char buf;
@@ -37,7 +36,7 @@ static void test_cow_child_writes(void)
 	memset(mem, 0x33, PAGE_SIZE);
 	memcpy(old, mem, PAGE_SIZE);
 
-	if (pipe(go) < 0 || pipe(done) < 0 || pipe(die) < 0) {
+	if (pipe(go) < 0 || pipe(done) < 0) {
 		ksft_test_result_fail("pipe\n");
 		free(mem);
 		free(old);
@@ -58,14 +57,11 @@ static void test_cow_child_writes(void)
 		memset(mem, 0x44, PAGE_SIZE);
 		if (write(done[1], "0", 1) != 1)
 			_exit(1);
-		if (read(die[0], &buf, 1) != 1)
-			_exit(1);
 		_exit(0);
 	}
 
 	if (write(go[1], "0", 1) != 1 || read(done[0], &buf, 1) != 1) {
 		ksft_test_result_fail("sync\n");
-		(void)write(die[1], "0", 1);
 		(void)waitpid(pid, &status, 0);
 		free(mem);
 		free(old);
@@ -75,7 +71,6 @@ static void test_cow_child_writes(void)
 	ksft_test_result(memcmp(old, mem, PAGE_SIZE) == 0,
 			 "child write: parent still sees old bytes\n");
 
-	(void)write(die[1], "0", 1);
 	if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
 	    WEXITSTATUS(status) != 0)
 		ksft_test_result_fail("waitpid\n");

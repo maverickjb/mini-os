@@ -59,13 +59,13 @@ retry:
 
         if (signal_pending(current)) {
             local_irq_enable();
-            return -EINTR;
+            return -ERESTARTSYS;
         }
 
         local_irq_enable();
         pipe_wait(&p->read_wait);
         if (signal_pending(current))
-            return -EINTR;
+            return -ERESTARTSYS;
         goto retry;
     }
 
@@ -110,13 +110,13 @@ retry:
     if (p->len == PIPE_SIZE) {
         if (signal_pending(current)) {
             local_irq_enable();
-            return -EINTR;
+            return -ERESTARTSYS;
         }
 
         local_irq_enable();
         pipe_wait(&p->write_wait);
         if (signal_pending(current))
-            return -EINTR;
+            return -ERESTARTSYS;
         goto retry;
     }
 

@@ -9,6 +9,7 @@
  *   SIG_DFL  → terminate (wait status = signal number), except ignored
  *   SIG_IGN  → drop
  *   handler  → user stack frame, ELR=handler, LR=sa_restorer (rt_sigreturn)
+ *   SA_RESTART → rewind interrupted svc (orig_x0, ELR -= 4) before the frame
  */
 
 #include <linux/signal.h>
@@ -271,6 +272,31 @@ static void do_signal_stop(int sig)
         task->state = TASK_RUNNING;
 }
 
+/*
+ * -ERESTARTSYS is still in regs->x0. Either rewind svc (restore orig_x0,
+ * ELR -= 4) or turn it into -EINTR. Only while returning from a syscall.
+ */
+static void apply_syscall_restart(struct pt_regs *regs, int restart)
+{
+    if (!regs || !current || !current->in_syscall)
+        return;
+    if ((long)regs->x0 != -ERESTARTSYS)
+        return;
+
+    if (restart) {
+        regs->x0 = current->orig_x0;
+        regs->elr_el1 -= 4UL;
+    } else {
+        regs->x0 = (unsigned long)(long)-EINTR;
+    }
+}
+
+void syscall_exit_restart(struct pt_regs *regs)
+{
+    /* No catchable handler: restart rather than leak -ERESTARTSYS. */
+    apply_syscall_restart(regs, 1);
+}
+
 static void handle_signal(struct pt_regs *regs, int sig,
                           struct sigaction *ka)
 {
@@ -355,6 +381,7 @@ void do_signal(struct pt_regs *regs)
         if (ka.sa_flags & SA_RESETHAND)
             task->actions[sig].sa_handler = SIG_DFL;
 
+        apply_syscall_restart(regs, !!(ka.sa_flags & SA_RESTART));
         handle_signal(regs, sig, &ka);
         return;
     }

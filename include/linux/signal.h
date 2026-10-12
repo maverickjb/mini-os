@@ -24,6 +24,7 @@ struct task_struct *find_task_by_pid(pid_t pid);
 int signal_pending(struct task_struct *task);
 void signal_send(struct task_struct *task, int sig);
 void do_signal(struct pt_regs *regs);
+void syscall_exit_restart(struct pt_regs *regs);
 long ksys_kill(long pid, int sig);
 long ksys_rt_sigaction(int sig, const struct sigaction *act,
                        struct sigaction *oldact, unsigned long sigsetsize);

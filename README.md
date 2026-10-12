@@ -14,7 +14,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | SMP | 4 CPUs on QEMU virt; PSCI bring-up; reschedule IPI; pull load balance |
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
-| Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn` |
+| Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn`, `SA_RESTART` |
 | Page allocator + user maps | Buddy + `struct page`; fork COW (share RO, break on write) |
 | SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
@@ -174,7 +174,7 @@ Unknown numbers return `-ENOSYS`.
 
 - Each task has `pending` and `blocked` bitmasks (signals 1–63).
 - `kill` queues a bit (`pid > 0` one task, `pid == 0` caller’s pgrp, `pid < -1` another pgrp, `pid == -1` all user tasks except caller) and wakes a sleeper if the signal is unblocked.
-- **`wait4`** is interruptible: if a signal arrives while sleeping, the syscall returns **`-EINTR`**; **`do_signal()`** on the syscall-return path then delivers default actions (e.g. `SIGTERM` → `do_exit()`).
+- **`wait4`**, pipe I/O, and TTY read are interruptible: they return kernel-internal **`-ERESTARTSYS`**. If the delivered handler has **`SA_RESTART`**, `do_signal` restores orig `x0` and rewinds `ELR` by 4 so `svc` runs again; otherwise userspace sees **`-EINTR`**. Ignored signals (e.g. default `SIGCHLD`) also restart. `sigsuspend` always returns `-EINTR`.
 - `do_signal` on syscall return: `SIGSTOP` parks the task in `TASK_STOPPED` (not a zombie); default terminate (except ignored signals like `SIGCHLD` / `SIGCONT`); `SIG_IGN` drop; or user handler.
 - PID 1 default `SIGUSR1` / `SIGUSR2` / `SIGTERM` triggers shutdown via `kernel_init_shutdown()` (BusyBox `halt` / `poweroff` path).
 - A handler gets a **signal frame** on the user stack (accepted if SP lies in a writable stack VMA, else the full `USER_STACK_SIZE` window); musl’s restorer issues `rt_sigreturn` to restore registers and the old mask.
@@ -281,12 +281,14 @@ sh /kselftests/run_kselftest.sh
 /kselftests/yield/yield_test
 /kselftests/mm/cow_test
 /kselftests/files/dup_test
+/kselftests/signals/sa_restart_test
 ```
 
 - `kselftest.h` — TAP helpers (`ksft_print_header`, `ksft_set_plan`, `ksft_test_result`, `ksft_finished`), same usage pattern as Linux.
 - `yield/yield_test.c` — sample suite: `sched_yield` returns 0.
 - `mm/cow_test.c` — basic anon COW after `fork` (child write; inspired by Linux `selftests/mm/cow.c`).
 - `files/dup_test.c` — `dup2` / `dup3` (same fd, replace, `O_CLOEXEC`).
+- `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 
 To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.
 
@@ -302,7 +304,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No syscall restart (`SA_RESTART`), no `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `vhangup`, mount/unmount, etc.
+No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 

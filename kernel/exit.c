@@ -294,7 +294,7 @@ long ksys_wait4(long pid, int *status, long options)
                 continue;
             }
 
-            return -EINTR;
+            return -ERESTARTSYS;
         }
 
         /*
@@ -314,4 +314,3 @@ long ksys_wait4(long pid, int *status, long options)
             enqueue_task(parent);
     }
 }
-

@@ -331,6 +331,11 @@ void syscall_handler(struct pt_regs *regs)
         return;
     }
 
+    if (current) {
+        current->in_syscall = 1;
+        current->orig_x0 = regs->x0;
+    }
+
     ret = handle_syscall(regs);
     regs->x0 = (unsigned long)ret;
 
@@ -339,9 +344,13 @@ void syscall_handler(struct pt_regs *regs)
      * enabling here races with staging ELR/SPSR for EL0.
      */
     do_signal(regs);
+    syscall_exit_restart(regs);
 
-    if (current && current->restore_sigmask) {
-        current->blocked = current->saved_blocked & ~SIG_UNBLOCKABLE;
-        current->restore_sigmask = 0;
+    if (current) {
+        current->in_syscall = 0;
+        if (current->restore_sigmask) {
+            current->blocked = current->saved_blocked & ~SIG_UNBLOCKABLE;
+            current->restore_sigmask = 0;
+        }
     }
 }

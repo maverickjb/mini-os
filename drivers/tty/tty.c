@@ -176,8 +176,12 @@ long tty_read(char *buf, unsigned long count)
     if (count == 0)
         return 0;
 
-    if (wait_event_interruptible(&tty0.read_wait, tty_read_ready))
-        return -EINTR;
+    {
+        long wret = wait_event_interruptible(&tty0.read_wait, tty_read_ready);
+
+        if (wret)
+            return wret;
+    }
 
     spin_lock_irqsave(&tty0.lock, flags);
 

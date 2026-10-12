@@ -664,8 +664,9 @@ int main(void)
             write(ready[1], "r", 1);
             close(ready[1]);
             n = read(fds[0], &c, 1);
-            if (n < 0 && errno == EINTR)
-                _exit(42);
+            /* SIGSTOP is not a handler: ERESTARTSYS rewinds read after CONT. */
+            if (n == 0)
+                _exit(0);
             _exit(3);
         }
 
@@ -701,10 +702,10 @@ int main(void)
             printf("WIFCONTINUED expected, status %d\n", status);
             return 1;
         }
-        w = waitpid(cpid, &status, 0);
         close(fds[1]);
-        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
-            printf("SIGSTOP/SIGCONT expected 42 got %d\n", status);
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            printf("SIGSTOP/SIGCONT expected restarted read EOF got %d\n", status);
             return 1;
         }
     }
@@ -741,8 +742,8 @@ int main(void)
             write(ready[1], "r", 1);
             close(ready[1]);
             n = read(fds[0], &c, 1);
-            if (n < 0 && errno == EINTR)
-                _exit(42);
+            if (n == 0)
+                _exit(0);
             _exit(3);
         }
 
@@ -771,10 +772,10 @@ int main(void)
             printf("WIFCONTINUED after SIGTSTP expected\n");
             return 1;
         }
-        w = waitpid(cpid, &status, 0);
         close(fds[1]);
-        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 42) {
-            printf("SIGTSTP/SIGCONT expected 42 got %d\n", status);
+        w = waitpid(cpid, &status, 0);
+        if (w != cpid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            printf("SIGTSTP/SIGCONT expected restarted read EOF got %d\n", status);
             return 1;
         }
 

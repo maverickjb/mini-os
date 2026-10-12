@@ -147,7 +147,7 @@ long wait_event_interruptible(struct wait_queue_head *wq,
 
         if (signal_pending(current)) {
             local_irq_enable();
-            return -EINTR;
+            return -ERESTARTSYS;
         }
 
         prepare_to_wait(wq, &wait);
@@ -159,7 +159,7 @@ long wait_event_interruptible(struct wait_queue_head *wq,
         finish_wait(wq, &wait);
 
         if (signal_pending(current))
-            return -EINTR;
+            return -ERESTARTSYS;
     }
 
     return 0;

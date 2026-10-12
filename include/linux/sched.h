@@ -95,6 +95,9 @@ struct task_struct {
     /* Pre-rt_sigsuspend mask; restored after delivery / syscall return. */
     unsigned long saved_blocked;
     int restore_sigmask;
+    /* Set around handle_syscall(); orig_x0 is arg0 before it becomes retval. */
+    int in_syscall;
+    unsigned long orig_x0;
     struct sigaction actions[MAX_SIG];
     int *clear_child_tid;
     /* Jiffies deadline for nanosleep; 0 => not sleeping on a timer. */

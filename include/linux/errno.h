@@ -30,4 +30,10 @@
 #define EPIPE          32
 #define ETIMEDOUT     110
 
+/*
+ * Kernel-internal: interrupted syscall may be rewound (ELR -= 4) if the
+ * handler has SA_RESTART, or converted to -EINTR. Never a userspace errno.
+ */
+#define ERESTARTSYS     512
+
 #endif
