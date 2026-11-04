@@ -72,6 +72,19 @@ int install_fd(struct task_struct *task, struct file *file)
     return -EMFILE;
 }
 
+static int install_fd_flags(struct task_struct *task, struct file *file,
+                            int flags)
+{
+    int fd;
+
+    fd = install_fd(task, file);
+    if (fd < 0)
+        return fd;
+    if (flags & O_CLOEXEC)
+        task->close_on_exec |= (1UL << fd);
+    return fd;
+}
+
 static int install_fd_min(struct task_struct *task, struct file *file,
                           unsigned int minfd)
 {
@@ -183,7 +196,7 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
             return err;
         }
         file->inode = inode;
-        fd = install_fd(task, file);
+        fd = install_fd_flags(task, file, flags);
         if (fd < 0) {
             fput(file);
             return fd;
@@ -222,7 +235,7 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     if (inode_is_reg(inode) && file->f_op && file->f_op->llseek)
         file->f_mode |= FMODE_LSEEK;
 
-    fd = install_fd(task, file);
+    fd = install_fd_flags(task, file, flags);
     if (fd < 0) {
         fput(file);
         return fd;

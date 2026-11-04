@@ -158,7 +158,7 @@ There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover th
 
 Implemented (subset):
 
-- I/O and files: `read`, `write`, `writev`, `openat`, `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
+- I/O and files: `read`, `write`, `writev`, `openat` (`O_CLOEXEC`), `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
 - Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `chdir`, `getcwd`, `utimensat` (stub)
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
 - Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
@@ -287,6 +287,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/files/dup_test
 /kselftests/files/pipe_test
 /kselftests/files/rename_test
+/kselftests/files/open_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 ```
@@ -298,6 +299,7 @@ sh /kselftests/run_kselftest.sh
 - `files/dup_test.c` — `dup2` / `dup3` (same fd, replace, `O_CLOEXEC`).
 - `files/pipe_test.c` — `pipe2` flags, non-blocking empty/full I/O, `F_SETFL`.
 - `files/rename_test.c` — `renameat` (file, into dir, replace, type mismatch, descendant).
+- `files/open_test.c` — `openat` `O_CLOEXEC` (file, chrdev, closed across `exec`).
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 
