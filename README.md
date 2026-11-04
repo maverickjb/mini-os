@@ -158,7 +158,7 @@ There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover th
 
 Implemented (subset):
 
-- I/O and files: `read`, `write`, `writev`, `openat`, `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2`, `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
+- I/O and files: `read`, `write`, `writev`, `openat`, `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
 - Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `chdir`, `getcwd`, `utimensat` (stub)
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
 - Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
@@ -240,7 +240,7 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 - `fs/dcache.c` — dentries (`kmalloc`), path walk for `.` / `..`, `getcwd`.
 - `fs/namei.c` — path resolve, `mkdir`/`mknod`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
 - `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`), char nodes (`S_IFCHR`); nodes and data buffers via `kmalloc`.
-- `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); wait queues (`prepare_to_wait` / `wake_up`; `-ERESTARTSYS` if a signal is pending).
+- `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); `pipe2` accepts `O_CLOEXEC` / `O_NONBLOCK`. Blocking I/O waits on the ring (`-ERESTARTSYS` if a signal is pending); `O_NONBLOCK` returns `-EAGAIN` instead of sleeping.
 - `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table (`alloc_file()` → `kmalloc`), `fcntl`, `lseek` via `f_op->llseek`.
 - `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps` (`proc_inode` via `kmalloc`).
 - `fs/char_dev.c` — `register_chrdev` / `chrdev_open` by major (mem=1, tty=5).
@@ -285,6 +285,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/mm/cow_test
 /kselftests/mm/mprotect_test
 /kselftests/files/dup_test
+/kselftests/files/pipe_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 ```
@@ -294,6 +295,7 @@ sh /kselftests/run_kselftest.sh
 - `mm/cow_test.c` — basic anon COW after `fork` (child write; inspired by Linux `selftests/mm/cow.c`).
 - `mm/mprotect_test.c` — `mprotect` args, holes, VMA split, COW-safe RW.
 - `files/dup_test.c` — `dup2` / `dup3` (same fd, replace, `O_CLOEXEC`).
+- `files/pipe_test.c` — `pipe2` flags, non-blocking empty/full I/O, `F_SETFL`.
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 

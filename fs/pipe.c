@@ -57,6 +57,11 @@ retry:
             return 0;
         }
 
+        if (file->f_flags & O_NONBLOCK) {
+            local_irq_enable();
+            return -EAGAIN;
+        }
+
         if (signal_pending(current)) {
             local_irq_enable();
             return -ERESTARTSYS;
@@ -108,6 +113,11 @@ retry:
     }
 
     if (p->len == PIPE_SIZE) {
+        if (file->f_flags & O_NONBLOCK) {
+            local_irq_enable();
+            return -EAGAIN;
+        }
+
         if (signal_pending(current)) {
             local_irq_enable();
             return -ERESTARTSYS;
@@ -197,7 +207,7 @@ long ksys_pipe2(int *fildes, int flags)
     if (!fildes)
         return -EFAULT;
 
-    if (flags != 0)
+    if (flags & ~(O_CLOEXEC | O_NONBLOCK))
         return -EINVAL;
 
     p = kmalloc(sizeof(*p));
@@ -229,11 +239,11 @@ long ksys_pipe2(int *fildes, int flags)
 
     rfile->f_op = &pipe_read_ops;
     rfile->private_data = p;
-    rfile->f_flags = O_RDONLY;
+    rfile->f_flags = O_RDONLY | (flags & O_NONBLOCK);
 
     wfile->f_op = &pipe_write_ops;
     wfile->private_data = p;
-    wfile->f_flags = O_WRONLY;
+    wfile->f_flags = O_WRONLY | (flags & O_NONBLOCK);
 
     fd0 = install_fd(task, rfile);
     if (fd0 < 0) {
@@ -253,9 +263,16 @@ long ksys_pipe2(int *fildes, int flags)
     fds[0] = fd0;
     fds[1] = fd1;
 
+    if (flags & O_CLOEXEC) {
+        task->close_on_exec |= (1UL << fd0);
+        task->close_on_exec |= (1UL << fd1);
+    }
+
     if (copy_to_user(fildes, fds, sizeof(fds))) {
         task->files[fd0] = NULL;
         task->files[fd1] = NULL;
+        task->close_on_exec &= ~(1UL << fd0);
+        task->close_on_exec &= ~(1UL << fd1);
         fput(rfile);
         fput(wfile);
         return -EFAULT;
