@@ -401,16 +401,118 @@ static unsigned long *l3_slot(struct mm_struct *mm, unsigned long va)
     return &l3[l3_idx];
 }
 
-static int set_page_prot(struct mm_struct *mm, unsigned long va,
-                         unsigned long prot)
+/*
+ * Apply new VMA prot to a present PTE. Missing leaves are left alone
+ * (demand paging uses the updated VMA). Shared COW pages stay hardware
+ * read-only even if the VMA is writable.
+ */
+static int change_pte_prot(struct mm_struct *mm, unsigned long va,
+                           unsigned long map_prot)
 {
     unsigned long *ptep = l3_slot(mm, va);
+    unsigned long old;
+    unsigned long pte;
+    struct page *page;
 
-    if (!ptep || !(*ptep & 1UL))
+    if (!ptep || !pte_present(*ptep))
+        return 0;
+
+    old = *ptep;
+    pte = (old & PTE_ADDR_MASK) | prot_to_pte(map_prot);
+
+    if (map_prot & MAP_PROT_WRITE) {
+        page = virt_to_page(__phys_to_virt(old & PTE_ADDR_MASK));
+        if (page && page_count(page) > 1)
+            pte = pte_wrprotect(pte);
+    }
+
+    pte_set(ptep, pte);
+    tlb_flush_page(va);
+    return 0;
+}
+
+static int change_prot_range(struct mm_struct *mm, unsigned long start,
+                             unsigned long end, unsigned long map_prot)
+{
+    unsigned long va;
+
+    for (va = start; va < end; va += PAGE_SIZE)
+        change_pte_prot(mm, va, map_prot);
+
+    return 0;
+}
+
+static int vma_split(struct vm_area_struct *vma, unsigned long addr)
+{
+    struct vm_area_struct *right;
+
+    if (!vma || addr <= vma->vm_start || addr >= vma->vm_end)
+        return 0;
+
+    right = vma_alloc(addr, vma->vm_end, vma->vm_flags);
+    if (!right)
         return -ENOMEM;
 
-    pte_set(ptep, (*ptep & PTE_ADDR_MASK) | prot_to_pte(prot));
-    tlb_flush_page(va);
+    vma->vm_end = addr;
+    right->vm_next = vma->vm_next;
+    vma->vm_next = right;
+    return 0;
+}
+
+static int mprotect_covered(struct mm_struct *mm, unsigned long start,
+                            unsigned long end)
+{
+    unsigned long va = start;
+    struct vm_area_struct *vma;
+
+    while (va < end) {
+        vma = find_vma(mm, va);
+        if (!vma || vma->vm_start > va)
+            return 0;
+        va = vma->vm_end;
+    }
+
+    return 1;
+}
+
+static int mm_mprotect(struct mm_struct *mm, unsigned long start,
+                       unsigned long end, unsigned long prot)
+{
+    struct vm_area_struct *vma;
+    unsigned long map_prot;
+    int err;
+
+    if (!mm || start >= end)
+        return -EINVAL;
+
+    if (!mprotect_covered(mm, start, end))
+        return -ENOMEM;
+
+    vma = find_vma(mm, start);
+    if (vma) {
+        err = vma_split(vma, start);
+        if (err)
+            return err;
+    }
+
+    if (end) {
+        vma = find_vma(mm, end - 1UL);
+        if (vma) {
+            err = vma_split(vma, end);
+            if (err)
+                return err;
+        }
+    }
+
+    map_prot = linux_prot_to_map(prot);
+
+    for (vma = find_vma(mm, start); vma && vma->vm_start < end;
+         vma = vma->vm_next) {
+        vma->vm_flags = (vma->vm_flags & ~(VM_READ | VM_WRITE | VM_EXEC)) |
+                        map_prot;
+        change_prot_range(mm, vma->vm_start, vma->vm_end, map_prot);
+    }
+
     return 0;
 }
 
@@ -881,30 +983,29 @@ long ksys_munmap(unsigned long addr, unsigned long len)
 
 long ksys_mprotect(unsigned long addr, unsigned long len, unsigned long prot)
 {
-    unsigned long map_prot;
-    unsigned long va;
-    unsigned long end;
-    int err;
+    unsigned long nlen;
 
     if (!current || !current->is_user || !current->mm)
+        return -EINVAL;
+
+    if (addr & (PAGE_SIZE - 1UL))
+        return -EINVAL;
+
+    if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
         return -EINVAL;
 
     if (len == 0)
         return 0;
 
-    if (addr & (PAGE_SIZE - 1UL))
-        return -EINVAL;
+    if (len > ~0UL - (PAGE_SIZE - 1UL))
+        return -ENOMEM;
 
-    map_prot = linux_prot_to_map(prot);
-    end = (addr + len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
+    nlen = (len + PAGE_SIZE - 1UL) & ~(PAGE_SIZE - 1UL);
 
-    for (va = addr; va < end; va += PAGE_SIZE) {
-        err = set_page_prot(current->mm, va, map_prot);
-        if (err)
-            return err;
-    }
+    if (addr > ~0UL - nlen)
+        return -ENOMEM;
 
-    return 0;
+    return mm_mprotect(current->mm, addr, addr + nlen, prot);
 }
 
 /*

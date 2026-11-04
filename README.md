@@ -15,7 +15,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Fork / exec / exit / wait | Separate address spaces, ELF load, zombies |
 | Process groups / sessions | `pgid` / `sid`, `setpgid`, `setsid`, TTY foreground pgrp |
 | Signals | Pending bits, `sigaction`, mask, suspend, `sigreturn`, `SA_RESTART` |
-| Page allocator + user maps | Buddy + `struct page`; fork COW (share RO, break on write) |
+| Page allocator + user maps | Buddy + `struct page`; fork COW; `mprotect` updates VMAs and PTEs |
 | SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
 | `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
@@ -75,6 +75,7 @@ The cpio image is built under `initramfs/root/`:
 /tmp/
 /proc/             # created by kernel proc_init()
 /dev/              # char nodes (null, tty, console) via mknod + chrdev
+/kselftests/       # TAP userspace tests (yield, mm, files, signals)
 /bin/hello         # musl syscall/regression test binary
 ```
 
@@ -86,8 +87,8 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 tools/testing/selftests/   userspace kselftests (Linux-shaped TAP)
 hypervisor/ EL2 boots mini-OS guest @ 0x40000000 (hyp @ 0x44000000)
 kernel/     boot, IRQ, SMP, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
-mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap, copy_to/from_user
-fs/         ramfs, dcache, path lookup, pipes, procfs, dev hooks, ELF loader
+mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap/mprotect, COW, copy_to/from_user
+fs/         ramfs, dcache, path lookup, pipes, procfs, chrdev + `/dev` nodes, ELF loader
 drivers/    UART + console TTY (SMP-safe locks)
 lib/        string helpers, vsnprintf, red-black tree
 include/    linux/, uapi/linux/, and asm/ headers (Linux-shaped, not Linux)
@@ -103,7 +104,7 @@ Headers live under `include/linux`, `include/uapi/linux`, and `include/asm` so f
 
 - `kernel/head.S` — EL1 entry, early stack, MMU (identity + high half at `0xffff800080000000`), jump to C. QEMU loads the image at `0x40000000`.
 - `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
-- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, `mmap_init`, ramfs, unpack initramfs, procfs, scheduler, PID 1.
+- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, `mmap_init`, ramfs, unpack initramfs, procfs, `dev_init`, scheduler, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
 
@@ -125,7 +126,7 @@ A tick can preempt a user task without calling `schedule()` from the IRQ handler
 - `kernel/sched/idle.c` — per-CPU idle (PID 0); IRQs enabled in `cpu_idle()` so secondaries take timer/IPI.
 - `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
 - `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables, VMA list, and file table; `task_attach()` on creation; `wake_up_process()` enqueues then `resched_cpu(task->cpu)`. `task_struct` and `mm_struct` allocated with `kmalloc`.
-- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-EINTR`); `task_detach()` on reap; `kfree(task)` after stack and page tables are released.
+- `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-ERESTARTSYS` / `SA_RESTART`); `task_detach()` on reap; `kfree(task)` after stack and page tables are released.
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
 
 **Runqueue policy:** only `TASK_RUNNING` tasks sit on a CPU’s `rq.tasks`. Sleep/stop/exit calls `sched_block()` → `dequeue_task()`; wake paths call `wake_up_process()` → `enqueue_task()` (or `enqueue_task_cpu`) and may IPI the target CPU. Non-runnable tasks remain on `all_tasks` for `wait4`, signals, and `/proc` walks.
@@ -143,7 +144,7 @@ States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, i
 - `include/linux/wait.h` + `kernel/sched/wait.c` — Linux-style wait queues for blocking I/O:
   - `DECLARE_WAITQUEUE` on the stack, `prepare_to_wait` → `schedule` → `finish_wait`.
   - `wait_event(wq, condition)` — sleep until a function-pointer condition is true.
-  - `wait_event_interruptible(wq, condition)` — same, but returns `-EINTR` if a signal is pending.
+  - `wait_event_interruptible(wq, condition)` — same, but returns `-ERESTARTSYS` if a signal is pending (`SA_RESTART` may rewind the syscall).
   - `wake_up()` marks sleeping waiters runnable via `wake_up_process()`.
   - Used by `fs/pipe.c` (read/write when the buffer is empty/full) and `drivers/tty/tty.c` (`wait_event_interruptible` on blocking read).
 - `include/linux/list.h` — doubly-linked `list_head` helpers (`list_add`, `list_del_init`, `list_is_linked`, `list_for_each`). Off-list nodes are self-linked (`INIT_LIST_HEAD` / `list_del_init`); never use bare `list_del`.
@@ -161,7 +162,7 @@ Implemented (subset):
 - Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `chdir`, `getcwd`, `utimensat` (stub)
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
 - Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
-- Memory: `brk`, `mmap` (anonymous), `munmap`; `mprotect` is a no-op stub (enough for musl CRT)
+- Memory: `brk`, `mmap` (anonymous), `munmap`, `mprotect` (VMA split + COW-safe PTEs)
 - Signals: `kill`, `rt_sigaction`, `rt_sigprocmask`, `rt_sigpending`, `rt_sigsuspend`, `rt_sigreturn`
 - Reboot: `reboot` (`RESTART`, `HALT`, `POWER_OFF` via PSCI on QEMU virt)
 - TTY `ioctl`: `TCGETS`/`TCSETS`, `TIOCGPGRP`/`TIOCSPGRP`, `TIOCSCTTY`, `TIOCGSID`, `TIOCNOTTY`, `TIOCGWINSZ`
@@ -191,7 +192,7 @@ Unknown numbers return `-ENOSYS`.
 
 ### Virtual memory, SLUB, and ELF
 
-- `mm/page_alloc.c` — buddy allocator (`alloc_pages` / `free_pages`); `mem_map[]` of `struct page` with `atomic_t _refcount`; `virt_to_page` / `page_address` / `get_page` / `put_page` / `page_count` (for upcoming COW).
+- `mm/page_alloc.c` — buddy allocator (`alloc_pages` / `free_pages`); `mem_map[]` of `struct page` with `atomic_t _refcount`; `virt_to_page` / `page_address` / `get_page` / `put_page` / `page_count` (fork COW).
 - `include/linux/atomic.h` — minimal `atomic_t` helpers.
 - `include/linux/mm_types.h` — `struct page`, VMA, `mm_struct`.
 - `mm/slub.c` — SLUB-style `kmalloc` / `kfree`:
@@ -206,14 +207,16 @@ Unknown numbers return `-ENOSYS`.
 - `mm/mmap.c` — user address spaces:
   - **`struct vm_area_struct`** — sorted singly-linked list on `mm->mmap` (`vm_start` / `vm_end` exclusive / `vm_flags`).
   - `mmap_init()` — creates the VMA SLUB cache (after `slub_init()`).
-  - Helpers: `find_vma`, `vma_record`, `vma_erase_range` (trim / split / remove; split failure returns `-ENOMEM`), `dup_vma_list`, `free_all_vmas`.
+  - Helpers: `find_vma`, `vma_record`, `vma_erase_range` / `vma_split` (trim / split / remove; split failure returns `-ENOMEM`), `dup_vma_list`, `free_all_vmas`.
   - `do_map` / page-table walk — map anonymous pages into TTBR0 tables.
   - `do_brk` / `do_mmap` / `do_munmap` — grow or shrink the heap VMA, allocate anonymous regions (`MAP_ANONYMOUS`, optional `MAP_FIXED`), and unmap pages while keeping the VMA list consistent.
-  - `mm_alloc` / `dup_mm` / `mm_put` — allocate or duplicate `mm_struct` (including VMA list + full page-table copy); last user frees tables, VMAs, then `kfree(mm)`.
+  - **`mprotect`** — `ksys_mprotect` validates alignment, `prot` bits, and overflow; `mm_mprotect()` requires the range to be fully covered (holes → `-ENOMEM`), splits VMAs at the edges, updates `vm_flags`, then updates present PTEs. Unmapped leaves are left for demand paging. Shared COW pages stay hardware read-only even if the VMA is writable (`page_count > 1`).
+  - Fork COW: `dup_pgtable` shares leaf pages, wrprotects both sides, `get_page`; write faults call `do_cow_fault`.
+  - `mm_alloc` / `dup_mm` / `mm_put` — allocate or duplicate `mm_struct` (VMA list + COW page tables); last user `put_page`s tables and VMAs, then `kfree(mm)`.
 - `mm/uaccess.c` — `copy_to_user` / `copy_from_user` (EL1 access to EL0 mappings).
-- `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, `vma_record` each `PT_LOAD` and the stack, build Linux-style argc/argv/envp/auxv, then drop the old `mm`.
+- `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, `vma_record` each `PT_LOAD` and the stack, build Linux-style argc/argv/envp/auxv, reset non-`SIG_IGN` handlers to `SIG_DFL`, then drop the old `mm`.
 
-User addresses sit in a low range (stack near `0x4040000`, mmap base `0x2000000`). Kernel virtual memory is the high half. Each user task has its own `pgd`; `mm_install()` switches it on context switch. Fork still fully copies page tables (`dup_pgtable`); there is no COW or shared-mm `vfork` yet.
+User addresses sit in a low range (stack near `0x4040000`, mmap base `0x2000000`). Kernel virtual memory is the high half. Each user task has its own `pgd`; `mm_install()` switches it on context switch. There is no shared-mm `vfork`.
 
 The initial user stack (SP at the low end, stack grows down):
 
@@ -237,7 +240,7 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 - `fs/dcache.c` — dentries (`kmalloc`), path walk for `.` / `..`, `getcwd`.
 - `fs/namei.c` — path resolve, `mkdir`/`mknod`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
 - `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`), char nodes (`S_IFCHR`); nodes and data buffers via `kmalloc`.
-- `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); wait queues (`prepare_to_wait` / `wake_up`; `-EINTR` if a signal is pending).
+- `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); wait queues (`prepare_to_wait` / `wake_up`; `-ERESTARTSYS` if a signal is pending).
 - `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table (`alloc_file()` → `kmalloc`), `fcntl`, `lseek` via `f_op->llseek`.
 - `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps` (`proc_inode` via `kmalloc`).
 - `fs/char_dev.c` — `register_chrdev` / `chrdev_open` by major (mem=1, tty=5).
@@ -280,6 +283,7 @@ make kselftest          # build + install into initramfs/root/kselftests
 sh /kselftests/run_kselftest.sh
 /kselftests/yield/yield_test
 /kselftests/mm/cow_test
+/kselftests/mm/mprotect_test
 /kselftests/files/dup_test
 /kselftests/signals/sa_restart_test
 ```
@@ -287,6 +291,7 @@ sh /kselftests/run_kselftest.sh
 - `kselftest.h` — TAP helpers (`ksft_print_header`, `ksft_set_plan`, `ksft_test_result`, `ksft_finished`), same usage pattern as Linux.
 - `yield/yield_test.c` — sample suite: `sched_yield` returns 0.
 - `mm/cow_test.c` — basic anon COW after `fork` (child write; inspired by Linux `selftests/mm/cow.c`).
+- `mm/mprotect_test.c` — `mprotect` args, holes, VMA split, COW-safe RW.
 - `files/dup_test.c` — `dup2` / `dup3` (same fd, replace, `O_CLOEXEC`).
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 
@@ -315,7 +320,7 @@ Names like `task_struct` are there so you can grep Linux later and recognize the
 3. `kernel/smp.c` → `include/asm/smp.h` → `kernel/irq.c` → `kernel/time/tick.c`
 4. `kernel/sched/core.c` → `kernel/sched/wait.c` → `include/linux/spinlock.h` → `mm/slub.c` → `kernel/fork.c` → `kernel/exit.c`
 5. `include/linux/list.h` → `include/linux/rbtree.h` → `lib/rbtree.c`
-6. `include/linux/mm_types.h` → `mm/mmap.c` (VMAs, `do_brk` / `do_mmap` / `do_munmap`)
+6. `include/linux/mm_types.h` → `mm/mmap.c` (VMAs, `do_brk` / `do_mmap` / `do_munmap` / `mm_mprotect`, COW)
 7. `fs/ramfs.c` → `fs/dcache.c` → `fs/namei.c`
 8. `fs/binfmt.c` → `fs/exec.c`
 9. `fs/procfs.c` → `fs/dev.c`
