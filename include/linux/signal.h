@@ -17,7 +17,8 @@ struct signal_frame {
 	unsigned long blocked;
 };
 
-#define SIG_BIT(sig)		(1UL << (unsigned)(sig))
+/* Linux/musl/glibc: signal n lives in bit (n-1). Call only with sig >= 1. */
+#define SIG_BIT(sig)		(1UL << ((unsigned)(sig) - 1U))
 #define SIG_UNBLOCKABLE		(SIG_BIT(SIGKILL) | SIG_BIT(SIGSTOP))
 
 struct task_struct *find_task_by_pid(pid_t pid);

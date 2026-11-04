@@ -538,7 +538,6 @@ long ksys_rt_sigpending(sigset_t *set, unsigned long sigsetsize)
 {
     struct task_struct *task = current;
     sigset_t pending;
-    unsigned long blocked;
 
     if (!task || !task->is_user)
         return -EINVAL;
@@ -549,8 +548,8 @@ long ksys_rt_sigpending(sigset_t *set, unsigned long sigsetsize)
     if (!set)
         return -EFAULT;
 
-    blocked = task->blocked & ~SIG_UNBLOCKABLE;
-    pending.sig[0] = task->pending & ~blocked;
+    /* POSIX/Linux: pending ∩ blocked (signals waiting on the mask). */
+    pending.sig[0] = task->pending & task->blocked;
 
     if (copy_to_user(set, &pending, sizeof(pending)))
         return -EFAULT;

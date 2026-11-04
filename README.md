@@ -173,7 +173,7 @@ Unknown numbers return `-ENOSYS`.
 
 `kernel/signal.c` is a small Linux rt-signal path:
 
-- Each task has `pending` and `blocked` bitmasks (signals 1–63).
+- Each task has `pending` and `blocked` bitmasks (Linux layout: signal `n` is bit `n-1`).
 - `kill` queues a bit (`pid > 0` one task, `pid == 0` caller’s pgrp, `pid < -1` another pgrp, `pid == -1` all user tasks except caller) and wakes a sleeper if the signal is unblocked.
 - **`wait4`**, pipe I/O, and TTY read are interruptible: they return kernel-internal **`-ERESTARTSYS`**. If the delivered handler has **`SA_RESTART`**, `do_signal` restores orig `x0` and rewinds `ELR` by 4 so `svc` runs again; otherwise userspace sees **`-EINTR`**. Ignored signals (e.g. default `SIGCHLD`) also restart. `sigsuspend` always returns `-EINTR`.
 - `do_signal` on syscall return: `SIGSTOP` parks the task in `TASK_STOPPED` (not a zombie); default terminate (except ignored signals like `SIGCHLD` / `SIGCONT`); `SIG_IGN` drop; or user handler.
@@ -286,6 +286,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/mm/mprotect_test
 /kselftests/files/dup_test
 /kselftests/signals/sa_restart_test
+/kselftests/signals/sigset_test
 ```
 
 - `kselftest.h` — TAP helpers (`ksft_print_header`, `ksft_set_plan`, `ksft_test_result`, `ksft_finished`), same usage pattern as Linux.
@@ -294,6 +295,7 @@ sh /kselftests/run_kselftest.sh
 - `mm/mprotect_test.c` — `mprotect` args, holes, VMA split, COW-safe RW.
 - `files/dup_test.c` — `dup2` / `dup3` (same fd, replace, `O_CLOEXEC`).
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
+- `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 
 To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.
 

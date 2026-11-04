@@ -28,14 +28,6 @@ static int nerr(int r)
     return r < 0 ? -errno : r;
 }
 
-static int sigset_is_empty(const sigset_t *s)
-{
-    sigset_t z;
-
-    sigemptyset(&z);
-    return memcmp(s, &z, sizeof(z)) == 0;
-}
-
 static volatile int got_usr1;
 static volatile int got_usr2;
 static volatile int in_usr1;
@@ -1078,7 +1070,7 @@ int main(void)
             sigaddset(&set, SIGUSR1);
             if (sigprocmask(SIG_BLOCK, &set, &old) < 0)
                 _exit(2);
-            if (!sigset_is_empty(&old))
+            if (sigismember(&old, SIGUSR1))
                 _exit(3);
             if (sigprocmask(SIG_SETMASK, NULL, &old2) < 0)
                 _exit(4);
@@ -1124,7 +1116,7 @@ int main(void)
             sigemptyset(&pending);
             if (sigpending(&pending) < 0)
                 _exit(3);
-            if (!sigset_is_empty(&pending))
+            if (!sigismember(&pending, SIGUSR1))
                 _exit(4);
             if (sigprocmask(SIG_UNBLOCK, &set, NULL) < 0)
                 _exit(5);
