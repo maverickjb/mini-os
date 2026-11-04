@@ -159,7 +159,7 @@ There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover th
 Implemented (subset):
 
 - I/O and files: `read`, `write`, `writev`, `openat`, `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
-- Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `chdir`, `getcwd`, `utimensat` (stub)
+- Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `chdir`, `getcwd`, `utimensat` (stub)
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
 - Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
 - Memory: `brk`, `mmap` (anonymous), `munmap`, `mprotect` (VMA split + COW-safe PTEs)
@@ -238,7 +238,7 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 
 - `include/linux/fs.h` — inode, `file`, `file_operations`, `inode_operations`.
 - `fs/dcache.c` — dentries (`kmalloc`), path walk for `.` / `..`, `getcwd`.
-- `fs/namei.c` — path resolve, `mkdir`/`mknod`/`unlink`/`link`/`symlink`/`chdir`; final-component symlink follow (depth 8).
+- `fs/namei.c` — path resolve, `mkdir`/`mknod`/`unlink`/`link`/`symlink`/`rename`/`chdir`; final-component symlink follow (depth 8).
 - `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`), char nodes (`S_IFCHR`); nodes and data buffers via `kmalloc`.
 - `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); `pipe2` accepts `O_CLOEXEC` / `O_NONBLOCK`. Blocking I/O waits on the ring (`-ERESTARTSYS` if a signal is pending); `O_NONBLOCK` returns `-EAGAIN` instead of sleeping.
 - `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table (`alloc_file()` → `kmalloc`), `fcntl`, `lseek` via `f_op->llseek`.
@@ -261,7 +261,7 @@ PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
 
 ### Userspace
 
-**BusyBox** is the main userspace: static binary at `initramfs/busybox`, copied to `/bin/busybox` with symlinks for common applets (`ash`, `sh`, `ls`, `echo`, `cat`, `sleep`, `ps`, `uname`, `true`, `false`, `pwd`, `halt`, `poweroff`, `reboot` — see `BUSYBOX_APPLETS` in the Makefile).
+**BusyBox** is the main userspace: static binary at `initramfs/busybox`, copied to `/bin/busybox` with symlinks for common applets (`ash`, `sh`, `ls`, `echo`, `cat`, `mv`, `sleep`, `ps`, `uname`, `true`, `false`, `pwd`, `halt`, `poweroff`, `reboot` — see `BUSYBOX_APPLETS` in the Makefile).
 
 Boot chain:
 
@@ -286,6 +286,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/mm/mprotect_test
 /kselftests/files/dup_test
 /kselftests/files/pipe_test
+/kselftests/files/rename_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 ```
@@ -296,6 +297,7 @@ sh /kselftests/run_kselftest.sh
 - `mm/mprotect_test.c` — `mprotect` args, holes, VMA split, COW-safe RW.
 - `files/dup_test.c` — `dup2` / `dup3` (same fd, replace, `O_CLOEXEC`).
 - `files/pipe_test.c` — `pipe2` flags, non-blocking empty/full I/O, `F_SETFL`.
+- `files/rename_test.c` — `renameat` (file, into dir, replace, type mismatch, descendant).
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 
@@ -313,7 +315,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `renameat`, `ppoll`, `vhangup`, mount/unmount, etc.
+No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `ppoll`, `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 

@@ -106,6 +106,18 @@ static void cwd_fix(struct dentry *old, struct dentry *neu)
     task_list_unlock_irqrestore(flags);
 }
 
+void d_move(struct dentry *dentry, struct dentry *new_parent,
+            const char *name)
+{
+    if (!dentry || dentry == &root_dentry || !new_parent || !name || !name[0])
+        return;
+
+    d_unlink(dentry);
+    strscpy(dentry->name, name, sizeof(dentry->name));
+    dentry->parent = new_parent;
+    d_add(dentry);
+}
+
 void d_drop(struct dentry *dentry)
 {
     if (!dentry || dentry == &root_dentry)

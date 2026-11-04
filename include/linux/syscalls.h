@@ -24,6 +24,8 @@ long ksys_readlinkat(int dfd, const char *pathname, char *buf,
                      unsigned long bufsiz);
 long ksys_linkat(int olddfd, const char *oldname, int newdfd,
                  const char *newname, int flags);
+long ksys_renameat(int olddfd, const char *oldname, int newdfd,
+                   const char *newname);
 long ksys_rmdir(const char *pathname);
 long ksys_chdir(const char *filename);
 long ksys_getcwd(char *buf, unsigned long size);

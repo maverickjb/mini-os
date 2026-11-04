@@ -19,6 +19,8 @@ struct dentry *d_lookup_path(const char *path);
 struct dentry *d_alloc(struct dentry *parent, const char *name);
 void d_add(struct dentry *dentry);
 void d_drop(struct dentry *dentry);
+void d_move(struct dentry *dentry, struct dentry *new_parent,
+            const char *name);
 /* Absolute path into buf; returns length including NUL, or -errno. */
 long dentry_path(struct dentry *dentry, char *buf, unsigned long size);
 

@@ -522,6 +522,114 @@ static int ramfs_inode_rmdir(struct inode *dir, struct dentry *dentry)
     return 0;
 }
 
+static int ramfs_is_dotname(const char *name)
+{
+    if (!name || name[0] != '.')
+        return 0;
+    return name[1] == '\0' || (name[1] == '.' && name[2] == '\0');
+}
+
+static void ramfs_set_name(char *dst, const char *src)
+{
+    unsigned long i = 0;
+
+    while (src[i] && i < RAMFS_NAME_MAX) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
+static int ramfs_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
+                              struct inode *new_dir, struct dentry *new_dentry)
+{
+    struct ramfs_inode *old_parent;
+    struct ramfs_inode *new_parent;
+    struct ramfs_inode *src;
+    struct ramfs_inode *dst;
+    struct ramfs_dentry *src_de;
+    int err;
+
+    if (!old_dir || !new_dir || !old_dentry || !new_dentry)
+        return -EINVAL;
+    if (!inode_is_dir(old_dir) || !inode_is_dir(new_dir))
+        return -ENOTDIR;
+    if (!old_dentry->name[0] || !new_dentry->name[0])
+        return -ENOENT;
+    if (ramfs_is_dotname(old_dentry->name) || ramfs_is_dotname(new_dentry->name))
+        return -EBUSY;
+
+    old_parent = RAMFS_I(old_dir);
+    new_parent = RAMFS_I(new_dir);
+
+    src_de = ramfs_find_child(old_parent, old_dentry->name);
+    if (!src_de)
+        return -ENOENT;
+    src = src_de->inode;
+
+    dst = NULL;
+    {
+        struct ramfs_dentry *dst_de;
+
+        dst_de = ramfs_find_child(new_parent, new_dentry->name);
+        if (dst_de)
+            dst = dst_de->inode;
+    }
+
+    if (dst == src)
+        return 0;
+
+    if (src->inode.type == S_IFDIR) {
+        struct ramfs_inode *p;
+
+        for (p = new_parent; p; p = p->parent) {
+            if (p == src)
+                return -EINVAL;
+        }
+    }
+
+    if (dst) {
+        if (src->inode.type == S_IFDIR) {
+            if (dst->inode.type != S_IFDIR)
+                return -ENOTDIR;
+            if (dst->children)
+                return -ENOTEMPTY;
+        } else if (dst->inode.type == S_IFDIR) {
+            return -EISDIR;
+        }
+
+        err = ramfs_remove_child(new_parent, new_dentry->name, &dst);
+        if (err)
+            return err;
+
+        if (dst->inode.type == S_IFDIR) {
+            ramfs_free_inode(dst);
+        } else {
+            if (dst->inode.nlink > 0)
+                dst->inode.nlink--;
+            if (dst->inode.nlink == 0)
+                ramfs_free_inode(dst);
+        }
+    }
+
+    if (old_parent == new_parent) {
+        ramfs_set_name(src_de->name, new_dentry->name);
+        return 0;
+    }
+
+    err = ramfs_remove_child(old_parent, old_dentry->name, &src);
+    if (err)
+        return err;
+
+    err = ramfs_add_child(new_parent, new_dentry->name, src);
+    if (err) {
+        ramfs_add_child(old_parent, old_dentry->name, src);
+        return err;
+    }
+
+    return 0;
+}
+
 static const struct inode_operations ramfs_dir_inode_ops = {
     .mkdir = ramfs_inode_mkdir,
     .mknod = ramfs_inode_mknod,
@@ -529,6 +637,7 @@ static const struct inode_operations ramfs_dir_inode_ops = {
     .rmdir = ramfs_inode_rmdir,
     .link = ramfs_inode_link,
     .symlink = ramfs_inode_symlink,
+    .rename = ramfs_inode_rename,
 };
 
 static const char *ramfs_skip_slash(const char *path)

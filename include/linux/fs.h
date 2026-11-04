@@ -46,6 +46,8 @@ struct inode_operations {
                  struct dentry *new_dentry);
     int (*symlink)(struct inode *dir, struct dentry *dentry,
                    const char *target);
+    int (*rename)(struct inode *old_dir, struct dentry *old_dentry,
+                  struct inode *new_dir, struct dentry *new_dentry);
 };
 
 struct inode {

@@ -47,7 +47,7 @@ USER_PATH    := $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
 HELLO_BIN    := initramfs/root/bin/hello
 BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
-BUSYBOX_APPLETS := sh ash ls echo cat sleep ps uname true false pwd reboot poweroff halt
+BUSYBOX_APPLETS := sh ash ls echo cat mv sleep ps uname true false pwd reboot poweroff halt
 
 # Userspace kselftests (Linux-shaped tree under tools/testing/selftests/).
 kselftest:

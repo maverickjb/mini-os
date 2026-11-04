@@ -190,6 +190,9 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_linkat((int)regs->x0, (const char *)regs->x1,
                            (int)regs->x2, (const char *)regs->x3,
                            (int)regs->x4);
+    case __NR_renameat:
+        return ksys_renameat((int)regs->x0, (const char *)regs->x1,
+                             (int)regs->x2, (const char *)regs->x3);
     case __NR_chdir:
         return ksys_chdir((const char *)regs->x0);
     case __NR_getcwd:

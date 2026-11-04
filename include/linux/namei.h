@@ -14,6 +14,8 @@ int vfs_rmdir(struct inode *dir, struct dentry *dentry);
 int vfs_link(struct dentry *old_dentry, struct inode *dir,
              struct dentry *new_dentry);
 int vfs_symlink(const char *target, struct inode *dir, struct dentry *dentry);
+int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
+               struct inode *new_dir, struct dentry *new_dentry);
 
 /* Copy filename from user and resolve against current->cwd to an absolute path. */
 long getname_from_user(char *buf, const char *filename);

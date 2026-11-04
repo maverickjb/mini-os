@@ -158,6 +158,21 @@ int vfs_symlink(const char *target, struct inode *dir, struct dentry *dentry)
     return dir->i_op->symlink(dir, dentry, target);
 }
 
+int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
+               struct inode *new_dir, struct dentry *new_dentry)
+{
+    if (!old_dir || !new_dir || !old_dentry || !new_dentry)
+        return -EINVAL;
+    if (!inode_is_dir(old_dir) || !inode_is_dir(new_dir))
+        return -ENOTDIR;
+    if (!old_dir->i_op || !old_dir->i_op->rename)
+        return -EPERM;
+    if (old_dir->i_op != new_dir->i_op)
+        return -EXDEV;
+
+    return old_dir->i_op->rename(old_dir, old_dentry, new_dir, new_dentry);
+}
+
 static unsigned long str_len(const char *s)
 {
     unsigned long n = 0;
@@ -591,6 +606,95 @@ long ksys_linkat(int olddfd, const char *oldname, int newdfd,
         return err;
 
     return do_link(oldpath, newpath);
+}
+
+static int is_dotname(const char *name)
+{
+    if (!name || name[0] != '.')
+        return 0;
+    return name[1] == '\0' || (name[1] == '.' && name[2] == '\0');
+}
+
+static int do_rename(const char *oldpath, const char *newpath)
+{
+    char old_parent_path[PATH_MAX];
+    char new_parent_path[PATH_MAX];
+    char old_name[DNAME_INLINE_LEN];
+    char new_name[DNAME_INLINE_LEN];
+    struct dentry *old_parent;
+    struct dentry *new_parent;
+    struct dentry *old_d;
+    struct dentry *new_d;
+    struct dentry old_tmp;
+    struct dentry new_tmp;
+    int err;
+
+    err = path_parent_name(oldpath, old_parent_path, old_name);
+    if (err)
+        return err;
+    err = path_parent_name(newpath, new_parent_path, new_name);
+    if (err)
+        return err;
+
+    if (is_dotname(old_name) || is_dotname(new_name))
+        return -EBUSY;
+
+    old_parent = d_lookup_path(old_parent_path);
+    if (!old_parent)
+        return -ENOENT;
+    new_parent = d_lookup_path(new_parent_path);
+    if (!new_parent)
+        return -ENOENT;
+
+    old_d = d_lookup_path(oldpath);
+    if (!old_d || !old_d->inode)
+        return -ENOENT;
+
+    new_d = d_lookup_path(newpath);
+    if (new_d && new_d->inode == old_d->inode)
+        return 0;
+
+    str_copy(old_tmp.name, old_name, sizeof(old_tmp.name));
+    old_tmp.inode = old_d->inode;
+    old_tmp.parent = old_parent;
+    old_tmp.child = NULL;
+    old_tmp.next = NULL;
+
+    str_copy(new_tmp.name, new_name, sizeof(new_tmp.name));
+    new_tmp.inode = new_d ? new_d->inode : NULL;
+    new_tmp.parent = new_parent;
+    new_tmp.child = NULL;
+    new_tmp.next = NULL;
+
+    err = vfs_rename(old_parent->inode, &old_tmp, new_parent->inode, &new_tmp);
+    if (err)
+        return err;
+
+    if (new_d)
+        d_drop(new_d);
+    d_move(old_d, new_parent, new_name);
+    return 0;
+}
+
+long ksys_renameat(int olddfd, const char *oldname, int newdfd,
+                   const char *newname)
+{
+    char oldpath[PATH_MAX];
+    char newpath[PATH_MAX];
+    long err;
+
+    (void)olddfd;
+    (void)newdfd;
+
+    err = getname_from_user(oldpath, oldname);
+    if (err)
+        return err;
+
+    err = getname_from_user(newpath, newname);
+    if (err)
+        return err;
+
+    return do_rename(oldpath, newpath);
 }
 
 static int do_symlink(const char *target, const char *linkpath)
