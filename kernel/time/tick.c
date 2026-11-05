@@ -6,6 +6,7 @@
  */
 
 #include <linux/tick.h>
+#include <linux/timekeeping.h>
 #include <linux/irq.h>
 #include <linux/sched/task.h>
 #include <linux/sched.h>
@@ -144,6 +145,7 @@ void time_init(void)
     vectors_init();
     init_IRQ();
     tick_init();
+    timekeeping_init();
     uaccess_enable();
     local_irq_enable();
 }

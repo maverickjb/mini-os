@@ -110,10 +110,20 @@ static int do_execve(const char *filename, char *const *argv, char *const *envp,
 int kernel_execve(const char *kernel_filename)
 {
     const char *argv[2];
+    /* TZ is userspace display policy (POSIX CST-8 = UTC+8). The kernel
+     * clock stays UTC; BusyBox init inherits this env for ash/`date`. */
+    const char *envp[] = {
+        "PATH=/bin:/sbin",
+        "HOME=/",
+        "TERM=linux",
+        "TZ=CST-8",
+        NULL,
+    };
 
     argv[0] = kernel_filename;
     argv[1] = NULL;
-    return do_execve(kernel_filename, (char *const *)argv, NULL, 0);
+    return do_execve(kernel_filename, (char *const *)argv,
+                     (char *const *)envp, 0);
 }
 
 long ksys_execve(struct pt_regs *regs, const char *filename,

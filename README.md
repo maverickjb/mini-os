@@ -55,7 +55,7 @@ qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographi
 
 Boot CPU0 brings up three secondary CPUs (per-CPU idle, timer, runqueue), unpacks the initramfs, creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts. User tasks may be pulled onto secondary CPUs by the idle load balancer.
 
-You should see a `~ #` prompt. Try `ls`, `ps`, `cat /etc/inittab`, `halt`, or `poweroff`. Use `reboot -f` to restart (BusyBox calls `reboot(2)` directly; plain `reboot` notifies init via signal). Userspace kselftests live under `/kselftests/` (see below).
+You should see a `~ #` prompt. Try `ls`, `ps`, `date`, `cat /etc/inittab`, `halt`, or `poweroff`. Use `reboot -f` to restart (BusyBox calls `reboot(2)` directly; plain `reboot` notifies init via signal). Userspace kselftests live under `/kselftests/` (see below).
 
 `make clean` removes objects, `mini-os.elf`, `mini-os.bin`, and the generated initramfs tree (`initramfs/root`).
 
@@ -71,6 +71,7 @@ The cpio image is built under `initramfs/root/`:
 /etc/inittab       # BusyBox init config
 /etc/init.d/rcS    # early boot hook (no-op by default)
 /etc/profile       # login shell environment
+/etc/TZ            # POSIX timezone (`CST-8` = UTC+8); `date` uses `TZ`, kernel clock stays UTC
 /etc/passwd        # minimal root entry
 /tmp/
 /proc/             # created by kernel proc_init()
@@ -86,10 +87,10 @@ There is no musl `/init` stub. The kernel still execs `/init` (initramfs convent
 ```text
 tools/testing/selftests/   userspace kselftests (Linux-shaped TAP)
 hypervisor/ EL2 boots mini-OS guest @ 0x40000000 (hyp @ 0x44000000)
-kernel/     boot, IRQ, SMP, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk
+kernel/     boot, IRQ, SMP, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk, timekeeping
 mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap/mprotect, COW, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, chrdev + `/dev` nodes, ELF loader
-drivers/    UART + console TTY (SMP-safe locks)
+drivers/    UART + console TTY (SMP-safe locks); PL031 RTC
 lib/        string helpers, vsnprintf, red-black tree
 include/    linux/, uapi/linux/, and asm/ headers (Linux-shaped, not Linux)
 initramfs/  BusyBox rootfs sources, musl test programs (hello)
@@ -112,6 +113,8 @@ This is the “CPU trap into the kernel, then `eret` back” story.
 
 - `kernel/irq.c` — GICv3 on QEMU virt; per-CPU timer PPI; SGI for reschedule IPI (`IPI_RESCHEDULE`).
 - `kernel/time/tick.c` — ARM generic timer on each CPU; `jiffies` / sleeper wakeups / UART RX poll stay on **CPU0** so SMP does not advance time N×.
+- `kernel/time/time.c` / `clocksource.c` — `get_real_time()`: PL031 Unix seconds plus CNTPCT sub-second offset. `clock_gettime(CLOCK_REALTIME)` uses this; `CLOCK_MONOTONIC` stays on `jiffies`.
+- `drivers/rtc/pl031.c` — QEMU virt PL031 RTC at `0x09010000`.
 - **`need_resched`** — the tick (and reschedule IPI) only set a flag on the current task. `irq_exit()` calls `schedule()` when `need_resched && interrupted_el0`. Idle CPUs still schedule from their WFI loop after an IPI wake.
 
 A tick can preempt a user task without calling `schedule()` from the IRQ handler itself. Kernel stacks stay per-task so a syscall or IRQ frame survives a context switch.
@@ -161,7 +164,7 @@ Implemented (subset):
 - I/O and files: `read`, `write`, `writev`, `openat` (`O_CLOEXEC`), `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
 - Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `faccessat` / `faccessat2`, `chdir`, `fchdir`, `getcwd`, `fchmod` / `fchmodat`, `utimensat` (stub). Relative `*at` names start at `dfd` (`AT_FDCWD` = cwd; absolute names ignore `dfd`). Permission bits live in `inode->i_mode`.
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
-- Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
+- Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime` (`CLOCK_REALTIME` from PL031, else `jiffies`), `nanosleep`, `sysinfo`
 - Memory: `brk`, `mmap` (anonymous), `munmap`, `mprotect` (VMA split + COW-safe PTEs)
 - Signals: `kill`, `rt_sigaction`, `rt_sigprocmask`, `rt_sigpending`, `rt_sigsuspend`, `rt_sigreturn`
 - Reboot: `reboot` (`RESTART`, `HALT`, `POWER_OFF` via PSCI on QEMU virt)
@@ -261,13 +264,13 @@ PID 1 gets fd 0/1/2 on the UART TTY before `kernel_execve("/init")`.
 
 ### Userspace
 
-**BusyBox** is the main userspace: static binary at `initramfs/busybox`, copied to `/bin/busybox` with symlinks for common applets (`ash`, `sh`, `ls`, `echo`, `cat`, `mv`, `sleep`, `ps`, `uname`, `true`, `false`, `pwd`, `halt`, `poweroff`, `reboot` — see `BUSYBOX_APPLETS` in the Makefile).
+**BusyBox** is the main userspace: static binary at `initramfs/busybox`, copied to `/bin/busybox` with symlinks for common applets (`ash`, `sh`, `ls`, `echo`, `cat`, `mv`, `sleep`, `ps`, `uname`, `true`, `false`, `pwd`, `date`, `halt`, `poweroff`, `reboot` — see `BUSYBOX_APPLETS` in the Makefile).
 
 Boot chain:
 
 1. Kernel → `/init` (busybox symlink, `init` applet).
 2. `/etc/inittab` → `sysinit` runs `/bin/sh /etc/init.d/rcS`, then `respawn` starts login ash.
-3. `/etc/profile` sets `PATH=/bin:/sbin`, `HOME=/`, `TERM=linux` for interactive shells.
+3. `/etc/profile` sets `PATH=/bin:/sbin`, `HOME=/`, `TERM=linux`, `TZ` (POSIX `CST-8` = UTC+8). PID 1 also gets `TZ` from `kernel_execve` so `date` works even if ash does not source the profile.
 
 **`/bin/hello`** is a separate musl program (`initramfs/src/hello.c`) used to regression-test syscalls. It is not part of normal boot.
 
@@ -294,6 +297,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/files/chmod_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
+/kselftests/time/realtime_test
 ```
 
 - `kselftest.h` — TAP helpers (`ksft_print_header`, `ksft_set_plan`, `ksft_test_result`, `ksft_finished`), same usage pattern as Linux.
@@ -310,6 +314,7 @@ sh /kselftests/run_kselftest.sh
 - `files/chmod_test.c` — `fchmod` / `fchmodat` / `chmod`; `access` after `chmod 000`.
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
+- `time/realtime_test.c` — `clock_gettime(CLOCK_REALTIME)` from PL031.
 
 To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.
 

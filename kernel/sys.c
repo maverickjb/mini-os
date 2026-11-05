@@ -14,6 +14,7 @@
 #include <linux/uaccess.h>
 #include <linux/string.h>
 #include <linux/tick.h>
+#include <linux/timekeeping.h>
 #include <linux/reboot.h>
 #include <asm/ptrace.h>
 #include <asm/irqflags.h>
@@ -83,13 +84,17 @@ long ksys_clock_gettime(int clockid, struct timespec *tp)
     struct timespec ts;
     unsigned long j;
 
-    (void)clockid;
     if (!tp)
         return -EFAULT;
 
-    j = get_jiffies();
-    ts.tv_sec = (long)(j / HZ);
-    ts.tv_nsec = (long)(j % HZ) * (1000000000L / HZ);
+    if (clockid == CLOCK_REALTIME) {
+        if (get_real_time(&ts))
+            return -EINVAL;
+    } else {
+        j = get_jiffies();
+        ts.tv_sec = (long)(j / HZ);
+        ts.tv_nsec = (long)(j % HZ) * (1000000000L / HZ);
+    }
 
     if (copy_to_user(tp, &ts, sizeof(ts)))
         return -EFAULT;

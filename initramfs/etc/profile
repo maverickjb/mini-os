@@ -7,3 +7,6 @@ TERM=linux
 export TERM
 PS1='\w \$ '
 export PS1
+# POSIX TZ; same string as /etc/TZ. Offset sign is opposite ISO: CST-8 = UTC+8.
+TZ=CST-8
+export TZ

@@ -18,6 +18,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            kernel/fork.c kernel/exit.c kernel/sys.c kernel/reboot.c kernel/psci.c \
            kernel/signal.c \
            kernel/pid.c kernel/irq.c kernel/time/tick.c kernel/time/timer.c \
+           kernel/time/time.c kernel/time/clocksource.c \
            kernel/printk.c \
            mm/page_alloc.c mm/slub.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
@@ -26,7 +27,8 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            fs/devtty.c fs/devconsole.c \
            mm/mmap.c mm/fault.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
            lib/vsnprintf.c lib/rbtree.c \
-           fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c
+           fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c \
+           drivers/rtc/pl031.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 
@@ -47,7 +49,7 @@ USER_PATH    := $(HOME)/toolchains/aarch64-unknown-linux-musl/bin:$(PATH)
 HELLO_BIN    := initramfs/root/bin/hello
 BUSYBOX_SRC  ?= initramfs/busybox
 BUSYBOX_BIN  := initramfs/root/bin/busybox
-BUSYBOX_APPLETS := sh ash ls echo cat mv sleep ps uname true false pwd reboot poweroff halt
+BUSYBOX_APPLETS := sh ash ls echo cat mv sleep ps uname true false pwd date reboot poweroff halt
 
 # Userspace kselftests (Linux-shaped tree under tools/testing/selftests/).
 kselftest:
@@ -60,9 +62,11 @@ kselftest-clean:
 	rm -rf $(KSELFTEST_ROOT)
 
 $(INITRAMFS_CPIO): $(HELLO_BIN) $(BUSYBOX_BIN) kselftest \
-	initramfs/etc/profile initramfs/etc/inittab initramfs/etc/init.d/rcS
+	initramfs/etc/profile initramfs/etc/inittab initramfs/etc/init.d/rcS \
+	initramfs/etc/TZ
 	mkdir -p initramfs/root/tmp initramfs/root/etc/init.d initramfs/root/sbin
 	cp -f initramfs/etc/profile initramfs/root/etc/profile
+	cp -f initramfs/etc/TZ initramfs/root/etc/TZ
 	cp -f initramfs/etc/inittab initramfs/root/etc/inittab
 	cp -f initramfs/etc/init.d/rcS initramfs/root/etc/init.d/rcS
 	chmod +x initramfs/root/etc/init.d/rcS
