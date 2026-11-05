@@ -16,6 +16,7 @@
 #include <linux/string.h>
 #include <linux/tick.h>
 #include <linux/signal.h>
+#include <linux/slab.h>
 
 #define EI_MAG0         0
 #define EI_MAG1         1
@@ -464,6 +465,7 @@ int load_elf_binary(struct linux_binprm *bprm)
     }
 
     task_user_ctx_init(bprm->task);
+    kfree(bprm);
     ret_from_fork();
 
     return 0;

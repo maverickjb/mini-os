@@ -3,8 +3,8 @@
 
 struct task_struct;
 
-#define MAX_EXEC_ARGS	8
-#define MAX_EXEC_ARG_LEN	128
+#define MAX_EXEC_ARGS	32
+#define MAX_EXEC_ARG_LEN	256
 
 struct linux_binprm {
     const unsigned char *buf;

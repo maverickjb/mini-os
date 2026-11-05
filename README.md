@@ -217,7 +217,7 @@ Unknown numbers return `-ENOSYS`.
   - Fork COW: `dup_pgtable` shares leaf pages, wrprotects both sides, `get_page`; write faults call `do_cow_fault`.
   - `mm_alloc` / `dup_mm` / `mm_put` — allocate or duplicate `mm_struct` (VMA list + COW page tables); last user `put_page`s tables and VMAs, then `kfree(mm)`.
 - `mm/uaccess.c` — `copy_to_user` / `copy_from_user` (EL1 access to EL0 mappings).
-- `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, `vma_record` each `PT_LOAD` and the stack, build Linux-style argc/argv/envp/auxv, reset non-`SIG_IGN` handlers to `SIG_DFL`, then drop the old `mm`.
+- `fs/exec.c` / `fs/binfmt.c` — `execve`: load an **AArch64 `ET_EXEC`** ELF, map a user stack, `vma_record` each `PT_LOAD` and the stack, copy argv/envp from the caller (NULL-terminated, up to 32 strings), build Linux-style argc/argv/envp/auxv, reset non-`SIG_IGN` handlers to `SIG_DFL`, then drop the old `mm`.
 
 User addresses sit in a low range (stack near `0x4040000`, mmap base `0x2000000`). Kernel virtual memory is the high half. Each user task has its own `pgd`; `mm_install()` switches it on context switch. There is no shared-mm `vfork`.
 
@@ -295,6 +295,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/files/at_test
 /kselftests/files/inode_test
 /kselftests/files/chmod_test
+/kselftests/files/exec_env_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 /kselftests/time/realtime_test
@@ -312,6 +313,7 @@ sh /kselftests/run_kselftest.sh
 - `files/at_test.c` — relative `openat` / `faccessat` / `mkdirat` from a directory fd; `fchdir`.
 - `files/inode_test.c` — unlink of an open file; proc `iget`/`iput`.
 - `files/chmod_test.c` — `fchmod` / `fchmodat` / `chmod`; `access` after `chmod 000`.
+- `files/exec_env_test.c` — `execve` copies `envp` onto the new stack.
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 - `time/realtime_test.c` — `clock_gettime(CLOCK_REALTIME)` from PL031.
