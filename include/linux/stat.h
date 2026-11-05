@@ -30,6 +30,7 @@ struct stat {
 };
 
 #define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_EACCESS          0x200
 #define AT_EMPTY_PATH       0x1000
 
 #endif /* _LINUX_STAT_H */

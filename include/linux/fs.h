@@ -106,6 +106,11 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
 #define AT_FDCWD        (-100)
 #define AT_REMOVEDIR    0x200
 
+#define F_OK            0
+#define X_OK            1
+#define W_OK            2
+#define R_OK            4
+
 static inline int inode_is_dir(const struct inode *inode)
 {
     return inode && inode->type == S_IFDIR;

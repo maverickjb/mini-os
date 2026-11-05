@@ -40,6 +40,8 @@ long ksys_pipe2(int *fildes, int flags);
 long ksys_fstat(unsigned long fd, struct stat *statbuf);
 long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
                      int flag);
+long ksys_faccessat(int dfd, const char *filename, int mode);
+long ksys_faccessat2(int dfd, const char *filename, int mode, int flags);
 long ksys_getdents64(unsigned long fd, void *dirp, unsigned long count);
 long ksys_fork(struct pt_regs *regs);
 void ksys_sched_yield(void);

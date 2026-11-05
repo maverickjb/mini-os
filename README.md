@@ -159,7 +159,7 @@ There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover th
 Implemented (subset):
 
 - I/O and files: `read`, `write`, `writev`, `openat` (`O_CLOEXEC`), `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
-- Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `chdir`, `getcwd`, `utimensat` (stub)
+- Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `faccessat` / `faccessat2`, `chdir`, `getcwd`, `utimensat` (stub)
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
 - Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
 - Memory: `brk`, `mmap` (anonymous), `munmap`, `mprotect` (VMA split + COW-safe PTEs)
@@ -288,6 +288,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/files/pipe_test
 /kselftests/files/rename_test
 /kselftests/files/open_test
+/kselftests/files/access_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 ```
@@ -300,6 +301,7 @@ sh /kselftests/run_kselftest.sh
 - `files/pipe_test.c` — `pipe2` flags, non-blocking empty/full I/O, `F_SETFL`.
 - `files/rename_test.c` — `renameat` (file, into dir, replace, type mismatch, descendant).
 - `files/open_test.c` — `openat` `O_CLOEXEC` (file, chrdev, closed across `exec`).
+- `files/access_test.c` — `faccessat` / `faccessat2` (`F_OK`, `R_OK`/`W_OK`/`X_OK`, `AT_EMPTY_PATH`).
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 
@@ -317,7 +319,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `faccessat`, `ppoll`, `vhangup`, mount/unmount, etc.
+No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `ppoll`, `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 

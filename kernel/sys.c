@@ -193,6 +193,12 @@ static long handle_syscall(struct pt_regs *regs)
     case __NR_renameat:
         return ksys_renameat((int)regs->x0, (const char *)regs->x1,
                              (int)regs->x2, (const char *)regs->x3);
+    case __NR_faccessat:
+        return ksys_faccessat((int)regs->x0, (const char *)regs->x1,
+                              (int)regs->x2);
+    case __NR_faccessat2:
+        return ksys_faccessat2((int)regs->x0, (const char *)regs->x1,
+                               (int)regs->x2, (int)regs->x3);
     case __NR_chdir:
         return ksys_chdir((const char *)regs->x0);
     case __NR_getcwd:
