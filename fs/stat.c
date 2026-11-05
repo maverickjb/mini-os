@@ -21,25 +21,22 @@
 
 static umode_t inode_mode(struct inode *inode)
 {
-    umode_t mode;
-
     if (!inode)
         return (umode_t)(S_IFCHR | 0666);
+    if (inode->i_mode)
+        return inode->i_mode;
+    return (umode_t)inode->type;
+}
 
-    mode = (umode_t)inode->type;
-    if (inode_is_dir(inode) || inode_is_reg(inode))
-        mode |= 0755;
-    else if (inode_is_lnk(inode))
-        mode |= 0777;
-    else if (inode_is_chr(inode)) {
-        if (inode->i_rdev == ((5U << 8) | 1U))
-            mode |= 0600;
-        else
-            mode |= 0666;
-    } else
-        mode |= 0644;
+static int inode_chmod(struct inode *inode, umode_t mode)
+{
+    if (!inode)
+        return -EINVAL;
+    if (proc_is_inode(inode))
+        return -EPERM;
 
-    return mode;
+    inode->i_mode = (inode->i_mode & (umode_t)S_IFMT) | (mode & 0777);
+    return 0;
 }
 
 static int inode_access(struct inode *inode, int mode)
@@ -267,4 +264,45 @@ long ksys_faccessat2(int dfd, const char *filename, int mode, int flags)
 long ksys_faccessat(int dfd, const char *filename, int mode)
 {
     return ksys_faccessat2(dfd, filename, mode, 0);
+}
+
+long ksys_fchmod(unsigned long fd, umode_t mode)
+{
+    struct task_struct *task = current;
+    struct file *file;
+
+    if (!task || !task->is_user)
+        return -EINVAL;
+    if (fd >= NR_OPEN)
+        return -EBADF;
+
+    file = task->files[fd];
+    if (!file)
+        return -EBADF;
+    if (!file->inode)
+        return -EINVAL;
+
+    return inode_chmod(file->inode, mode);
+}
+
+long ksys_fchmodat(int dfd, const char *filename, umode_t mode)
+{
+    char path[PATH_MAX];
+    struct inode *inode;
+    long err;
+
+    if (!current || !current->is_user)
+        return -EINVAL;
+
+    err = getname_from_user_at(dfd, filename, path);
+    if (err)
+        return err;
+
+    inode = vfs_lookup(path);
+    if (!inode)
+        return -ENOENT;
+
+    err = inode_chmod(inode, mode);
+    iput(inode);
+    return err;
 }

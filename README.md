@@ -159,7 +159,7 @@ There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover th
 Implemented (subset):
 
 - I/O and files: `read`, `write`, `writev`, `openat` (`O_CLOEXEC`), `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
-- Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `faccessat` / `faccessat2`, `chdir`, `fchdir`, `getcwd`, `utimensat` (stub). Relative `*at` names start at `dfd` (`AT_FDCWD` = cwd; absolute names ignore `dfd`).
+- Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `faccessat` / `faccessat2`, `chdir`, `fchdir`, `getcwd`, `fchmod` / `fchmodat`, `utimensat` (stub). Relative `*at` names start at `dfd` (`AT_FDCWD` = cwd; absolute names ignore `dfd`). Permission bits live in `inode->i_mode`.
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
 - Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime`, `nanosleep`, `sysinfo`
 - Memory: `brk`, `mmap` (anonymous), `munmap`, `mprotect` (VMA split + COW-safe PTEs)
@@ -291,6 +291,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/files/access_test
 /kselftests/files/at_test
 /kselftests/files/inode_test
+/kselftests/files/chmod_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 ```
@@ -306,6 +307,7 @@ sh /kselftests/run_kselftest.sh
 - `files/access_test.c` — `faccessat` / `faccessat2` (`F_OK`, `R_OK`/`W_OK`/`X_OK`, `AT_EMPTY_PATH`).
 - `files/at_test.c` — relative `openat` / `faccessat` / `mkdirat` from a directory fd; `fchdir`.
 - `files/inode_test.c` — unlink of an open file; proc `iget`/`iput`.
+- `files/chmod_test.c` — `fchmod` / `fchmodat` / `chmod`; `access` after `chmod 000`.
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 

@@ -234,10 +234,12 @@ static struct proc_inode *proc_alloc(pid_t pid, int kind)
 
     if (kind == PROC_KIND_DIR) {
         pi->inode.type = S_IFDIR;
+        pi->inode.i_mode = S_IFDIR | 0555;
         pi->inode.i_fop = &proc_pid_dir_ops;
         pi->inode.nlink = 2;
     } else {
         pi->inode.type = S_IFREG;
+        pi->inode.i_mode = S_IFREG | 0444;
         pi->inode.i_fop = &proc_file_ops;
         if (kind == PROC_KIND_STAT)
             fill_stat(pi, task);

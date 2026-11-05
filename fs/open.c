@@ -151,8 +151,6 @@ long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
     int err;
     int fd;
 
-    (void)mode;
-
     if (!task || !task->is_user)
         return -EINVAL;
 
@@ -171,7 +169,7 @@ long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
         if (!(flags & O_CREAT))
             return -ENOENT;
 
-        err = ramfs_create(path);
+        err = ramfs_create(path, (umode_t)mode);
         if (err)
             return err;
 

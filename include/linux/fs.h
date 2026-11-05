@@ -56,6 +56,7 @@ struct inode {
     unsigned long ino;
     unsigned long size;
     int type;
+    umode_t i_mode;
     dev_t i_rdev;
     const struct inode_operations *i_op;
     const struct file_ops *i_fop;

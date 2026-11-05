@@ -190,11 +190,28 @@ static void ramfs_kfree(void *ptr, unsigned long size)
     kfree(ptr);
 }
 
+static umode_t ramfs_default_perm(int type)
+{
+    if (type == S_IFDIR || type == S_IFREG)
+        return 0755;
+    if (type == S_IFLNK)
+        return 0777;
+    if (type == S_IFCHR)
+        return 0666;
+    return 0644;
+}
+
+static void ramfs_apply_mode(struct inode *inode, umode_t mode)
+{
+    inode->i_mode = (umode_t)inode->type | (mode & 0777);
+}
+
 static void ramfs_inode_init(struct ramfs_inode *ri, int type)
 {
     ri->inode.ino = next_ino++;
     ri->inode.size = 0;
     ri->inode.type = type;
+    ri->inode.i_mode = (umode_t)type | ramfs_default_perm(type);
     ri->inode.i_rdev = 0;
     ri->inode.i_op = NULL;
     ri->inode.i_fop = NULL;
@@ -309,8 +326,6 @@ static int ramfs_inode_mkdir(struct inode *dir, struct dentry *dentry,
     struct ramfs_inode *ri;
     int err;
 
-    (void)mode;
-
     if (!dir || !dentry || !dentry->name[0])
         return -EINVAL;
     if (!inode_is_dir(dir))
@@ -323,6 +338,7 @@ static int ramfs_inode_mkdir(struct inode *dir, struct dentry *dentry,
     ri = ramfs_alloc_inode(S_IFDIR);
     if (!ri)
         return -ENOMEM;
+    ramfs_apply_mode(&ri->inode, mode);
 
     err = ramfs_add_child(parent, dentry->name, ri);
     if (err) {
@@ -357,6 +373,7 @@ static int ramfs_inode_mknod(struct inode *dir, struct dentry *dentry,
     if (!ri)
         return -ENOMEM;
 
+    ramfs_apply_mode(&ri->inode, mode);
     ri->inode.i_rdev = rdev;
 
     err = ramfs_add_child(parent, dentry->name, ri);
@@ -925,7 +942,7 @@ int ramfs_mkdir(const char *path)
     return vfs_mkdir(&parent->inode, &dentry, 0755);
 }
 
-int ramfs_create(const char *path)
+int ramfs_create(const char *path, umode_t mode)
 {
     char name[RAMFS_NAME_MAX + 1];
     struct ramfs_inode *parent;
@@ -945,6 +962,7 @@ int ramfs_create(const char *path)
     ri = ramfs_alloc_inode(S_IFREG);
     if (!ri)
         return -ENOMEM;
+    ramfs_apply_mode(&ri->inode, mode);
 
     err = ramfs_add_child(parent, name, ri);
     if (err) {

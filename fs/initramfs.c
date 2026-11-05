@@ -218,7 +218,7 @@ int unpack_to_rootfs(const void *data, unsigned long size)
             if (err)
                 return err;
 
-            err = ramfs_create(path);
+            err = ramfs_create(path, (umode_t)mode);
             if (err && err != -EEXIST)
                 return err;
 
