@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -24,7 +25,7 @@ int main(void)
 	int filefd;
 
 	ksft_print_header();
-	ksft_set_plan(7);
+	ksft_set_plan(11);
 
 	cleanup();
 	if (mkdir("/tmp/atd", 0755) < 0) {
@@ -76,7 +77,34 @@ int main(void)
 			 faccessat(dirfd, "sub", X_OK, 0) == 0,
 			 "mkdirat + faccessat relative to dfd\n");
 
-	close(dirfd);
+	{
+		char cwd[64];
+
+		ksft_test_result(fchdir(dirfd) == 0 &&
+				 getcwd(cwd, sizeof(cwd)) &&
+				 strcmp(cwd, "/tmp/atd") == 0,
+				 "fchdir + getcwd\n");
+		close(dirfd);
+		ksft_test_result(getcwd(cwd, sizeof(cwd)) &&
+				 strcmp(cwd, "/tmp/atd") == 0,
+				 "cwd survives closing the dir fd\n");
+		chdir("/");
+	}
+
+	filefd = open("/msg.txt", O_RDONLY);
+	if (filefd < 0) {
+		ksft_test_result_fail("open /msg.txt for fchdir\n");
+	} else {
+		errno = 0;
+		ksft_test_result(fchdir(filefd) < 0 && errno == ENOTDIR,
+				 "fchdir on non-dir is ENOTDIR\n");
+		close(filefd);
+	}
+
+	errno = 0;
+	ksft_test_result(fchdir(99) < 0 && errno == EBADF,
+			 "fchdir bad fd is EBADF\n");
+
 	cleanup();
 	ksft_finished();
 }

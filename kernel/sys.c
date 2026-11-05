@@ -201,6 +201,8 @@ static long handle_syscall(struct pt_regs *regs)
                                (int)regs->x2, (int)regs->x3);
     case __NR_chdir:
         return ksys_chdir((const char *)regs->x0);
+    case __NR_fchdir:
+        return ksys_fchdir(regs->x0);
     case __NR_getcwd:
         return ksys_getcwd((char *)regs->x0, regs->x1);
     case __NR_utimensat:

@@ -28,6 +28,7 @@ long ksys_renameat(int olddfd, const char *oldname, int newdfd,
                    const char *newname);
 long ksys_rmdir(const char *pathname);
 long ksys_chdir(const char *filename);
+long ksys_fchdir(unsigned long fd);
 long ksys_getcwd(char *buf, unsigned long size);
 long ksys_utimensat(int dfd, const char *filename, const struct timespec *times,
                     int flags);

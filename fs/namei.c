@@ -866,6 +866,38 @@ long ksys_chdir(const char *filename)
     return 0;
 }
 
+long ksys_fchdir(unsigned long fd)
+{
+    struct file *file;
+    char path[PATH_MAX];
+    struct dentry *d;
+    long err;
+
+    if (!current || !current->is_user)
+        return -EINVAL;
+    if (fd >= NR_OPEN)
+        return -EBADF;
+
+    file = current->files[fd];
+    if (!file)
+        return -EBADF;
+    if (!file->inode || !inode_is_dir(file->inode))
+        return -ENOTDIR;
+
+    err = ramfs_inode_path(file->inode, path, PATH_MAX);
+    if (err)
+        return err;
+
+    d = d_lookup_path(path);
+    if (!d)
+        return -ENOENT;
+    if (!d->inode || !inode_is_dir(d->inode))
+        return -ENOTDIR;
+
+    current->cwd = d;
+    return 0;
+}
+
 long ksys_getcwd(char *user_buf, unsigned long size)
 {
     char tmp[PATH_MAX];
