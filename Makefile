@@ -21,7 +21,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            kernel/printk.c \
            mm/page_alloc.c mm/slub.c \
            fs/ramfs.c fs/initramfs.c fs/initramfs_blob.S fs/exec.c \
-           fs/binfmt.c fs/open.c fs/stat.c fs/readdir.c fs/pipe.c fs/namei.c \
+           fs/binfmt.c fs/inode.c fs/open.c fs/stat.c fs/readdir.c fs/pipe.c fs/namei.c \
            fs/dcache.c fs/procfs.c fs/char_dev.c fs/dev.c fs/devnull.c \
            fs/devtty.c fs/devconsole.c \
            mm/mmap.c mm/fault.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \

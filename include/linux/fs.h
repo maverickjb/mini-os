@@ -50,6 +50,8 @@ struct inode_operations {
                   struct inode *new_dir, struct dentry *new_dentry);
 };
 
+#define I_PERSISTENT	1
+
 struct inode {
     unsigned long ino;
     unsigned long size;
@@ -59,7 +61,15 @@ struct inode {
     const struct file_ops *i_fop;
     void *private_data;
     unsigned int nlink;
+    unsigned int i_count;
+    unsigned int i_flags;
+    void (*i_free)(struct inode *inode);
 };
+
+void iget(struct inode *inode);
+void iput(struct inode *inode);
+void drop_nlink(struct inode *inode);
+void clear_nlink(struct inode *inode);
 
 struct file {
     int refcount;

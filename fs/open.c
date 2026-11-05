@@ -34,6 +34,9 @@ void fput(struct file *file)
     if (file->f_op && file->f_op->release)
         file->f_op->release(file);
 
+    iput(file->inode);
+    file->inode = NULL;
+
     /* uart_file is static and must never be freed. */
     if (file != &uart_file)
         kfree(file);
@@ -179,20 +182,20 @@ long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
 
     if (inode_is_dir(inode)) {
         if ((flags & O_ACCMODE) != O_RDONLY) {
-            proc_iput(inode);
+            iput(inode);
             return -EISDIR;
         }
     } else if (flags & O_DIRECTORY) {
-        proc_iput(inode);
+        iput(inode);
         return -ENOTDIR;
     } else if (inode_is_chr(inode)) {
         if (flags & O_DIRECTORY) {
-            proc_iput(inode);
+            iput(inode);
             return -ENOTDIR;
         }
         err = chrdev_open(inode->i_rdev, flags, &file);
         if (err) {
-            proc_iput(inode);
+            iput(inode);
             return err;
         }
         file->inode = inode;
@@ -203,26 +206,26 @@ long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
         }
         return fd;
     } else if (!inode_is_reg(inode)) {
-        proc_iput(inode);
+        iput(inode);
         return -ENOENT;
     }
 
     if (!inode_is_dir(inode) && (flags & O_TRUNC) &&
         (flags & O_ACCMODE) != O_RDONLY) {
         if (proc_is_inode(inode)) {
-            proc_iput(inode);
+            iput(inode);
             return -EACCES;
         }
         err = ramfs_truncate(inode, 0);
         if (err) {
-            proc_iput(inode);
+            iput(inode);
             return err;
         }
     }
 
     file = alloc_file();
     if (!file) {
-        proc_iput(inode);
+        iput(inode);
         return -ENOMEM;
     }
 

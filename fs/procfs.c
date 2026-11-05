@@ -47,7 +47,7 @@ int proc_is_inode(const struct inode *inode)
            inode->i_fop == &proc_file_ops;
 }
 
-void proc_iput(struct inode *inode)
+static void proc_i_free(struct inode *inode)
 {
     struct proc_inode *pi;
 
@@ -227,6 +227,9 @@ static struct proc_inode *proc_alloc(pid_t pid, int kind)
     pi->kind = kind;
     pi->inode.ino = 0x10000UL + (unsigned long)pid * 4UL + (unsigned long)kind;
     pi->inode.nlink = 1;
+    pi->inode.i_count = 0;
+    pi->inode.i_flags = 0;
+    pi->inode.i_free = proc_i_free;
     pi->inode.private_data = pi;
 
     if (kind == PROC_KIND_DIR) {
@@ -508,10 +511,7 @@ static long proc_file_read(struct file *file, char *buf, unsigned long count,
 
 static int proc_release(struct file *file)
 {
-    if (file && file->inode && proc_is_inode(file->inode)) {
-        proc_iput(file->inode);
-        file->inode = NULL;
-    }
+    (void)file;
     return 0;
 }
 

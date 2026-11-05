@@ -66,8 +66,10 @@ static int do_execve(const char *filename, char *const *argv, char *const *envp,
     if (!inode)
         return -ENOENT;
 
-    if (!inode_is_reg(inode))
+    if (!inode_is_reg(inode)) {
+        iput(inode);
         return -ENOEXEC;
+    }
 
     memset(&bprm, 0, sizeof(bprm));
     bprm.buf = (const unsigned char *)ramfs_data(inode);
@@ -75,24 +77,34 @@ static int do_execve(const char *filename, char *const *argv, char *const *envp,
     bprm.len = inode->size;
     bprm.task = get_current();
 
-    if (!bprm.buf || bprm.len == 0)
+    if (!bprm.buf || bprm.len == 0) {
+        iput(inode);
         return -ENOEXEC;
+    }
 
     err = copy_str_list(argv, from_user, bprm.argv, &bprm.argc);
-    if (err)
+    if (err) {
+        iput(inode);
         return err;
+    }
 
     err = copy_str_list(envp, from_user, bprm.envp, &bprm.envc);
-    if (err)
+    if (err) {
+        iput(inode);
         return err;
+    }
 
     if (bprm.argc == 0) {
-        if (strscpy(bprm.argv[0], filename, MAX_EXEC_ARG_LEN) < 0)
+        if (strscpy(bprm.argv[0], filename, MAX_EXEC_ARG_LEN) < 0) {
+            iput(inode);
             return -E2BIG;
+        }
         bprm.argc = 1;
     }
 
-    return load_elf_binary(&bprm);
+    err = load_elf_binary(&bprm);
+    iput(inode);
+    return err;
 }
 
 int kernel_execve(const char *kernel_filename)

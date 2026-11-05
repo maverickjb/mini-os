@@ -153,6 +153,13 @@ struct file_ops ramfs_dir_ops = {
 };
 
 static const struct inode_operations ramfs_dir_inode_ops;
+static void ramfs_free_inode(struct ramfs_inode *ri);
+
+static void ramfs_i_free(struct inode *inode)
+{
+    if (inode)
+        ramfs_free_inode(RAMFS_I(inode));
+}
 
 static int ramfs_streq(const char *a, const char *b)
 {
@@ -200,6 +207,9 @@ static void ramfs_inode_init(struct ramfs_inode *ri, int type)
     ri->inode.private_data = NULL;
     /* Regular files start at 1; directories use 2 (traditional . and ..). */
     ri->inode.nlink = (type == S_IFDIR) ? 2 : 1;
+    ri->inode.i_count = 0;
+    ri->inode.i_flags = I_PERSISTENT;
+    ri->inode.i_free = ramfs_i_free;
     ri->parent = NULL;
     ri->children = NULL;
     ri->data = NULL;
@@ -404,10 +414,7 @@ static int ramfs_inode_unlink(struct inode *dir, struct dentry *dentry)
         return -EISDIR;
     }
 
-    if (ri->inode.nlink > 0)
-        ri->inode.nlink--;
-    if (ri->inode.nlink == 0)
-        ramfs_free_inode(ri);
+    drop_nlink(&ri->inode);
 
     dentry->inode = NULL;
     return 0;
@@ -517,7 +524,7 @@ static int ramfs_inode_rmdir(struct inode *dir, struct dentry *dentry)
         return -ENOTEMPTY;
     }
 
-    ramfs_free_inode(ri);
+    clear_nlink(&ri->inode);
     dentry->inode = NULL;
     return 0;
 }
@@ -602,14 +609,10 @@ static int ramfs_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
         if (err)
             return err;
 
-        if (dst->inode.type == S_IFDIR) {
-            ramfs_free_inode(dst);
-        } else {
-            if (dst->inode.nlink > 0)
-                dst->inode.nlink--;
-            if (dst->inode.nlink == 0)
-                ramfs_free_inode(dst);
-        }
+        if (dst->inode.type == S_IFDIR)
+            clear_nlink(&dst->inode);
+        else
+            drop_nlink(&dst->inode);
     }
 
     if (old_parent == new_parent) {

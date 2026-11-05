@@ -196,7 +196,7 @@ long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
         return -ENOENT;
 
     err = (int)do_stat_inode(inode, statbuf);
-    proc_iput(inode);
+    iput(inode);
     return err;
 }
 
@@ -250,16 +250,17 @@ long ksys_faccessat2(int dfd, const char *filename, int mode, int flags)
     if (err)
         return err;
 
-    if (flags & AT_SYMLINK_NOFOLLOW)
+    if (flags & AT_SYMLINK_NOFOLLOW) {
         inode = ramfs_lookup(path);
-    else
+        iget(inode);
+    } else
         inode = vfs_lookup(path);
 
     if (!inode)
         return -ENOENT;
 
     err = inode_access(inode, mode);
-    proc_iput(inode);
+    iput(inode);
     return err;
 }
 

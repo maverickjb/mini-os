@@ -37,8 +37,10 @@ struct inode *vfs_lookup(const char *path)
         path[3] == 'o' && path[4] == 'c' &&
         (path[5] == '\0' || path[5] == '/')) {
         inode = proc_lookup(path);
-        if (inode)
+        if (inode) {
+            iget(inode);
             return inode;
+        }
         /* Fall through for plain "/proc" if proc_init has not run. */
     }
 
@@ -49,8 +51,10 @@ struct inode *vfs_lookup(const char *path)
         if (!inode)
             return NULL;
 
-        if (!inode_is_lnk(inode))
+        if (!inode_is_lnk(inode)) {
+            iget(inode);
             return inode;
+        }
 
         len = ramfs_readlink(inode, target, PATH_MAX - 1);
         if (len < 0)
@@ -493,7 +497,15 @@ static int do_unlink(const char *path)
     tmp.child = NULL;
     tmp.next = NULL;
 
-    return vfs_unlink(parent->inode, &tmp);
+    err = vfs_unlink(parent->inode, &tmp);
+    if (!err) {
+        struct dentry *d = d_lookup_path(path);
+
+        if (d && d != parent)
+            d_drop(d);
+    }
+    iput(tmp.inode);
+    return err;
 }
 
 static int do_rmdir(const char *path)
@@ -582,19 +594,32 @@ static int do_link(const char *oldpath, const char *newpath)
     old_inode = vfs_lookup(oldpath);
     if (!old_inode)
         return -ENOENT;
-    if (inode_is_dir(old_inode))
+    if (inode_is_dir(old_inode)) {
+        iput(old_inode);
         return -EPERM;
+    }
 
-    if (vfs_lookup(newpath))
-        return -EEXIST;
+    {
+        struct inode *exist = vfs_lookup(newpath);
+
+        if (exist) {
+            iput(exist);
+            iput(old_inode);
+            return -EEXIST;
+        }
+    }
 
     err = path_parent_name(newpath, parent_path, name);
-    if (err)
+    if (err) {
+        iput(old_inode);
         return err;
+    }
 
     parent = d_lookup_path(parent_path);
-    if (!parent)
+    if (!parent) {
+        iput(old_inode);
         return -ENOENT;
+    }
 
     old_dentry.name[0] = '\0';
     old_dentry.inode = old_inode;
@@ -608,7 +633,9 @@ static int do_link(const char *oldpath, const char *newpath)
     new_dentry.child = NULL;
     new_dentry.next = NULL;
 
-    return vfs_link(&old_dentry, parent->inode, &new_dentry);
+    err = vfs_link(&old_dentry, parent->inode, &new_dentry);
+    iput(old_inode);
+    return err;
 }
 
 long ksys_linkat(int olddfd, const char *oldname, int newdfd,
@@ -726,8 +753,14 @@ static int do_symlink(const char *target, const char *linkpath)
     struct dentry new_dentry;
     int err;
 
-    if (vfs_lookup(linkpath))
-        return -EEXIST;
+    {
+        struct inode *exist = vfs_lookup(linkpath);
+
+        if (exist) {
+            iput(exist);
+            return -EEXIST;
+        }
+    }
 
     err = path_parent_name(linkpath, parent_path, name);
     if (err)
@@ -803,7 +836,7 @@ long ksys_readlinkat(int dfd, const char *pathname, char *buf,
         copy_len = PATH_MAX;
 
     len = ramfs_readlink(inode, kbuf, copy_len);
-    proc_iput(inode);
+    iput(inode);
     if (len < 0)
         return len;
 
@@ -877,8 +910,13 @@ long ksys_utimensat(int dfd, const char *filename, const struct timespec *times,
     if (err)
         return err;
 
-    if (!vfs_lookup(path))
-        return -ENOENT;
+    {
+        struct inode *inode = vfs_lookup(path);
+
+        if (!inode)
+            return -ENOENT;
+        iput(inode);
+    }
 
     return 0;
 }

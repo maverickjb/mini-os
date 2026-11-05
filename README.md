@@ -237,7 +237,7 @@ The initramfs cpio is linked at the **end** of the kernel image (`linker.ld`) so
 Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 
 - `include/linux/fs.h` — inode, `file`, `file_operations`, `inode_operations`.
-- `fs/dcache.c` — dentries (`kmalloc`), path walk for `.` / `..`, `getcwd`.
+- `fs/inode.c` — `iget` / `iput`; `i_count` plus `nlink`. Unlinked open files stay until last `fput`. Proc pid inodes are non-persistent (`iput` at 0 frees them).
 - `fs/namei.c` — path resolve, `mkdir`/`mknod`/`unlink`/`link`/`symlink`/`rename`/`chdir`; `getname_from_user_at` (relative `*at` from `dfd`); final-component symlink follow (depth 8).
 - `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`), char nodes (`S_IFCHR`); nodes and data buffers via `kmalloc`.
 - `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); `pipe2` accepts `O_CLOEXEC` / `O_NONBLOCK`. Blocking I/O waits on the ring (`-ERESTARTSYS` if a signal is pending); `O_NONBLOCK` returns `-EAGAIN` instead of sleeping.
@@ -290,6 +290,7 @@ sh /kselftests/run_kselftest.sh
 /kselftests/files/open_test
 /kselftests/files/access_test
 /kselftests/files/at_test
+/kselftests/files/inode_test
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 ```
@@ -304,6 +305,7 @@ sh /kselftests/run_kselftest.sh
 - `files/open_test.c` — `openat` `O_CLOEXEC` (file, chrdev, closed across `exec`).
 - `files/access_test.c` — `faccessat` / `faccessat2` (`F_OK`, `R_OK`/`W_OK`/`X_OK`, `AT_EMPTY_PATH`).
 - `files/at_test.c` — relative `openat` / `faccessat` / `mkdirat` from a directory fd.
+- `files/inode_test.c` — unlink of an open file; proc `iget`/`iput`.
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 
