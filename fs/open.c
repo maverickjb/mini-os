@@ -139,7 +139,7 @@ static long close_fd(struct task_struct *task, unsigned long fd)
     return 0;
 }
 
-long ksys_open(const char *filename, int flags, unsigned long mode)
+long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
 {
     char path[PATH_MAX];
     struct inode *inode;
@@ -153,7 +153,7 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     if (!task || !task->is_user)
         return -EINVAL;
 
-    err = getname_from_user(path, filename);
+    err = getname_from_user_at(dfd, filename, path);
     if (err)
         return err;
 
@@ -244,13 +244,9 @@ long ksys_open(const char *filename, int flags, unsigned long mode)
     return fd;
 }
 
-long ksys_openat(int dfd, const char *filename, int flags, unsigned long mode)
+long ksys_open(const char *filename, int flags, unsigned long mode)
 {
-    /*
-     * Absolute paths only for now; dfd is ignored when path starts with '/'.
-     */
-    (void)dfd;
-    return ksys_open(filename, flags, mode);
+    return ksys_openat(AT_FDCWD, filename, flags, mode);
 }
 
 long ksys_close(unsigned long fd)

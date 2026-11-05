@@ -33,6 +33,7 @@ struct inode *ramfs_root(void);
 
 struct inode *ramfs_lookup(const char *path);
 struct inode *ramfs_lookup_child(struct inode *dir, const char *name);
+long ramfs_inode_path(struct inode *inode, char *buf, unsigned long size);
 int ramfs_mkdir(const char *path);
 int ramfs_create(const char *path);
 int ramfs_mknod(const char *path, umode_t mode, dev_t rdev);

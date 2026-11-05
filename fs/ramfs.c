@@ -791,6 +791,83 @@ struct inode *ramfs_root(void)
     return &root_inode.inode;
 }
 
+static const char *ramfs_name_in_parent(struct ramfs_inode *parent,
+                                        struct ramfs_inode *child)
+{
+    struct ramfs_dentry *d;
+
+    if (!parent || !child)
+        return NULL;
+
+    for (d = parent->children; d; d = d->next) {
+        if (d->inode == child)
+            return d->name;
+    }
+    return NULL;
+}
+
+long ramfs_inode_path(struct inode *inode, char *buf, unsigned long size)
+{
+    struct ramfs_inode *ri;
+    struct ramfs_inode *chain[64];
+    struct ramfs_inode *p;
+    int n = 0;
+    int i;
+    int hit_root = 0;
+    unsigned long pos;
+
+    if (!inode || !buf || size < 2)
+        return -EINVAL;
+    if (!inode_is_dir(inode))
+        return -ENOTDIR;
+
+    if (inode == &root_inode.inode) {
+        buf[0] = '/';
+        buf[1] = '\0';
+        return 0;
+    }
+
+    ri = RAMFS_I(inode);
+    for (p = ri; p; p = p->parent) {
+        if (p == &root_inode) {
+            hit_root = 1;
+            break;
+        }
+        if (n >= 64)
+            return -ENAMETOOLONG;
+        chain[n++] = p;
+    }
+    if (!hit_root)
+        return -ENOTDIR;
+
+    buf[0] = '/';
+    pos = 1;
+    for (i = n - 1; i >= 0; i--) {
+        struct ramfs_inode *parent = chain[i]->parent;
+        const char *name;
+        unsigned long len;
+        unsigned long j;
+
+        if (!parent)
+            parent = &root_inode;
+        name = ramfs_name_in_parent(parent, chain[i]);
+        if (!name)
+            return -ENOENT;
+        len = ramfs_namelen(name);
+        if (pos > 1) {
+            if (pos + 1 >= size)
+                return -ENAMETOOLONG;
+            buf[pos++] = '/';
+        }
+        if (pos + len >= size)
+            return -ENAMETOOLONG;
+        for (j = 0; j < len; j++)
+            buf[pos++] = name[j];
+    }
+    buf[pos] = '\0';
+    return 0;
+}
+
 struct inode *ramfs_lookup(const char *path)
 {
     struct ramfs_inode *ri;

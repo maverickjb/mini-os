@@ -17,7 +17,10 @@ int vfs_symlink(const char *target, struct inode *dir, struct dentry *dentry);
 int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
                struct inode *new_dir, struct dentry *new_dentry);
 
-/* Copy filename from user and resolve against current->cwd to an absolute path. */
+/* Copy filename from user and resolve to an absolute path.
+ * getname_from_user uses cwd. getname_from_user_at uses dfd (AT_FDCWD = cwd);
+ * absolute names ignore dfd. */
 long getname_from_user(char *buf, const char *filename);
+long getname_from_user_at(int dfd, const char *filename, char *buf);
 
 #endif /* _LINUX_NAMEI_H */

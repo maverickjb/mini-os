@@ -187,9 +187,7 @@ long ksys_newfstatat(int dfd, const char *filename, struct stat *statbuf,
         }
     }
 
-    (void)dfd;
-
-    err = getname_from_user(path, filename);
+    err = getname_from_user_at(dfd, filename, path);
     if (err)
         return err;
 
@@ -248,9 +246,7 @@ long ksys_faccessat2(int dfd, const char *filename, int mode, int flags)
         }
     }
 
-    (void)dfd;
-
-    err = getname_from_user(path, filename);
+    err = getname_from_user_at(dfd, filename, path);
     if (err)
         return err;
 

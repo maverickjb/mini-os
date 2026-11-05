@@ -276,12 +276,33 @@ static int path_resolve(const char *base, const char *path, char *out)
     return 0;
 }
 
-long getname_from_user(char *buf, const char *filename)
+static long dirfd_base(int dfd, char *base)
+{
+    struct file *file;
+    long plen;
+
+    if (dfd == AT_FDCWD) {
+        plen = dentry_path(pwd_dentry(), base, PATH_MAX);
+        return plen < 0 ? plen : 0;
+    }
+
+    if (dfd < 0 || dfd >= NR_OPEN)
+        return -EBADF;
+
+    file = current->files[dfd];
+    if (!file)
+        return -EBADF;
+    if (!file->inode || !inode_is_dir(file->inode))
+        return -ENOTDIR;
+
+    return ramfs_inode_path(file->inode, base, PATH_MAX);
+}
+
+long getname_from_user_at(int dfd, const char *filename, char *buf)
 {
     char userpath[PATH_MAX];
     char base[PATH_MAX];
     long n;
-    long plen;
     int err;
 
     if (!current || !current->is_user)
@@ -297,15 +318,27 @@ long getname_from_user(char *buf, const char *filename)
     if (n == 0)
         return -ENOENT;
 
-    plen = dentry_path(pwd_dentry(), base, PATH_MAX);
-    if (plen < 0)
-        return plen;
+    if (userpath[0] == '/') {
+        err = path_resolve("/", userpath, buf);
+        if (err)
+            return err;
+        return 0;
+    }
+
+    err = (int)dirfd_base(dfd, base);
+    if (err)
+        return err;
 
     err = path_resolve(base, userpath, buf);
     if (err)
         return err;
 
     return 0;
+}
+
+long getname_from_user(char *buf, const char *filename)
+{
+    return getname_from_user_at(AT_FDCWD, filename, buf);
 }
 
 /*
@@ -487,9 +520,7 @@ long ksys_mkdirat(int dfd, const char *filename, umode_t mode)
     char path[PATH_MAX];
     long err;
 
-    (void)dfd;
-
-    err = getname_from_user(path, filename);
+    err = getname_from_user_at(dfd, filename, path);
     if (err)
         return err;
 
@@ -501,9 +532,7 @@ long ksys_mknodat(int dfd, const char *filename, umode_t mode, unsigned int dev)
     char path[PATH_MAX];
     long err;
 
-    (void)dfd;
-
-    err = getname_from_user(path, filename);
+    err = getname_from_user_at(dfd, filename, path);
     if (err)
         return err;
 
@@ -527,12 +556,10 @@ long ksys_unlinkat(int dfd, const char *filename, int flag)
     char path[PATH_MAX];
     long err;
 
-    (void)dfd;
-
     if (flag & ~AT_REMOVEDIR)
         return -EINVAL;
 
-    err = getname_from_user(path, filename);
+    err = getname_from_user_at(dfd, filename, path);
     if (err)
         return err;
 
@@ -591,17 +618,14 @@ long ksys_linkat(int olddfd, const char *oldname, int newdfd,
     char newpath[PATH_MAX];
     long err;
 
-    (void)olddfd;
-    (void)newdfd;
-
     if (flags)
         return -EINVAL;
 
-    err = getname_from_user(oldpath, oldname);
+    err = getname_from_user_at(olddfd, oldname, oldpath);
     if (err)
         return err;
 
-    err = getname_from_user(newpath, newname);
+    err = getname_from_user_at(newdfd, newname, newpath);
     if (err)
         return err;
 
@@ -683,14 +707,11 @@ long ksys_renameat(int olddfd, const char *oldname, int newdfd,
     char newpath[PATH_MAX];
     long err;
 
-    (void)olddfd;
-    (void)newdfd;
-
-    err = getname_from_user(oldpath, oldname);
+    err = getname_from_user_at(olddfd, oldname, oldpath);
     if (err)
         return err;
 
-    err = getname_from_user(newpath, newname);
+    err = getname_from_user_at(newdfd, newname, newpath);
     if (err)
         return err;
 
@@ -732,8 +753,6 @@ long ksys_symlinkat(const char *target, int dfd, const char *linkpath)
     long n;
     long err;
 
-    (void)dfd;
-
     if (!target || !linkpath)
         return -EFAULT;
 
@@ -743,7 +762,7 @@ long ksys_symlinkat(const char *target, int dfd, const char *linkpath)
     if (n >= PATH_MAX)
         return -ENAMETOOLONG;
 
-    err = getname_from_user(link_buf, linkpath);
+    err = getname_from_user_at(dfd, linkpath, link_buf);
     if (err)
         return err;
 
@@ -764,8 +783,6 @@ long ksys_readlinkat(int dfd, const char *pathname, char *buf,
     long len;
     long err;
 
-    (void)dfd;
-
     if (!current || !current->is_user)
         return -EINVAL;
     if (!pathname || !buf)
@@ -773,7 +790,7 @@ long ksys_readlinkat(int dfd, const char *pathname, char *buf,
     if (bufsiz == 0)
         return -EINVAL;
 
-    err = getname_from_user(path, pathname);
+    err = getname_from_user_at(dfd, pathname, path);
     if (err)
         return err;
 
@@ -850,14 +867,13 @@ long ksys_utimensat(int dfd, const char *filename, const struct timespec *times,
     char path[PATH_MAX];
     long err;
 
-    (void)dfd;
     (void)times;
     (void)flags;
 
     if (!filename)
         return -EFAULT;
 
-    err = getname_from_user(path, filename);
+    err = getname_from_user_at(dfd, filename, path);
     if (err)
         return err;
 
