@@ -101,6 +101,20 @@ long ksys_clock_gettime(int clockid, struct timespec *tp)
     return 0;
 }
 
+long ksys_clock_settime(int clockid, const struct timespec *tp)
+{
+    struct timespec ts;
+
+    if (clockid != CLOCK_REALTIME)
+        return -EINVAL;
+    if (!tp)
+        return -EFAULT;
+    if (copy_from_user(&ts, tp, sizeof(ts)))
+        return -EFAULT;
+
+    return set_real_time(&ts);
+}
+
 long ksys_set_tid_address(int *tidptr)
 {
     if (!current)
@@ -255,6 +269,9 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_uname((void *)regs->x0);
     case __NR_clock_gettime:
         return ksys_clock_gettime((int)regs->x0, (struct timespec *)regs->x1);
+    case __NR_clock_settime:
+        return ksys_clock_settime((int)regs->x0,
+                                  (const struct timespec *)regs->x1);
     case __NR_nanosleep:
         return ksys_nanosleep((const struct timespec *)regs->x0,
                               (struct timespec *)regs->x1);

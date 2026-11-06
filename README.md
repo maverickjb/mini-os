@@ -113,8 +113,8 @@ This is the “CPU trap into the kernel, then `eret` back” story.
 
 - `kernel/irq.c` — GICv3 on QEMU virt; per-CPU timer PPI; SGI for reschedule IPI (`IPI_RESCHEDULE`).
 - `kernel/time/tick.c` — ARM generic timer on each CPU; `jiffies` / sleeper wakeups / UART RX poll stay on **CPU0** so SMP does not advance time N×.
-- `kernel/time/time.c` / `clocksource.c` — `get_real_time()`: PL031 Unix seconds plus CNTPCT sub-second offset. `clock_gettime(CLOCK_REALTIME)` uses this; `CLOCK_MONOTONIC` stays on `jiffies`.
-- `drivers/rtc/pl031.c` — QEMU virt PL031 RTC at `0x09010000`.
+- `kernel/time/time.c` / `clocksource.c` — `get_real_time()` / `set_real_time()`: PL031 Unix seconds plus CNTPCT sub-second offset. `clock_gettime` / `clock_settime` (`CLOCK_REALTIME`) use this; `CLOCK_MONOTONIC` stays on `jiffies` (set is `-EINVAL`).
+- `drivers/rtc/pl031.c` — QEMU virt PL031 RTC at `0x09010000` (read `RTCDR`, write `RTCLR`).
 - **`need_resched`** — the tick (and reschedule IPI) only set a flag on the current task. `irq_exit()` calls `schedule()` when `need_resched && interrupted_el0`. Idle CPUs still schedule from their WFI loop after an IPI wake.
 
 A tick can preempt a user task without calling `schedule()` from the IRQ handler itself. Kernel stacks stay per-task so a syscall or IRQ frame survives a context switch.
@@ -164,7 +164,7 @@ Implemented (subset):
 - I/O and files: `read`, `write`, `writev`, `openat` (`O_CLOEXEC`), `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
 - Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `faccessat` / `faccessat2`, `chdir`, `fchdir`, `getcwd`, `fchmod` / `fchmodat`, `utimensat` (stub). Relative `*at` names start at `dfd` (`AT_FDCWD` = cwd; absolute names ignore `dfd`). Permission bits live in `inode->i_mode`.
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
-- Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime` (`CLOCK_REALTIME` from PL031, else `jiffies`), `nanosleep`, `sysinfo`
+- Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime` / `clock_settime` (`CLOCK_REALTIME` from PL031, else `jiffies`), `nanosleep`, `sysinfo`
 - Memory: `brk`, `mmap` (anonymous), `munmap`, `mprotect` (VMA split + COW-safe PTEs)
 - Signals: `kill`, `rt_sigaction`, `rt_sigprocmask`, `rt_sigpending`, `rt_sigsuspend`, `rt_sigreturn`
 - Reboot: `reboot` (`RESTART`, `HALT`, `POWER_OFF` via PSCI on QEMU virt)
@@ -316,7 +316,7 @@ sh /kselftests/run_kselftest.sh
 - `files/exec_env_test.c` — `execve` copies `envp` onto the new stack.
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
-- `time/realtime_test.c` — `clock_gettime(CLOCK_REALTIME)` from PL031.
+- `time/realtime_test.c` — `clock_gettime` / `clock_settime` (`CLOCK_REALTIME`).
 
 To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.
 

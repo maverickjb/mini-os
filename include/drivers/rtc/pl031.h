@@ -8,5 +8,6 @@
 
 void pl031_init(void);
 unsigned int pl031_read_seconds(void);
+void pl031_write_seconds(unsigned int sec);
 
 #endif /* _DRIVERS_RTC_PL031_H */

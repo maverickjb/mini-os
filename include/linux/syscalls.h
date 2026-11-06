@@ -73,6 +73,7 @@ long ksys_setsid(void);
 long ksys_ioctl(unsigned long fd, unsigned int cmd, unsigned long arg);
 long ksys_uname(void *buf);
 long ksys_clock_gettime(int clockid, struct timespec *tp);
+long ksys_clock_settime(int clockid, const struct timespec *tp);
 long ksys_nanosleep(const struct timespec *req, struct timespec *rem);
 long ksys_sysinfo(void *info);
 long ksys_lseek(unsigned int fd, off_t offset, unsigned int whence);

@@ -9,6 +9,7 @@
 #define PL031_VIRT      ((unsigned long)__phys_to_virt(PL031_PHYS))
 
 #define PL031_DR        (*(volatile unsigned int *)(PL031_VIRT + 0x00))
+#define PL031_LR        (*(volatile unsigned int *)(PL031_VIRT + 0x08))
 #define PL031_CR        (*(volatile unsigned int *)(PL031_VIRT + 0x0c))
 #define PL031_CR_START  1U
 
@@ -20,4 +21,9 @@ void pl031_init(void)
 unsigned int pl031_read_seconds(void)
 {
     return PL031_DR;
+}
+
+void pl031_write_seconds(unsigned int sec)
+{
+    PL031_LR = sec;
 }
