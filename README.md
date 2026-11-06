@@ -50,7 +50,8 @@ make run
 QEMU is started as:
 
 ```text
-qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic -kernel mini-os.elf
+qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic \
+    -netdev user,id=n0 -device virtio-net-device,netdev=n0 -kernel mini-os.elf
 ```
 
 Boot CPU0 brings up three secondary CPUs (per-CPU idle, timer, runqueue), unpacks the initramfs, creates PID 1, and idle loops. PID 1 is **`/init`**, a symlink to `/bin/busybox`; the kernel passes `argv[0]="/init"`, so BusyBox runs its **`init`** applet. That reads `/etc/inittab`, runs `/etc/init.d/rcS`, and respawns a login **`ash`** shell (`-/bin/ash -l`). Environment variables (`PATH`, `HOME`, `TERM`, `PS1`) come from `/etc/profile` when ash starts. User tasks may be pulled onto secondary CPUs by the idle load balancer.
@@ -90,7 +91,7 @@ hypervisor/ EL2 boots mini-OS guest @ 0x40000000 (hyp @ 0x44000000)
 kernel/     boot, IRQ, SMP, scheduler, wait queues, fork/exit, syscalls, signals, reboot, printk, timekeeping
 mm/         buddy page allocator, SLUB (`kmalloc`), VMA list + mmap/brk/munmap/mprotect, COW, copy_to/from_user
 fs/         ramfs, dcache, path lookup, pipes, procfs, chrdev + `/dev` nodes, ELF loader
-drivers/    UART + console TTY (SMP-safe locks); PL031 RTC
+drivers/    UART + console TTY (SMP-safe locks); PL031 RTC; virtio-mmio probe
 lib/        string helpers, vsnprintf, red-black tree
 include/    linux/, uapi/linux/, and asm/ headers (Linux-shaped, not Linux)
 initramfs/  BusyBox rootfs sources, musl test programs (hello)
@@ -105,7 +106,7 @@ Headers live under `include/linux`, `include/uapi/linux`, and `include/asm` so f
 
 - `kernel/head.S` — EL1 entry, early stack, MMU (identity + high half at `0xffff800080000000`), jump to C. QEMU loads the image at `0x40000000`.
 - `kernel/entry.S` — exception vectors, `sync_el0_entry`, `irq_entry`, `switch_to`, `task_trampoline`, `finish_eret`.
-- `init/main.c` — `start_kernel()`: UART, timer, TTY, SMP, page allocator, SLUB, `mmap_init`, ramfs, unpack initramfs, procfs, `dev_init`, scheduler, PID 1.
+- `init/main.c` — `start_kernel()`: UART, timer, TTY, virtio-mmio scan, SMP, page allocator, SLUB, `mmap_init`, ramfs, unpack initramfs, procfs, `dev_init`, scheduler, PID 1.
 
 This is the “CPU trap into the kernel, then `eret` back” story.
 
@@ -115,6 +116,7 @@ This is the “CPU trap into the kernel, then `eret` back” story.
 - `kernel/time/tick.c` — ARM generic timer on each CPU; `jiffies` / sleeper wakeups / UART RX poll stay on **CPU0** so SMP does not advance time N×.
 - `kernel/time/time.c` / `clocksource.c` — `get_real_time()` / `set_real_time()`: PL031 Unix seconds plus CNTPCT sub-second offset. `clock_gettime` / `clock_settime` (`CLOCK_REALTIME`) use this; `CLOCK_MONOTONIC` stays on `jiffies` (set is `-EINVAL`).
 - `drivers/rtc/pl031.c` — QEMU virt PL031 RTC at `0x09010000` (read `RTCDR`, write `RTCLR`).
+- `drivers/virtio/virtio_mmio.c` — scan QEMU virt virtio-mmio slots (`0x0a000000`, 32 × `0x200`). Probe only (magic / version / device id); no virtqueues yet. `make run` attaches `virtio-net-device` so slot 0 prints as network.
 - **`need_resched`** — the tick (and reschedule IPI) only set a flag on the current task. `irq_exit()` calls `schedule()` when `need_resched && interrupted_el0`. Idle CPUs still schedule from their WFI loop after an IPI wake.
 
 A tick can preempt a user task without calling `schedule()` from the IRQ handler itself. Kernel stacks stay per-task so a syscall or IRQ frame survives a context switch.

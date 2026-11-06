@@ -29,7 +29,7 @@ SRCS    := kernel/head.S kernel/entry.S init/main.c kernel/smp.c \
            mm/mmap.c mm/fault.c mm/uaccess.c lib/strnlen_user.c lib/memset.c lib/string.c \
            lib/vsnprintf.c lib/rbtree.c \
            fs/read_write.c drivers/tty/serial.c drivers/tty/tty.c \
-           drivers/rtc/pl031.c
+           drivers/rtc/pl031.c drivers/virtio/virtio_mmio.c
 OBJS    := $(SRCS:.c=.o)
 OBJS    := $(OBJS:.S=.o)
 
@@ -108,7 +108,8 @@ clean: kselftest-clean
 	rm -rf initramfs/root
 
 QEMU    ?= qemu-system-aarch64
-QFLAGS  ?= -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic
+QFLAGS  ?= -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -nographic \
+           -netdev user,id=n0 -device virtio-net-device,netdev=n0
 
 run: mini-os.elf
 	$(QEMU) $(QFLAGS) -kernel mini-os.elf

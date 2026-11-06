@@ -20,6 +20,7 @@
 #include <linux/binfmts.h>
 #include <linux/proc_fs.h>
 #include <linux/dev.h>
+#include <drivers/virtio/virtio_mmio.h>
 
 extern char __initramfs_start[];
 extern char __initramfs_end[];
@@ -51,6 +52,7 @@ void start_kernel(void)
     serial_init();
     time_init();
     tty_init();
+    virtio_mmio_init();
 
     smp_init();
     bringup_nonboot_cpus();
