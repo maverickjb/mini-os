@@ -7,6 +7,7 @@ struct file;
 struct task_struct;
 struct dentry;
 struct inode;
+struct poll_table;
 
 typedef unsigned short umode_t;
 
@@ -33,6 +34,7 @@ struct file_ops {
     long (*readdir)(struct file *file, void *dirp, unsigned long count);
     long (*ioctl)(struct file *file, unsigned int cmd, unsigned long arg);
     loff_t (*llseek)(struct file *file, loff_t offset, int whence);
+    unsigned int (*poll)(struct file *file, struct poll_table *wait);
     int (*release)(struct file *file);
 };
 

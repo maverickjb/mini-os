@@ -161,7 +161,7 @@ There are no mutexes, RW locks, or `rcu` — spinlocks plus IRQ masking cover th
 
 Implemented (subset):
 
-- I/O and files: `read`, `write`, `writev`, `openat` (`O_CLOEXEC`), `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
+- I/O and files: `read`, `write`, `writev`, `openat` (`O_CLOEXEC`), `close`, `dup`/`dup3` (libc `dup2()` uses `dup3` on AArch64; `dup2(fd,fd)` is a no-op via `fcntl`), `pipe2` (`O_CLOEXEC`, `O_NONBLOCK`), `ppoll` (BusyBox `poll()`; TTY/pipe wait queues), `fstat`, `newfstatat`, `getdents64`, `lseek`, `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GET/SETFD`, `F_GET/SETFL`), `sendfile`
 - Paths: `mkdirat`, `unlinkat`, `linkat`, `symlinkat`, `readlinkat`, `renameat`, `faccessat` / `faccessat2`, `chdir`, `fchdir`, `getcwd`, `fchmod` / `fchmodat`, `utimensat` (stub). Relative `*at` names start at `dfd` (`AT_FDCWD` = cwd; absolute names ignore `dfd`). Permission bits live in `inode->i_mode`.
 - Processes: `clone` (always fork), `execve`, `exit` / `exit_group`, `wait4`, `getpid` / `gettid` / `getppid`, `getpgrp`, `setpgid`, `getsid`, `setsid`, `sched_yield`, `set_tid_address`
 - Identity / time: `getuid` / `geteuid` / `getgid` / `getegid` (all 0), `uname`, `clock_gettime` / `clock_settime` (`CLOCK_REALTIME` from PL031, else `jiffies`), `nanosleep`, `sysinfo`
@@ -243,7 +243,8 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 - `fs/inode.c` — `iget` / `iput`; `i_count` plus `nlink`. Unlinked open files stay until last `fput`. Proc pid inodes are non-persistent (`iput` at 0 frees them).
 - `fs/namei.c` — path resolve, `mkdir`/`mknod`/`unlink`/`link`/`symlink`/`rename`/`chdir`/`fchdir`; `getname_from_user_at` (relative `*at` from `dfd`); final-component symlink follow (depth 8).
 - `fs/ramfs.c` — in-memory files and directories, hard links, symlinks (`S_IFLNK`), char nodes (`S_IFCHR`); nodes and data buffers via `kmalloc`.
-- `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); `pipe2` accepts `O_CLOEXEC` / `O_NONBLOCK`. Blocking I/O waits on the ring (`-ERESTARTSYS` if a signal is pending); `O_NONBLOCK` returns `-EAGAIN` instead of sleeping.
+- `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); `pipe2` accepts `O_CLOEXEC` / `O_NONBLOCK`. Blocking I/O waits on the ring (`-ERESTARTSYS` if a signal is pending); `O_NONBLOCK` returns `-EAGAIN` instead of sleeping. `poll` reports `POLLIN` / `POLLOUT` / `POLLHUP`.
+- `fs/poll.c` — `ppoll(2)` (AArch64 has no `poll`); ash arrow keys use this on stdin.
 - `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table (`alloc_file()` → `kmalloc`), `fcntl`, `lseek` via `f_op->llseek`.
 - `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps` (`proc_inode` via `kmalloc`).
 - `fs/char_dev.c` — `register_chrdev` / `chrdev_open` by major (mem=1, tty=5).
@@ -307,6 +308,7 @@ sh /kselftests/run_kselftest.sh
 - `mm/mprotect_test.c` — `mprotect` args, holes, VMA split, COW-safe RW.
 - `files/dup_test.c` — `dup2` / `dup3` (same fd, replace, `O_CLOEXEC`).
 - `files/pipe_test.c` — `pipe2` flags, non-blocking empty/full I/O, `F_SETFL`.
+- `files/poll_test.c` — `poll`/`ppoll` on files and pipes (`POLLIN`, `POLLOUT`, `POLLNVAL`, `POLLHUP`).
 - `files/rename_test.c` — `renameat` (file, into dir, replace, type mismatch, descendant).
 - `files/open_test.c` — `openat` `O_CLOEXEC` (file, chrdev, closed across `exec`).
 - `files/access_test.c` — `faccessat` / `faccessat2` (`F_OK`, `R_OK`/`W_OK`/`X_OK`, `AT_EMPTY_PATH`).
@@ -332,7 +334,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `ppoll`, `vhangup`, mount/unmount, etc.
+No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 

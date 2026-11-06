@@ -8,6 +8,7 @@
 
 struct stat;
 struct timespec;
+struct pollfd;
 
 long ksys_write(unsigned long fd, const char *buf, unsigned long count);
 long ksys_writev(unsigned long fd, const void *iov, unsigned long iovcnt);
@@ -78,5 +79,8 @@ long ksys_nanosleep(const struct timespec *req, struct timespec *rem);
 long ksys_sysinfo(void *info);
 long ksys_lseek(unsigned int fd, off_t offset, unsigned int whence);
 long ksys_set_tid_address(int *tidptr);
+long ksys_ppoll(struct pollfd *ufds, unsigned int nfds,
+                const struct timespec *tsp, const sigset_t *sigmask,
+                unsigned long sigsetsize);
 
 #endif	/* _LINUX_SYSCALLS_H */

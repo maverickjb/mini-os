@@ -15,6 +15,7 @@
 #include <linux/string.h>
 #include <linux/tick.h>
 #include <linux/timekeeping.h>
+#include <linux/poll.h>
 #include <linux/reboot.h>
 #include <asm/ptrace.h>
 #include <asm/irqflags.h>
@@ -245,6 +246,10 @@ static long handle_syscall(struct pt_regs *regs)
         return ksys_dup3(regs->x0, regs->x1, (int)regs->x2);
     case __NR_pipe2:
         return ksys_pipe2((int *)regs->x0, (int)regs->x1);
+    case __NR_ppoll:
+        return ksys_ppoll((struct pollfd *)regs->x0, (unsigned int)regs->x1,
+                          (const struct timespec *)regs->x2,
+                          (const sigset_t *)regs->x3, regs->x4);
     case __NR_fstat:
         return ksys_fstat(regs->x0, (struct stat *)regs->x1);
     case __NR_newfstatat:

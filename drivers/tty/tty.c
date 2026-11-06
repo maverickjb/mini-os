@@ -17,6 +17,7 @@
 #include <linux/uaccess.h>
 #include <linux/wait.h>
 #include <linux/spinlock.h>
+#include <linux/poll.h>
 #include <asm/irqflags.h>
 
 struct tty tty0;
@@ -399,10 +400,22 @@ static long tty_file_ioctl(struct file *file, unsigned int cmd,
     }
 }
 
+static unsigned int tty_poll(struct file *file, struct poll_table *wait)
+{
+    unsigned int mask = POLLOUT | POLLWRNORM;
+
+    (void)file;
+    poll_wait(&tty0.read_wait, wait);
+    if (tty_read_ready())
+        mask |= POLLIN | POLLRDNORM;
+    return mask;
+}
+
 struct file_ops tty_fops = {
     .read = tty_file_read,
     .write = tty_file_write,
     .ioctl = tty_file_ioctl,
+    .poll = tty_poll,
 };
 
 void tty_attach_session(pid_t sid, pid_t pgid)

@@ -12,6 +12,7 @@
 #include <linux/stddef.h>
 #include <linux/signal.h>
 #include <linux/wait.h>
+#include <linux/poll.h>
 #include <asm/irqflags.h>
 
 #define PIPE_SIZE 1024
@@ -181,13 +182,51 @@ static int pipe_release(struct file *file)
     return 0;
 }
 
+static unsigned int pipe_read_poll(struct file *file, struct poll_table *wait)
+{
+    struct pipe *p = file->private_data;
+    unsigned int mask = 0;
+
+    if (!p)
+        return POLLERR;
+
+    poll_wait(&p->read_wait, wait);
+    local_irq_disable();
+    if (p->len)
+        mask |= POLLIN | POLLRDNORM;
+    if (p->writers == 0)
+        mask |= POLLHUP;
+    local_irq_enable();
+    return mask;
+}
+
+static unsigned int pipe_write_poll(struct file *file, struct poll_table *wait)
+{
+    struct pipe *p = file->private_data;
+    unsigned int mask = 0;
+
+    if (!p)
+        return POLLERR;
+
+    poll_wait(&p->write_wait, wait);
+    local_irq_disable();
+    if (p->readers == 0)
+        mask |= POLLERR;
+    else if (p->len < PIPE_SIZE)
+        mask |= POLLOUT | POLLWRNORM;
+    local_irq_enable();
+    return mask;
+}
+
 static struct file_ops pipe_read_ops = {
     .read = pipe_read,
+    .poll = pipe_read_poll,
     .release = pipe_release,
 };
 
 static struct file_ops pipe_write_ops = {
     .write = pipe_write,
+    .poll = pipe_write_poll,
     .release = pipe_release,
 };
 
