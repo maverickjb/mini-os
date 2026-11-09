@@ -22,12 +22,17 @@ Expect:
 [hyp] running at EL2
 [hyp] layout: guest@0x40000000 hyp@0x44000000
 [hyp] eret -> mini-OS guest
-<6>SMP: ...
+[hyp] PSCI CPU_ON
+[hyp] PSCI CPU_ON
+[hyp] PSCI CPU_ON
+<6>SMP: boot CPU is CPU0
+<6>CPU1: online
+...
 ~ #
 ```
 
-Use `-smp 1` for now (secondaries would skip this EL2 entry).
+QEMU `-smp 4` with `virtualization=on` uses **PSCI via SMC** and leaves CPUs 1–3 powered off. Guest `hvc` CPU_ON is handled at EL2: save the guest entry, then **`smc` the same CPU_ON** so QEMU starts that vCPU at an EL2 wait stub, which `eret`s into `secondary_startup`.
 
-## HVC
+## HVC / PSCI
 
-Guest PSCI (`psci_cpu_on`) uses `hvc`, so you may see `[hyp] HVC received` during SMP bring-up. With `-smp 1` secondary bring-up fails harmlessly; a later step can emulate or forward PSCI.
+Guest `psci_cpu_on(cpu, secondary_startup)` is handled at EL2: store the entry, `sev`, return `0`. Other HVCs still print `[hyp] HVC received` and return (so `halt`/`POWER_OFF` is not emulated yet).

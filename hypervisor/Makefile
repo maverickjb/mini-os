@@ -37,7 +37,7 @@ clean:
 
 QEMU    ?= qemu-system-aarch64
 QFLAGS  ?= -machine virt,gic-version=3,virtualization=on \
-           -cpu cortex-a72 -smp 1 -nographic -m 128M
+           -cpu cortex-a72 -smp 4 -nographic -m 128M
 
 run: hypervisor.elf
 	$(QEMU) $(QFLAGS) -kernel hypervisor.elf
