@@ -116,7 +116,7 @@ This is the “CPU trap into the kernel, then `eret` back” story.
 - `kernel/time/tick.c` — ARM generic timer on each CPU; `jiffies` / sleeper wakeups / UART RX poll stay on **CPU0** so SMP does not advance time N×.
 - `kernel/time/time.c` / `clocksource.c` — `get_real_time()` / `set_real_time()`: PL031 Unix seconds plus CNTPCT sub-second offset. `clock_gettime` / `clock_settime` (`CLOCK_REALTIME`) use this; `CLOCK_MONOTONIC` stays on `jiffies` (set is `-EINVAL`).
 - `drivers/rtc/pl031.c` — QEMU virt PL031 RTC at `0x09010000` (read `RTCDR`, write `RTCLR`).
-- `drivers/virtio/virtio_mmio.c` — scan QEMU virt virtio-mmio slots (`0x0a000000`, 32 × `0x200`). Probe only (magic / version / device id); no virtqueues yet. `make run` attaches `virtio-net-device` so slot 0 prints as network.
+- `drivers/virtio/virtio_mmio.c` — scan QEMU virt virtio-mmio slots (`0x0a000000`, 32 × `0x200`). For net: reset, `ACKNOWLEDGE|DRIVER`, print features, queue sizes, MAC. QEMU 8’s transport is often **mmio v1** on the last slot. No virtqueues yet. `make run` attaches `virtio-net-device`.
 - **`need_resched`** — the tick (and reschedule IPI) only set a flag on the current task. `irq_exit()` calls `schedule()` when `need_resched && interrupted_el0`. Idle CPUs still schedule from their WFI loop after an IPI wake.
 
 A tick can preempt a user task without calling `schedule()` from the IRQ handler itself. Kernel stacks stay per-task so a syscall or IRQ frame survives a context switch.
