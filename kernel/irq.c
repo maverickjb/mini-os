@@ -214,10 +214,8 @@ void handle_ipi(unsigned int ipi)
 void irq_exit(struct pt_regs *regs)
 {
     /*
-     * Timer / IPI only set need_resched; scheduling happens here
-     * once the handler has finished and before returning from the exception.
-     * Restrict to EL0 for now — matches userspace-return scheduling.
-     * Idle CPUs still call schedule() from their WFI loop after IPI wake.
+     * User preemption only. Idle owns schedule() in cpu_idle() so this
+     * path never nests schedule() on the idle stack.
      */
     if (need_resched() && interrupted_el0(regs))
         schedule();

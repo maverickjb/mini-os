@@ -60,6 +60,8 @@ struct sched_stat {
 };
 
 extern struct sched_stat sched_stat[];
+/* Idle loop is watching need_resched; remote wake may skip the IPI. */
+extern volatile int idle_polling[];
 
 struct task_struct {
     pid_t pid;

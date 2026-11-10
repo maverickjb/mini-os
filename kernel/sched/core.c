@@ -18,6 +18,7 @@
 #include <linux/smp.h>
 
 #include <asm/smp.h>
+#include <asm/barrier.h>
 
 #include <linux/mm.h>
 
@@ -29,6 +30,7 @@ struct task_struct idle_tasks[NR_CPUS] = {
 };
 
 struct sched_stat sched_stat[NR_CPUS];
+volatile int idle_polling[NR_CPUS];
 
 static spinlock_t tasklist_lock = SPINLOCK_INIT;
 static struct list_head all_tasks = LIST_HEAD_INIT(all_tasks);
@@ -354,20 +356,37 @@ void dump_rq(struct rq *rq)
     }
 }
 
+static void set_cpu_need_resched(unsigned int cpu)
+{
+    struct task_struct *task;
+
+    if (cpu >= NR_CPUS)
+        return;
+    task = cpu_data[cpu].curr;
+    if (task)
+        task->need_resched = 1;
+}
+
 /*
- * Ask `cpu` to reconsider scheduling. Same CPU: set need_resched locally.
- * Other CPU: SGI doorbell — handler only sets need_resched; irq_exit /
- * idle loop performs schedule().
+ * Ask `cpu` to reconsider scheduling.
+ *
+ * 1. Set that CPU's curr->need_resched (the idle task while idle).
+ * 2. smp_mb so the store is visible before we sample idle_polling.
+ * 3. If the idle loop is polling, it will see the flag — no IPI.
+ * 4. Otherwise the CPU is in WFI (or in user), so send a reschedule SGI.
  */
 void resched_cpu(unsigned int cpu)
 {
     if (cpu >= NR_CPUS)
         return;
 
-    if (cpu == smp_processor_id()) {
-        set_need_resched();
+    set_cpu_need_resched(cpu);
+    if (cpu == smp_processor_id())
         return;
-    }
+
+    smp_mb();
+    if (idle_polling[cpu])
+        return;
 
     sched_stat[smp_processor_id()].nr_ipis++;
     send_reschedule_ipi(cpu);
