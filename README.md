@@ -18,7 +18,7 @@ If you have read kernel source or a textbook chapter on “what a kernel does,�
 | Page allocator + user maps | Buddy + `struct page`; fork COW; `mprotect` updates VMAs and PTEs |
 | SLUB / `kmalloc` | Per-size object caches (32–2048 B); large allocs via buddy pages; kernel objects (tasks, files, dentries, mm, pipes, proc inodes, ramfs nodes, VMAs) |
 | VFS | Inodes, dentries, files, ramfs, pipes, symlinks |
-| `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) |
+| `/proc` | Minimal procfs for `ps` (`/proc/<pid>/stat`, `cmdline`) and `/proc/schedstat` |
 | Device nodes | `mknod` + `register_chrdev`; `/dev/null`, `/dev/tty`, `/dev/console` |
 | Initramfs + BusyBox | cpio rootfs; PID 1 is BusyBox `init` via `/init` → `busybox` |
 | Kernel logging | `printk` / `pr_*` → UART; minimal `vsnprintf` |
@@ -77,7 +77,7 @@ The cpio image is built under `initramfs/root/`:
 /tmp/
 /proc/             # created by kernel proc_init()
 /dev/              # char nodes (null, tty, console) via mknod + chrdev
-/kselftests/       # TAP userspace tests (yield, mm, files, signals)
+/kselftests/       # TAP userspace tests (yield, mm, files, signals, time, sched)
 /bin/hello         # musl syscall/regression test binary
 ```
 
@@ -248,7 +248,7 @@ Linux VFS vocabulary, one backing store (ramfs) plus synthetic trees:
 - `fs/pipe.c` — anonymous pipes (`kmalloc` for `struct pipe`); `pipe2` accepts `O_CLOEXEC` / `O_NONBLOCK`. Blocking I/O waits on the ring (`-ERESTARTSYS` if a signal is pending); `O_NONBLOCK` returns `-EAGAIN` instead of sleeping. `poll` reports `POLLIN` / `POLLOUT` / `POLLHUP`.
 - `fs/poll.c` — `ppoll(2)` (AArch64 has no `poll`); ash arrow keys use this on stdin.
 - `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `fs/readdir.c` — fd table (`alloc_file()` → `kmalloc`), `fcntl`, `lseek` via `f_op->llseek`.
-- `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps` (`proc_inode` via `kmalloc`).
+- `fs/procfs.c` — `/proc`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline` for BusyBox `ps`; `/proc/schedstat` (`cpuN switches pulls ipis`).
 - `fs/char_dev.c` — `register_chrdev` / `chrdev_open` by major (mem=1, tty=5).
 - `fs/dev.c`, `fs/devnull.c`, `fs/devtty.c`, `fs/devconsole.c` — create `/dev` nodes with `mknod` and open via the chrdev table.
 - `fs/initramfs.c` — unpack a newc cpio blob into ramfs.
@@ -302,6 +302,11 @@ sh /kselftests/run_kselftest.sh
 /kselftests/signals/sa_restart_test
 /kselftests/signals/sigset_test
 /kselftests/time/realtime_test
+/kselftests/sched/fork_busy_test
+/kselftests/sched/sleep_spin_test
+/kselftests/sched/yield_pong_test
+/kselftests/sched/hog_smp_test
+/kselftests/sched/sched_bench_test
 ```
 
 - `kselftest.h` — TAP helpers (`ksft_print_header`, `ksft_set_plan`, `ksft_test_result`, `ksft_finished`), same usage pattern as Linux.
@@ -321,6 +326,11 @@ sh /kselftests/run_kselftest.sh
 - `signals/sa_restart_test.c` — `SA_RESTART` rewinds a blocking `read`; without it, `EINTR`.
 - `signals/sigset_test.c` — `sa_mask`, `sigprocmask`, `sigpending` (Linux bit layout).
 - `time/realtime_test.c` — `clock_gettime` / `clock_settime` (`CLOCK_REALTIME`).
+- `sched/fork_busy_test.c` — 8 busy `fork` children all exit and get `waitpid` (none stuck `RUNNING`).
+- `sched/sleep_spin_test.c` — `nanosleep` child wakes while a spinner stays `RUNNING`.
+- `sched/yield_pong_test.c` — two tasks ping-pong a shared counter with `sched_yield`.
+- `sched/hog_smp_test.c` — 8 CPU hogs on `-smp 4`; idle pull puts them on more than one CPU (`/proc/<pid>/stat` field 39).
+- `sched/sched_bench_test.c` — 8 yield hogs; prints `switches/s` from `/proc/schedstat` (TCG is noisy; compare ratios, not ns).
 
 To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.
 

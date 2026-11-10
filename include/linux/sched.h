@@ -53,6 +53,14 @@ struct rq {
 	unsigned int cpu;
 };
 
+struct sched_stat {
+    unsigned long nr_switches;
+    unsigned long nr_pulls;
+    unsigned long nr_ipis;
+};
+
+extern struct sched_stat sched_stat[];
+
 struct task_struct {
     pid_t pid;
     pid_t tgid; /* thread-group id; same as pid until CLONE_THREAD */

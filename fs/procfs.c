@@ -14,11 +14,13 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/namei.h>
+#include <asm/smp.h> /* NR_CPUS */
 
 #define PROC_MAGIC      0x50524f43UL /* 'PROC' */
 #define PROC_KIND_DIR   1
 #define PROC_KIND_STAT  2
 #define PROC_KIND_CMDLINE 3
+#define PROC_KIND_SCHEDSTAT 4
 
 struct proc_inode {
     struct inode inode;
@@ -160,12 +162,44 @@ static void fill_stat(struct proc_inode *pi, struct task_struct *task)
     pos = append_char(buf, size, pos, ' ');
     pos = append_uint(buf, size, pos, (unsigned long)task->sid);
 
-    /* Remaining Linux fields (tty_nr …) — zeros are enough for BusyBox ps. */
-    for (i = 0; i < 46; i++) {
+    /*
+     * Remaining Linux fields (tty_nr … exit_code). Zeros are enough for
+     * BusyBox ps, except field 39 (processor) — last CPU the task ran on.
+     */
+    for (i = 7; i <= 52; i++) {
         pos = append_char(buf, size, pos, ' ');
-        pos = append_char(buf, size, pos, '0');
+        if (i == 39)
+            pos = append_uint(buf, size, pos, (unsigned long)task->cpu);
+        else
+            pos = append_char(buf, size, pos, '0');
     }
     pos = append_char(buf, size, pos, '\n');
+
+    if (pos >= size)
+        pos = size - 1;
+    buf[pos] = '\0';
+    pi->len = pos;
+    pi->inode.size = pos;
+}
+
+static void fill_schedstat(struct proc_inode *pi)
+{
+    unsigned long pos = 0;
+    char *buf = pi->data;
+    unsigned long size = sizeof(pi->data);
+    unsigned int cpu;
+
+    for (cpu = 0; cpu < NR_CPUS; cpu++) {
+        pos = append_str(buf, size, pos, "cpu");
+        pos = append_uint(buf, size, pos, cpu);
+        pos = append_char(buf, size, pos, ' ');
+        pos = append_uint(buf, size, pos, sched_stat[cpu].nr_switches);
+        pos = append_char(buf, size, pos, ' ');
+        pos = append_uint(buf, size, pos, sched_stat[cpu].nr_pulls);
+        pos = append_char(buf, size, pos, ' ');
+        pos = append_uint(buf, size, pos, sched_stat[cpu].nr_ipis);
+        pos = append_char(buf, size, pos, '\n');
+    }
 
     if (pos >= size)
         pos = size - 1;
@@ -250,6 +284,30 @@ static struct proc_inode *proc_alloc(pid_t pid, int kind)
     return pi;
 }
 
+static struct proc_inode *proc_alloc_schedstat(void)
+{
+    struct proc_inode *pi;
+
+    pi = kmalloc(sizeof(*pi));
+    if (!pi)
+        return NULL;
+
+    memset(pi, 0, sizeof(*pi));
+    pi->magic = PROC_MAGIC;
+    pi->kind = PROC_KIND_SCHEDSTAT;
+    pi->inode.ino = 0x50UL;
+    pi->inode.nlink = 1;
+    pi->inode.i_count = 0;
+    pi->inode.i_flags = 0;
+    pi->inode.i_free = proc_i_free;
+    pi->inode.private_data = pi;
+    pi->inode.type = S_IFREG;
+    pi->inode.i_mode = S_IFREG | 0444;
+    pi->inode.i_fop = &proc_file_ops;
+    fill_schedstat(pi);
+    return pi;
+}
+
 static int parse_pid(const char *s, pid_t *out)
 {
     unsigned long v = 0;
@@ -310,6 +368,15 @@ struct inode *proc_lookup(const char *path)
     name[n] = '\0';
     if (!name[0])
         return proc_root_inode;
+
+    if (name[0] == 's' && name[1] == 'c' && name[2] == 'h' &&
+        name[3] == 'e' && name[4] == 'd' && name[5] == 's' &&
+        name[6] == 't' && name[7] == 'a' && name[8] == 't' &&
+        name[9] == '\0' &&
+        (!p[n] || (p[n] == '/' && p[n + 1] == '\0'))) {
+        pi = proc_alloc_schedstat();
+        return pi ? &pi->inode : NULL;
+    }
 
     err = parse_pid(name, &pid);
     if (err)
@@ -396,6 +463,18 @@ static long proc_root_readdir(struct file *file, void *dirp, unsigned long count
     index = file->f_pos;
     written = 0;
     pos_num = 0;
+
+    if (pos_num >= index) {
+        ret = emit_dirent(dirp, count, &written, &pos_num,
+                          0x50UL, DT_REG, "schedstat");
+        if (ret < 0)
+            return ret;
+        if (ret > 0)
+            return (long)written;
+        file->f_pos = pos_num;
+    } else {
+        pos_num++;
+    }
 
     task_list_lock_irqsave(&flags);
     for_each_task(pos, walk) {

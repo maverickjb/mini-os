@@ -28,6 +28,8 @@ struct task_struct idle_tasks[NR_CPUS] = {
     [3] = { .pid = 0, .state = TASK_IDLE },
 };
 
+struct sched_stat sched_stat[NR_CPUS];
+
 static spinlock_t tasklist_lock = SPINLOCK_INIT;
 static struct list_head all_tasks = LIST_HEAD_INIT(all_tasks);
 
@@ -298,6 +300,7 @@ void resched_cpu(unsigned int cpu)
         return;
     }
 
+    sched_stat[smp_processor_id()].nr_ipis++;
     send_reschedule_ipi(cpu);
 }
 
@@ -396,6 +399,7 @@ int try_pull_task(unsigned int this_cpu)
     if (migrate_task(task, this_cpu) != 0)
         return 0;
 
+    sched_stat[this_cpu].nr_pulls++;
     return 1;
 }
 
@@ -530,6 +534,7 @@ void schedule(void)
     if (next != idle && !next->stack)
         return;
 
+    sched_stat[cpu].nr_switches++;
     context_switch(prev, next);
 }
 
