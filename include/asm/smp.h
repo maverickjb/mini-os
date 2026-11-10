@@ -48,6 +48,7 @@ static inline __attribute__((always_inline)) void set_cpu_local(struct cpu *cpu)
 }
 
 void smp_init(void);
+int cpu_online(unsigned int cpu);
 int cpu_up(unsigned int cpu);
 void bringup_nonboot_cpus(void);
 void secondary_main(void);

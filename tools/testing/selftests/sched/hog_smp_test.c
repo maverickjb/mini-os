@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Fork 8 CPU hogs on -smp 4. Idle pull should put user tasks on
- * more than one CPU (/proc/<pid>/stat field 39).
+ * Fork 8 CPU hogs on -smp 4. Fork placement should put user tasks on
+ * every CPU (/proc/<pid>/stat field 39).
  */
 
 #include <fcntl.h>
@@ -16,7 +16,7 @@
 
 #define NHOG		8
 #define TIMEOUT_SEC	3
-#define MIN_CPUS	2
+#define MIN_CPUS	4
 
 static int timed_out(const struct timespec *deadline)
 {

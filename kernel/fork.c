@@ -11,6 +11,7 @@
 #include <linux/string.h>
 #include <asm/irqflags.h>
 #include <asm/memory.h>
+#include <asm/smp.h>
 
 #include <linux/mm.h>
 #include <linux/gfp.h>
@@ -70,6 +71,7 @@ static void task_zero(struct task_struct *tsk)
 
     tsk->pid = 0;
     tsk->tgid = 0;
+    tsk->cpu = NR_CPUS; /* unset — enqueue/wake picks the lightest CPU */
     tsk->state = TASK_SLEEPING;
     tsk->thread_fn = NULL;
     tsk->thread_arg = NULL;
@@ -257,7 +259,7 @@ void wake_up_process(struct task_struct *task)
     if (task->state == TASK_RUNNING && list_is_linked(&task->run_list))
         return;
 
-    enqueue_task(task);
+    enqueue_task_cpu(task, select_wake_cpu(task));
     /* Task may live on another CPU's rq — kick that CPU out of WFI/idle. */
     resched_cpu(task->cpu);
 }
@@ -331,7 +333,8 @@ long ksys_fork(struct pt_regs *regs)
     task_user_ctx_init(child);
 
     task_attach(child);
-    enqueue_task(child);
+    /* Place on the lightest CPU and IPI if that is not us. */
+    wake_up_process(child);
 
     regs->x0 = (unsigned long)child->pid;
 

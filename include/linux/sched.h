@@ -155,6 +155,7 @@ void cpu_idle(void);
 void schedule(void);
 void enqueue_task(struct task_struct *task);
 void enqueue_task_cpu(struct task_struct *task, unsigned int cpu);
+unsigned int select_wake_cpu(struct task_struct *task);
 void dequeue_task(struct task_struct *task);
 int migrate_task(struct task_struct *task, unsigned int new_cpu);
 void dump_rq(struct rq *rq);

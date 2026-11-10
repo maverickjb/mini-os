@@ -130,13 +130,13 @@ A tick can preempt a user task without calling `schedule()` from the IRQ handler
 - `kernel/sched/core.c` — round-robin `pick_next_task()`, `enqueue_task` / `enqueue_task_cpu` / `dequeue_task`, `migrate_task()`, `resched_cpu()`, pull-based `try_pull_task()`, `sched_block()`, `schedule()` → `switch_to`.
 - `kernel/sched/idle.c` — per-CPU idle (PID 0); IRQs enabled in `cpu_idle()` so secondaries take timer/IPI.
 - `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
-- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables, VMA list, and file table; `task_attach()` on creation; `wake_up_process()` enqueues then `resched_cpu(task->cpu)`. `task_struct` and `mm_struct` allocated with `kmalloc`.
+- `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables, VMA list, and file table; `task_attach()` on creation; `wake_up_process()` enqueues on the lightest (or idle) CPU then `resched_cpu(task->cpu)`. `task_struct` and `mm_struct` allocated with `kmalloc`.
 - `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-ERESTARTSYS` / `SA_RESTART`); `task_detach()` on reap; `kfree(task)` after stack and page tables are released.
 - `kernel/pid.c` — `getpid`, `getpgrp`, `setpgid`, `getsid`, `setsid`.
 
 **Runqueue policy:** only `TASK_RUNNING` tasks sit on a CPU’s `rq.tasks`. Sleep/stop/exit calls `sched_block()` → `dequeue_task()`; wake paths call `wake_up_process()` → `enqueue_task()` (or `enqueue_task_cpu`) and may IPI the target CPU. Non-runnable tasks remain on `all_tasks` for `wait4`, signals, and `/proc` walks.
 
-**Load balance:** when `schedule()` would run idle on an empty local rq, `try_pull_task()` steals one runnable task from a busier CPU (`source->nr_running > dest->nr_running + 1`), never the source’s `curr` and never its last task. User tasks may run on any online CPU (TTBR0 / UAO set up on secondaries).
+**Load balance:** new tasks (`fork`, first wake) pick the online CPU with the smallest `rq.nr_running`. A later wake may move a task onto an idle CPU if its previous CPU is already busy. When `schedule()` would run idle on an empty local rq, `try_pull_task()` still steals one runnable task from a busier CPU (`source->nr_running > dest->nr_running + 1`), never the source’s `curr` and never its last task. User tasks may run on any online CPU (TTBR0 / UAO set up on secondaries).
 
 States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
 
@@ -329,7 +329,7 @@ sh /kselftests/run_kselftest.sh
 - `sched/fork_busy_test.c` — 8 busy `fork` children all exit and get `waitpid` (none stuck `RUNNING`).
 - `sched/sleep_spin_test.c` — `nanosleep` child wakes while a spinner stays `RUNNING`.
 - `sched/yield_pong_test.c` — two tasks ping-pong a shared counter with `sched_yield`.
-- `sched/hog_smp_test.c` — 8 CPU hogs on `-smp 4`; idle pull puts them on more than one CPU (`/proc/<pid>/stat` field 39).
+- `sched/hog_smp_test.c` — 8 CPU hogs on `-smp 4`; fork placement should show them on all 4 CPUs (`/proc/<pid>/stat` field 39).
 - `sched/sched_bench_test.c` — 8 yield hogs; prints `switches/s` from `/proc/schedstat` (TCG is noisy; compare ratios, not ns).
 
 To add a suite: create `tools/testing/selftests/foo/`, add a `Makefile` with `TEST_GEN_PROGS` and `include ../lib.mk`, then append `foo` to `TARGETS` in `tools/testing/selftests/Makefile`.

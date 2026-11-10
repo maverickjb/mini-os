@@ -142,13 +142,82 @@ void enqueue_task_cpu(struct task_struct *task, unsigned int cpu)
     spin_unlock_irqrestore(&rq->lock, flags);
 }
 
+static unsigned int rq_nr_running(unsigned int cpu)
+{
+    unsigned int n;
+    unsigned long flags;
+    struct rq *rq;
+
+    if (cpu >= NR_CPUS)
+        return 0;
+
+    rq = &cpu_data[cpu].rq;
+    spin_lock_irqsave(&rq->lock, flags);
+    n = rq->nr_running;
+    spin_unlock_irqrestore(&rq->lock, flags);
+    return n;
+}
+
+/*
+ * Least-loaded online CPU. Ties go to the lowest id so successive forks
+ * fill CPU0, CPU1, … instead of piling on the caller.
+ */
+static unsigned int select_rq_cpu(void)
+{
+    unsigned int cpu;
+    unsigned int best = smp_processor_id();
+    unsigned int min_load = ~0U;
+
+    for (cpu = 0; cpu < NR_CPUS; cpu++) {
+        unsigned int load;
+
+        if (!cpu_online(cpu))
+            continue;
+        load = rq_nr_running(cpu);
+        if (load < min_load) {
+            min_load = load;
+            best = cpu;
+        }
+    }
+    return best;
+}
+
+static int has_idle_cpu(void)
+{
+    unsigned int cpu;
+
+    for (cpu = 0; cpu < NR_CPUS; cpu++) {
+        if (cpu_online(cpu) && rq_nr_running(cpu) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+unsigned int select_wake_cpu(struct task_struct *task)
+{
+    unsigned int cpu;
+
+    if (!task)
+        return smp_processor_id();
+
+    cpu = task->cpu;
+    if (cpu >= NR_CPUS || !cpu_online(cpu))
+        return select_rq_cpu();
+
+    /* Previous CPU is busy and some other CPU is idle — don't sit in a pile. */
+    if (rq_nr_running(cpu) > 0 && has_idle_cpu())
+        return select_rq_cpu();
+
+    return cpu;
+}
+
 void enqueue_task(struct task_struct *task)
 {
     if (!task)
         return;
 
-    if (task->cpu >= NR_CPUS)
-        task->cpu = smp_processor_id();
+    if (task->cpu >= NR_CPUS || !cpu_online(task->cpu))
+        task->cpu = select_rq_cpu();
 
     enqueue_task_cpu(task, task->cpu);
 }

@@ -31,6 +31,13 @@ static void cpu_mark_online(unsigned int cpu)
     cpu_online_map[cpu] = 1;
 }
 
+int cpu_online(unsigned int cpu)
+{
+    if (cpu >= NR_CPUS)
+        return 0;
+    return cpu_online_map[cpu] != 0;
+}
+
 static void cpu_init(unsigned int cpu)
 {
     cpu_data[cpu].id = cpu;
