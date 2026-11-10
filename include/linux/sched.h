@@ -15,6 +15,9 @@ struct dentry;
 #define NR_OPEN           32
 #define SCHED_TIME_SLICE  10
 
+#define TIF_NEED_RESCHED    (1UL << 0) /* reserved; still use need_resched */
+#define TIF_POLLING_NRFLAG  (1UL << 1)
+
 enum task_state {
     TASK_RUNNING,
     TASK_IDLE,
@@ -60,8 +63,6 @@ struct sched_stat {
 };
 
 extern struct sched_stat sched_stat[];
-/* Idle loop is watching need_resched; remote wake may skip the IPI. */
-extern volatile int idle_polling[];
 
 struct task_struct {
     pid_t pid;
@@ -80,6 +81,7 @@ struct task_struct {
     struct task_struct *parent;
     int time_slice;
     volatile int need_resched;
+    unsigned long flags;
     int is_user;
     unsigned long user_sp;
     /* TPIDR_EL0 — musl TLS base; must be saved/restored across switches. */
@@ -120,6 +122,57 @@ struct task_struct {
 extern struct task_struct idle_tasks[];
 
 struct task_struct *get_current(void);
+
+/*
+ * Freestanding -O0 has no libgcc outline-atomics. ldxr/stlxr match
+ * include/linux/spinlock.h.
+ */
+static inline __attribute__((always_inline)) void
+set_tsk_flag(struct task_struct *p, unsigned long flag)
+{
+    unsigned long old, n;
+    unsigned int t;
+
+    if (!p)
+        return;
+    do {
+        __asm__ volatile("ldxr %0, [%1]" : "=&r"(old) : "r"(&p->flags) : "memory");
+        n = old | flag;
+        __asm__ volatile("stlxr %w0, %1, [%2]"
+                         : "=&r"(t)
+                         : "r"(n), "r"(&p->flags)
+                         : "memory");
+    } while (t);
+}
+
+static inline __attribute__((always_inline)) void
+clear_tsk_flag(struct task_struct *p, unsigned long flag)
+{
+    unsigned long old, n;
+    unsigned int t;
+
+    if (!p)
+        return;
+    do {
+        __asm__ volatile("ldxr %0, [%1]" : "=&r"(old) : "r"(&p->flags) : "memory");
+        n = old & ~flag;
+        __asm__ volatile("stlxr %w0, %1, [%2]"
+                         : "=&r"(t)
+                         : "r"(n), "r"(&p->flags)
+                         : "memory");
+    } while (t);
+}
+
+static inline __attribute__((always_inline)) int
+test_tsk_flag(struct task_struct *p, unsigned long flag)
+{
+    unsigned long v;
+
+    if (!p)
+        return 0;
+    __asm__ volatile("ldar %0, [%1]" : "=r"(v) : "r"(&p->flags) : "memory");
+    return (v & flag) != 0;
+}
 
 static inline void set_need_resched(void)
 {

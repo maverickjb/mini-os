@@ -1,9 +1,9 @@
 /*
  * Idle task — PID 0 per CPU.
  *
- * Polling protocol (simplified Linux TIF_POLLING_NRFLAG):
- * idle_polling[cpu] means this CPU's idle loop will observe need_resched
- * without an IPI. Drop the flag before WFI so a remote wake sends SGI.
+ * TIF_POLLING_NRFLAG on this CPU's idle task_struct means the idle loop
+ * will observe need_resched without an IPI. Clear it before WFI so a
+ * remote wake sends SGI. (need_resched stays its own field.)
  */
 
 #include <linux/sched.h>
@@ -22,7 +22,7 @@ void cpu_idle(void)
 
     set_current(idle);
     idle->state = TASK_IDLE;
-    idle_polling[cpu] = 0;
+    clear_tsk_flag(idle, TIF_POLLING_NRFLAG);
 
     /*
      * Saved daif must have IRQs on: context_switch restores it when we
@@ -36,17 +36,17 @@ void cpu_idle(void)
 
     for (;;) {
         local_irq_disable();
-        idle_polling[cpu] = 1;
+        set_tsk_flag(idle, TIF_POLLING_NRFLAG);
         smp_mb();
         if (need_resched()) {
-            idle_polling[cpu] = 0;
+            clear_tsk_flag(idle, TIF_POLLING_NRFLAG);
             local_irq_enable();
             schedule();
             continue;
         }
 
         /* Not polling: wakers must IPI. Recheck after the store. */
-        idle_polling[cpu] = 0;
+        clear_tsk_flag(idle, TIF_POLLING_NRFLAG);
         smp_mb();
         if (need_resched()) {
             local_irq_enable();

@@ -117,18 +117,18 @@ This is the “CPU trap into the kernel, then `eret` back” story.
 - `kernel/time/time.c` / `clocksource.c` — `get_real_time()` / `set_real_time()`: PL031 Unix seconds plus CNTPCT sub-second offset. `clock_gettime` / `clock_settime` (`CLOCK_REALTIME`) use this; `CLOCK_MONOTONIC` stays on `jiffies` (set is `-EINVAL`).
 - `drivers/rtc/pl031.c` — QEMU virt PL031 RTC at `0x09010000` (read `RTCDR`, write `RTCLR`).
 - `drivers/virtio/virtio_mmio.c` — scan QEMU virt virtio-mmio slots (`0x0a000000`, 32 × `0x200`). For net: reset, `ACKNOWLEDGE|DRIVER`, print features, queue sizes, MAC. QEMU 8’s transport is often **mmio v1** on the last slot. No virtqueues yet. `make run` attaches `virtio-net-device`.
-- **`need_resched`** — the tick (and reschedule IPI) only set a flag on the target CPU’s `curr`. `irq_exit()` calls `schedule()` when `need_resched && interrupted_el0` (user preemption only). Idle CPUs poll `need_resched` / `idle_polling` and `WFI`; a remote wake IPIs only if that CPU is not polling.
+- **`need_resched`** — the tick (and reschedule IPI) set a flag on the target CPU’s `curr`. `irq_exit()` calls `schedule()` when `need_resched && interrupted_el0` (user preemption only). Idle sets `TIF_POLLING_NRFLAG` on **that CPU’s idle** `task_struct` while watching `need_resched`, then clears it before `WFI`; a remote wake IPIs only if the idle task is not polling.
 
 A tick can preempt a user task without calling `schedule()` from the IRQ handler itself. Kernel stacks stay per-task so a syscall or IRQ frame survives a context switch.
 
 ### Scheduling and tasks
 
-- `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, `cpu`, `need_resched`, kernel `cpu_context`, user `pt_regs *`, embedded `run_list` / `task_list`, files, cwd, signal mask.
+- `include/linux/sched.h` — `task_struct`: pid, tgid, pgid, sid, state, `cpu`, `need_resched`, `flags` (`TIF_POLLING_NRFLAG` on idle), kernel `cpu_context`, user `pt_regs *`, embedded `run_list` / `task_list`, files, cwd, signal mask.
 - `struct rq` — per-CPU runqueue: `lock`, `tasks`, `nr_running`, `cpu`. Embedded in `cpu_data[cpu].rq` (`include/asm/smp.h`).
 - **`current`** — `TPIDR_EL1` holds `&cpu_data[this_cpu]`; `this_cpu_ptr()->curr` is the running task (also used from `prepare_kstack_el0` in asm).
 - `all_tasks` — global task list (sleeping, stopped, zombie, runnable); protected by **`tasklist_lock`**, separate from each `rq.lock`.
 - `kernel/sched/core.c` — round-robin `pick_next_task()`, `enqueue_task` / `enqueue_task_cpu` / `dequeue_task`, `migrate_task()`, `resched_cpu()`, pull-based `try_pull_task()`, `sched_block()`, `schedule()` → `switch_to`.
-- `kernel/sched/idle.c` — per-CPU idle (PID 0); poll `need_resched` with `idle_polling[cpu]`, then `WFI` (IRQs off). Wake sets `curr->need_resched` and IPIs only if the CPU is not polling.
+- `kernel/sched/idle.c` — per-CPU idle (PID 0); poll `need_resched` with `TIF_POLLING_NRFLAG` on the idle task, then `WFI` (IRQs off). Wake sets `curr->need_resched` and IPIs only if that idle task is not polling.
 - `kernel/sched/wait.c` — wait queues: `prepare_to_wait`, `finish_wait`, `wake_up`, `wait_event`, `wait_event_interruptible`.
 - `kernel/fork.c` — `kernel_thread()`, `fork` (`clone`), copy page tables, VMA list, and file table; `task_attach()` on creation; `wake_up_process()` enqueues on the lightest (or idle) CPU then `resched_cpu(task->cpu)`. `task_struct` and `mm_struct` allocated with `kmalloc`.
 - `kernel/exit.c` — zombie, `SIGCHLD` to parent, `wait4` (`WNOHANG`, `WUNTRACED`, `WCONTINUED`; interruptible via `-ERESTARTSYS` / `SA_RESTART`); `task_detach()` on reap; `kfree(task)` after stack and page tables are released.

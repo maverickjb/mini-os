@@ -30,7 +30,6 @@ struct task_struct idle_tasks[NR_CPUS] = {
 };
 
 struct sched_stat sched_stat[NR_CPUS];
-volatile int idle_polling[NR_CPUS];
 
 static spinlock_t tasklist_lock = SPINLOCK_INIT;
 static struct list_head all_tasks = LIST_HEAD_INIT(all_tasks);
@@ -371,12 +370,14 @@ static void set_cpu_need_resched(unsigned int cpu)
  * Ask `cpu` to reconsider scheduling.
  *
  * 1. Set that CPU's curr->need_resched (the idle task while idle).
- * 2. smp_mb so the store is visible before we sample idle_polling.
- * 3. If the idle loop is polling, it will see the flag — no IPI.
+ * 2. smp_mb so the store is visible before we sample TIF_POLLING_NRFLAG.
+ * 3. If that CPU's idle task is polling, it will see need_resched — no IPI.
  * 4. Otherwise the CPU is in WFI (or in user), so send a reschedule SGI.
  */
 void resched_cpu(unsigned int cpu)
 {
+    struct task_struct *idle;
+
     if (cpu >= NR_CPUS)
         return;
 
@@ -385,7 +386,8 @@ void resched_cpu(unsigned int cpu)
         return;
 
     smp_mb();
-    if (idle_polling[cpu])
+    idle = cpu_data[cpu].idle;
+    if (test_tsk_flag(idle, TIF_POLLING_NRFLAG))
         return;
 
     sched_stat[smp_processor_id()].nr_ipis++;
