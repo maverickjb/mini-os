@@ -21,6 +21,12 @@
 #include <asm/barrier.h>
 
 #include <linux/mm.h>
+#include <asm/asm-offsets.h>
+
+_Static_assert(offsetof(struct task_struct, stack) == TASK_stack,
+               "TASK_stack");
+_Static_assert(offsetof(struct task_struct, on_cpu) == TASK_on_cpu,
+               "TASK_on_cpu");
 
 struct task_struct idle_tasks[NR_CPUS] = {
     [0] = { .pid = 0, .state = TASK_IDLE },
@@ -293,12 +299,13 @@ int migrate_task(struct task_struct *task, unsigned int new_cpu)
 
     /*
      * Only migrate a task that is currently runnable on the source rq,
-     * and never the task that CPU is executing right now.
+     * and never the task that CPU is executing (curr / on_cpu).
      */
     if (task->state != TASK_RUNNING ||
         !list_is_linked(&task->run_list) ||
         task->cpu != old_cpu ||
-        task == cpu_data[old_cpu].curr) {
+        task == cpu_data[old_cpu].curr ||
+        smp_load_acquire(&task->on_cpu)) {
         if (old_cpu < new_cpu) {
             spin_unlock(&new_rq->lock);
             spin_unlock_irqrestore(&old_rq->lock, flags);
@@ -328,8 +335,13 @@ int migrate_task(struct task_struct *task, unsigned int new_cpu)
         spin_unlock_irqrestore(&new_rq->lock, flags);
     }
 
-    /* Doorbell: ask the destination CPU to reconsider its runqueue. */
-    resched_cpu(new_cpu);
+    /*
+     * Remote dest may be in WFI — IPI. Pull-to-self is already inside
+     * schedule() and will pick next; a local doorbell would leave
+     * need_resched set on prev when we keep running it.
+     */
+    if (new_cpu != smp_processor_id())
+        resched_cpu(new_cpu);
 
     return 0;
 }
@@ -395,9 +407,10 @@ void resched_cpu(unsigned int cpu)
 }
 
 /*
- * Pull-based load balancing: idle/empty CPUs steal from a busier CPU.
- * Reuses migrate_task(); never steals the source CPU's current task or
- * its last runnable task.
+ * Pull-based load balancing: steal from a busier CPU while this rq is
+ * underloaded (source > dest + 1), not only while idle. Reuses
+ * migrate_task(); never steals the source CPU's current task or its
+ * last runnable task.
  */
 static int find_busiest_cpu(unsigned int this_cpu)
 {
@@ -454,6 +467,8 @@ static struct task_struct *pick_migratable_task(struct rq *rq,
         if (task == exclude)
             continue;
         if (task->pid == 0)
+            continue;
+        if (smp_load_acquire(&task->on_cpu))
             continue;
         return task;
     }
@@ -527,6 +542,7 @@ void sched_init_idle(unsigned int cpu)
     INIT_LIST_HEAD(&idle_tasks[cpu].run_list);
     cpu_data[cpu].idle = &idle_tasks[cpu];
     cpu_data[cpu].curr = &idle_tasks[cpu];
+    idle_tasks[cpu].on_cpu = 1;
 }
 
 static void context_switch(struct task_struct *prev, struct task_struct *next)
@@ -576,11 +592,19 @@ static void context_switch(struct task_struct *prev, struct task_struct *next)
     }
 
     /*
-     * Real context switch — returns on prev's kernel stack only when prev
-     * runs again (Linux-style). On exit, prev is zombie and never returns.
-     * prev's SP still points into the stack that holds its pt_regs.
+     * Returns on next's stack. x0 is the task this CPU just left; assign
+     * it into prev so finish_switch sees that task, not this frame's old
+     * local (which lives on the incoming stack).
      */
-    switch_to(prev, next);
+    prev = switch_to(prev, next);
+    finish_switch(prev);
+}
+
+void finish_switch(struct task_struct *prev)
+{
+    if (!prev || prev == current)
+        return;
+    smp_store_release(&prev->on_cpu, 0);
 }
 
 void schedule(void)
@@ -591,9 +615,17 @@ void schedule(void)
     struct task_struct *next;
     struct task_struct *idle = idle_task();
     unsigned long flags;
-    int was_empty;
 
-    spin_lock_irqsave(&rq->lock, flags);
+    flags = local_irq_save();
+
+    /*
+     * Steal while this rq is lighter than busiest by more than one
+     * (not only while idle). One steal per schedule(); migrate_task
+     * takes both rq locks.
+     */
+    try_pull_task(cpu);
+
+    spin_lock(&rq->lock);
     /*
      * Clear under the rq lock (IRQs off). Clearing earlier races with a
      * tick that sets need_resched again before we pick; leaving it set
@@ -602,29 +634,21 @@ void schedule(void)
      */
     clear_need_resched();
     next = pick_next_task(rq, prev);
-    was_empty = list_empty(&rq->tasks);
-    spin_unlock_irqrestore(&rq->lock, flags);
+    if (next != idle && !next->stack) {
+        spin_unlock(&rq->lock);
+        local_irq_restore(flags);
+        return;
+    }
+    next->on_cpu = 1;
+    spin_unlock(&rq->lock);
 
-    /*
-     * No local work → pull from a busier CPU (may be a user task on SMP),
-     * then pick again. Pull outside this rq lock; migrate_task takes both.
-     */
-    if (next == idle && was_empty) {
-        if (try_pull_task(cpu)) {
-            spin_lock_irqsave(&rq->lock, flags);
-            next = pick_next_task(rq, prev);
-            spin_unlock_irqrestore(&rq->lock, flags);
-        }
+    if (next == prev) {
+        local_irq_restore(flags);
+        return;
     }
 
-    if (next == prev)
-        return;
-
-    /* Stub / incomplete tasks must not be switched to. */
-    if (next != idle && !next->stack)
-        return;
-
     sched_stat[cpu].nr_switches++;
+    /* IRQs stay off until context_switch restores next->daif. */
     context_switch(prev, next);
 }
 

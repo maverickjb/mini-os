@@ -103,6 +103,45 @@ static int unique_cpus(const pid_t *pids, int n)
 	return ncpu;
 }
 
+static int hog_spread_ok(const pid_t *pids, int n, int *out_min, int *out_max)
+{
+	int count[32];
+	int i;
+	int cpu;
+	int min_c;
+	int max_c;
+	int seen;
+
+	for (i = 0; i < 32; i++)
+		count[i] = 0;
+
+	seen = 0;
+	for (i = 0; i < n; i++) {
+		cpu = read_processor(pids[i]);
+		if (cpu < 0 || cpu >= 32)
+			continue;
+		count[cpu]++;
+		seen++;
+	}
+	if (seen != n)
+		return 0;
+
+	min_c = n;
+	max_c = 0;
+	for (i = 0; i < 32; i++) {
+		if (!count[i])
+			continue;
+		if (count[i] < min_c)
+			min_c = count[i];
+		if (count[i] > max_c)
+			max_c = count[i];
+	}
+	*out_min = min_c;
+	*out_max = max_c;
+	/* 8 hogs / 4 CPUs → 2 each; allow 3 and 1 only if unique CPUs failed. */
+	return min_c >= 2 && max_c <= 2;
+}
+
 static void reap_hogs(pid_t *pids, int n)
 {
 	struct timespec deadline;
@@ -132,11 +171,14 @@ int main(void)
 	int nfork;
 	int nalive;
 	int ncpu;
+	int min_c;
+	int max_c;
+	int balanced;
 	int i;
 	pid_t w;
 
 	ksft_print_header();
-	ksft_set_plan(3);
+	ksft_set_plan(4);
 
 	nfork = 0;
 	for (i = 0; i < NHOG; i++) {
@@ -152,15 +194,20 @@ int main(void)
 	if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0) {
 		ksft_test_result_fail("clock_gettime\n");
 		ksft_test_result_fail("hogs spread across CPUs\n");
+		ksft_test_result_fail("hogs balanced across CPUs\n");
 		reap_hogs(pids, nfork);
 		ksft_finished();
 	}
 	deadline.tv_sec += TIMEOUT_SEC;
 
 	ncpu = 0;
+	min_c = 0;
+	max_c = 0;
+	balanced = 0;
 	while (!timed_out(&deadline)) {
 		ncpu = unique_cpus(pids, nfork);
-		if (ncpu >= MIN_CPUS)
+		balanced = hog_spread_ok(pids, nfork, &min_c, &max_c);
+		if (ncpu >= MIN_CPUS && balanced)
 			break;
 		sched_yield();
 	}
@@ -178,6 +225,9 @@ int main(void)
 	ksft_test_result(ncpu >= MIN_CPUS,
 			 "hogs observed on %d CPUs (want >= %d)\n",
 			 ncpu, MIN_CPUS);
+	ksft_test_result(balanced,
+			 "hogs per CPU min=%d max=%d (want 2 and 2)\n",
+			 min_c, max_c);
 
 	reap_hogs(pids, nfork);
 	ksft_finished();

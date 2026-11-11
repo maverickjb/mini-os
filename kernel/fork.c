@@ -72,6 +72,7 @@ static void task_zero(struct task_struct *tsk)
     tsk->pid = 0;
     tsk->tgid = 0;
     tsk->cpu = NR_CPUS; /* unset — enqueue/wake picks the lightest CPU */
+    tsk->on_cpu = 0;
     tsk->state = TASK_SLEEPING;
     tsk->thread_fn = NULL;
     tsk->thread_arg = NULL;

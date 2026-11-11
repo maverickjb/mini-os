@@ -13,7 +13,9 @@ void wake_up_process(struct task_struct *task);
 void kernel_init(void *arg);
 
 void copy_pt_regs(struct pt_regs *dst, const struct pt_regs *src);
-void switch_to(struct task_struct *prev, struct task_struct *next);
+struct task_struct *switch_to(struct task_struct *prev,
+                              struct task_struct *next);
+void finish_switch(struct task_struct *prev);
 
 void task_user_ctx_init(struct task_struct *task);
 void ret_from_fork(void) __attribute__((noreturn));

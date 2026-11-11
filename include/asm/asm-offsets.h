@@ -9,6 +9,7 @@
  * struct task_struct — offsets for assembly (must match linux/sched.h).
  */
 #define TASK_stack        136
+#define TASK_on_cpu       420
 
 /*
  * struct cpu — offsets for assembly (must match asm/smp.h).

@@ -10,7 +10,14 @@
 .global finish_eret
 
 /*
- * void switch_to(struct task_struct *prev, struct task_struct *next)
+ * struct task_struct *switch_to(prev, next)
+ *
+ * Saves prev, loads next, ret to next's saved x30. x0 (prev) is not
+ * restored, so it becomes the return value — the task this CPU just
+ * left. The resumed caller must do `prev = switch_to(prev, next)` so
+ * the C local on the *incoming* stack becomes that pointer (Linux
+ * `switch_to(..., last)`). First-run tasks never return here; they
+ * enter ret_from_fork / task_trampoline with x0 still prev.
  */
 switch_to:
     /*
@@ -33,6 +40,13 @@ switch_to:
     ldp     x29, x30, [x1, #CTX_fp_pc]
     ldr     x9, [x1, #CTX_sp]
     mov     sp, x9
+    /*
+     * prev is no longer executing. Release on_cpu here so first-run
+     * tasks (ret_from_fork / trampoline) never return into C
+     * finish_switch; x0 is still prev.
+     */
+    add     x10, x0, #TASK_on_cpu
+    stlr    wzr, [x10]
 
     ret
 

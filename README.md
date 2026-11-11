@@ -136,7 +136,7 @@ A tick can preempt a user task without calling `schedule()` from the IRQ handler
 
 **Runqueue policy:** only `TASK_RUNNING` tasks sit on a CPU’s `rq.tasks`. Sleep/stop/exit calls `sched_block()` → `dequeue_task()`; wake paths call `wake_up_process()` → `enqueue_task()` (or `enqueue_task_cpu`) and may IPI the target CPU. Non-runnable tasks remain on `all_tasks` for `wait4`, signals, and `/proc` walks.
 
-**Load balance:** new tasks (`fork`, first wake) pick the online CPU with the smallest `rq.nr_running`. A later wake may move a task onto an idle CPU if its previous CPU is already busy. When `schedule()` would run idle on an empty local rq, `try_pull_task()` still steals one runnable task from a busier CPU (`source->nr_running > dest->nr_running + 1`), never the source’s `curr` and never its last task. User tasks may run on any online CPU (TTBR0 / UAO set up on secondaries).
+**Load balance:** new tasks (`fork`, first wake) pick the online CPU with the smallest `rq.nr_running`. A later wake may move a task onto an idle CPU if its previous CPU is already busy. Each `schedule()` may `try_pull_task()`: steal one runnable task from a busier CPU if `source->nr_running > dest->nr_running + 1`, never the source’s `curr` and never its last task. Idle-only pull would stop at 5+1+1+1 after one steal; this keeps pulling while underloaded so 8 hogs can reach 2+2+2+2. User tasks may run on any online CPU (TTBR0 / UAO set up on secondaries).
 
 States are the usual teaching set: `RUNNING`, `SLEEPING`, `STOPPED`, `ZOMBIE`, idle. There is no CFS, no cgroups, no kernel preemption of kernel threads beyond explicit `schedule()`.
 
@@ -346,7 +346,7 @@ Fork copies that frame onto the child’s kernel stack and points the child at `
 
 ## What is deliberately missing
 
-No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (only idle pull). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `vhangup`, mount/unmount, etc.
+No `siginfo`, no `ptrace`, no networking, no disk. No mutexes or reader/writer locks yet. No CFS / push balancing (pull only). No PIE loader, no `ld.so`. No file-backed `mmap`. No full driver model (sysfs / `cdev` kobjects); char devices are a major→open table plus ramfs `mknod`. No shebang interpreter. Many syscalls BusyBox can optionally use are still absent: `vhangup`, mount/unmount, etc.
 
 Names like `task_struct` are there so you can grep Linux later and recognize the shape—not so this can merge with Linux.
 

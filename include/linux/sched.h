@@ -76,6 +76,8 @@ struct task_struct {
     struct file *files[NR_OPEN];
     unsigned long close_on_exec; /* bit i => FD_CLOEXEC on files[i] */
 	unsigned int cpu;
+    /* 1 while this task is executing (or about to) on some CPU. */
+    int on_cpu;
     struct list_head run_list;
     struct list_head task_list;
     struct task_struct *parent;
