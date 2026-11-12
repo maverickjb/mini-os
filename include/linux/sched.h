@@ -15,7 +15,7 @@ struct dentry;
 #define NR_OPEN           32
 #define SCHED_TIME_SLICE  10
 
-#define TIF_NEED_RESCHED    (1UL << 0) /* reserved; still use need_resched */
+#define TIF_NEED_RESCHED    (1UL << 0)
 #define TIF_POLLING_NRFLAG  (1UL << 1)
 
 enum task_state {
@@ -82,7 +82,6 @@ struct task_struct {
     struct list_head task_list;
     struct task_struct *parent;
     int time_slice;
-    volatile int need_resched;
     unsigned long flags;
     int is_user;
     unsigned long user_sp;
@@ -99,8 +98,6 @@ struct task_struct {
     enum child_event wait_event;
     pid_t pgid;
     pid_t sid;
-    /* PSTATE.{D,A,I,F} — saved/restored across switch_to */
-    unsigned long daif;
     /* Working directory dentry (NULL means root). */
     struct dentry *cwd;
     /* Pending signals bitmask (bit N => signal N). */
@@ -176,12 +173,49 @@ test_tsk_flag(struct task_struct *p, unsigned long flag)
     return (v & flag) != 0;
 }
 
+/* ldaxr/stlxr fetch_or — no libatomic / atomic_t on task->flags. */
+static inline __attribute__((always_inline)) unsigned long
+test_and_or_tsk_flag(struct task_struct *p, unsigned long flag)
+{
+    unsigned long old, n;
+    unsigned int t;
+
+    do {
+        __asm__ volatile("ldaxr %0, [%1]"
+                         : "=&r"(old)
+                         : "r"(&p->flags)
+                         : "memory");
+        n = old | flag;
+        __asm__ volatile("stlxr %w0, %1, [%2]"
+                         : "=&r"(t)
+                         : "r"(n), "r"(&p->flags)
+                         : "memory");
+    } while (t);
+    return old;
+}
+
+/*
+ * Set TIF_NEED_RESCHED on `task`. Return 1 if TIF_POLLING_NRFLAG was
+ * clear in the same old word (caller must IPI). Return 0 if idle is
+ * polling and will see NEED_RESCHED — no IPI.
+ */
+static inline __attribute__((always_inline)) int
+set_nr_and_not_polling(struct task_struct *task)
+{
+    unsigned long old;
+
+    if (!task)
+        return 1;
+    old = test_and_or_tsk_flag(task, TIF_NEED_RESCHED);
+    return !(old & TIF_POLLING_NRFLAG);
+}
+
 static inline void set_need_resched(void)
 {
     struct task_struct *task = get_current();
 
     if (task)
-        task->need_resched = 1;
+        set_tsk_flag(task, TIF_NEED_RESCHED);
 }
 
 static inline void clear_need_resched(void)
@@ -189,14 +223,14 @@ static inline void clear_need_resched(void)
     struct task_struct *task = get_current();
 
     if (task)
-        task->need_resched = 0;
+        clear_tsk_flag(task, TIF_NEED_RESCHED);
 }
 
 static inline int need_resched(void)
 {
     struct task_struct *task = get_current();
 
-    return task && task->need_resched;
+    return task && test_tsk_flag(task, TIF_NEED_RESCHED);
 }
 
 void rq_init(struct rq *rq, unsigned int cpu);

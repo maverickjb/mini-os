@@ -177,18 +177,16 @@ long tty_read(char *buf, unsigned long count)
     if (count == 0)
         return 0;
 
-    {
+    for (;;) {
         long wret = wait_event_interruptible(&tty0.read_wait, tty_read_ready);
 
         if (wret)
             return wret;
-    }
 
-    spin_lock_irqsave(&tty0.lock, flags);
-
-    if (!tty_read_ready_locked()) {
+        spin_lock_irqsave(&tty0.lock, flags);
+        if (tty_read_ready_locked())
+            break;
         spin_unlock_irqrestore(&tty0.lock, flags);
-        return 0;
     }
 
     if (tty0.canonical)

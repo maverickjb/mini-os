@@ -225,7 +225,7 @@ void handle_arch_irq(struct pt_regs *regs)
 {
     unsigned int irq;
 
-    if (current)
+    if (current && interrupted_el0(regs))
         current->regs = regs;
 
     if (gic_is_v3) {

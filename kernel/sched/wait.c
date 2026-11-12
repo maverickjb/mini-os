@@ -104,10 +104,10 @@ void wake_up(struct wait_queue_head *wq)
 
 int wait_event(struct wait_queue_head *wq, int (*condition)(void))
 {
-    struct wait_queue_entry wait;
-
-    wait.task = current;
-    wait.next = NULL;
+    struct wait_queue_entry wait = {
+        .task = current,
+        .next = NULL,
+    };
 
     for (;;) {
         local_irq_disable();
@@ -118,6 +118,12 @@ int wait_event(struct wait_queue_head *wq, int (*condition)(void))
         }
 
         prepare_to_wait(wq, &wait);
+
+        if (condition()) {
+            local_irq_enable();
+            finish_wait(wq, &wait);
+            break;
+        }
 
         local_irq_enable();
 
@@ -132,10 +138,10 @@ int wait_event(struct wait_queue_head *wq, int (*condition)(void))
 long wait_event_interruptible(struct wait_queue_head *wq,
                               int (*condition)(void))
 {
-    struct wait_queue_entry wait;
-
-    wait.task = current;
-    wait.next = NULL;
+    struct wait_queue_entry wait = {
+        .task = current,
+        .next = NULL,
+    };
 
     for (;;) {
         local_irq_disable();
@@ -151,6 +157,12 @@ long wait_event_interruptible(struct wait_queue_head *wq,
         }
 
         prepare_to_wait(wq, &wait);
+
+        if (condition()) {
+            local_irq_enable();
+            finish_wait(wq, &wait);
+            break;
+        }
 
         local_irq_enable();
 

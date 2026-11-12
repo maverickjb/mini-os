@@ -221,6 +221,25 @@ long ksys_ppoll(struct pollfd *ufds, unsigned int nfds,
         }
 
         local_irq_enable();
+        /*
+         * Pending UART IRQ on this CPU is taken at enable. Re-scan so
+         * we do not sleep until ppoll's timeout (ash KEYTIMEOUT ~1s).
+         */
+        nready = do_poll_scan(pfds, nfds, NULL);
+        if (nready || signal_pending(task) ||
+            (deadline && get_jiffies() >= deadline)) {
+            task->wake_jiffies = 0;
+            if (!list_is_linked(&task->run_list))
+                enqueue_task(task);
+            if (nready)
+                break;
+            poll_table_finish(&pt);
+            if (signal_pending(task))
+                return -EINTR;
+            nready = 0;
+            break;
+        }
+
         schedule();
         local_irq_disable();
         task->wake_jiffies = 0;

@@ -82,7 +82,6 @@ static void task_zero(struct task_struct *tsk)
     INIT_LIST_HEAD(&tsk->task_list);
     tsk->parent = NULL;
     tsk->time_slice = 0;
-    tsk->need_resched = 0;
     tsk->flags = 0;
     tsk->is_user = 0;
     tsk->user_sp = 0;
@@ -94,7 +93,6 @@ static void task_zero(struct task_struct *tsk)
     tsk->wait_event = CHILD_EVENT_NONE;
     tsk->pgid = 0;
     tsk->sid = 0;
-    tsk->daif = 0x3c0UL; /* D|A|I|F masked until first switch saves real DAIF */
     tsk->cwd = NULL; /* NULL => root */
     tsk->pending = 0;
     tsk->blocked = 0;
@@ -258,11 +256,11 @@ void wake_up_process(struct task_struct *task)
     if (!task)
         return;
 
-    if (task->state == TASK_RUNNING && list_is_linked(&task->run_list))
-        return;
+    if (!(task->state == TASK_RUNNING && list_is_linked(&task->run_list)))
+        enqueue_task_cpu(task, select_wake_cpu(task));
 
-    enqueue_task_cpu(task, select_wake_cpu(task));
-    /* Task may live on another CPU's rq — kick that CPU out of WFI/idle. */
+    /* Always kick: the task may already be on the rq from a wake whose
+     * IPI was skipped while idle was polling. */
     resched_cpu(task->cpu);
 }
 

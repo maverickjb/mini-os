@@ -383,9 +383,11 @@ void syscall_handler(struct pt_regs *regs)
     regs->x0 = (unsigned long)ret;
 
     /*
-     * Common return-to-user work. Keep IRQs masked until finish_eret —
-     * enabling here races with staging ELR/SPSR for EL0.
+     * Syscalls (tty_read, pipe, ppoll) may have enabled IRQs. Mask
+     * before do_signal / finish_eret — an IRQ after SP is raised onto
+     * the pt_regs slot corrupts ELR and hangs ash (echo still works).
      */
+    local_irq_disable();
     do_signal(regs);
     syscall_exit_restart(regs);
 

@@ -60,6 +60,7 @@ task_trampoline:
  * void finish_eret(struct pt_regs *regs) — restore frame and return to EL0.
  */
 finish_eret:
+    msr     daifset, #2
     mov     x21, x0
 
     ldp     x1, x2, [x21, #248]

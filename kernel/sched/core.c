@@ -367,39 +367,32 @@ void dump_rq(struct rq *rq)
     }
 }
 
-static void set_cpu_need_resched(unsigned int cpu)
-{
-    struct task_struct *task;
-
-    if (cpu >= NR_CPUS)
-        return;
-    task = cpu_data[cpu].curr;
-    if (task)
-        task->need_resched = 1;
-}
-
 /*
  * Ask `cpu` to reconsider scheduling.
  *
- * 1. Set that CPU's curr->need_resched (the idle task while idle).
- * 2. smp_mb so the store is visible before we sample TIF_POLLING_NRFLAG.
- * 3. If that CPU's idle task is polling, it will see need_resched — no IPI.
- * 4. Otherwise the CPU is in WFI (or in user), so send a reschedule SGI.
+ * Local: TIF_NEED_RESCHED on curr (no IPI).
+ * Remote: set_nr_and_not_polling(curr) — one fetch_or of NEED_RESCHED
+ * that also samples POLLING. Skip the SGI only if that old word had
+ * POLLING (idle will notice). Operate on curr, not idle: a stale
+ * POLLING bit on idle while a user task is curr must still IPI.
  */
 void resched_cpu(unsigned int cpu)
 {
-    struct task_struct *idle;
+    struct task_struct *curr;
 
     if (cpu >= NR_CPUS)
         return;
 
-    set_cpu_need_resched(cpu);
-    if (cpu == smp_processor_id())
+    curr = cpu_data[cpu].curr;
+    if (!curr)
         return;
 
-    smp_mb();
-    idle = cpu_data[cpu].idle;
-    if (test_tsk_flag(idle, TIF_POLLING_NRFLAG))
+    if (cpu == smp_processor_id()) {
+        set_tsk_flag(curr, TIF_NEED_RESCHED);
+        return;
+    }
+
+    if (!set_nr_and_not_polling(curr))
         return;
 
     sched_stat[smp_processor_id()].nr_ipis++;
@@ -536,8 +529,6 @@ void sched_init(void)
 
 void sched_init_idle(unsigned int cpu)
 {
-    /* Masked until cpu_idle() enables IRQs and refreshes daif. */
-    idle_tasks[cpu].daif = 0x3c0UL;
     idle_tasks[cpu].cpu = cpu;
     INIT_LIST_HEAD(&idle_tasks[cpu].run_list);
     cpu_data[cpu].idle = &idle_tasks[cpu];
@@ -547,27 +538,17 @@ void sched_init_idle(unsigned int cpu)
 
 static void context_switch(struct task_struct *prev, struct task_struct *next)
 {
-    unsigned long daif;
-
     if (prev->is_user) {
         __asm__ volatile("mrs %0, sp_el0" : "=r"(prev->user_sp));
         /* Userspace (musl) writes TPIDR_EL0 for TLS; keep it per-task. */
         __asm__ volatile("mrs %0, tpidr_el0" : "=r"(prev->tpidr_el0));
     }
 
-    /*
-     * DAIF is per-CPU PSTATE, not saved by switch_to. Without this, a task
-     * that local_irq_enable()'s before schedule() can resume another task
-     * mid-IRQ-exit with IRQs on, allowing a nested IRQ to clobber ELR/SPSR.
-     */
-    __asm__ volatile("mrs %0, daif" : "=r"(daif));
-    prev->daif = daif;
-
     next->time_slice = SCHED_TIME_SLICE;
-    next->need_resched = 0;
+    clear_tsk_flag(next, TIF_NEED_RESCHED);
 
     set_current(next);
-    __asm__ volatile("msr daif, %0" : : "r"(next->daif) : "memory");
+    /* IRQs stay masked; schedule() restores the incoming task's flags. */
 
     if (next->is_user && next->mm) {
         mm_install(next->mm);
@@ -642,13 +623,38 @@ void schedule(void)
     next->on_cpu = 1;
     spin_unlock(&rq->lock);
 
+    /*
+     * Wake after we dropped the rq lock can enqueue a task while we
+     * already picked idle. Re-read; staying idle would wait for a tick
+     * or ppoll timeout.
+     */
+    if (next == idle) {
+        spin_lock(&rq->lock);
+        if (rq->nr_running) {
+            struct task_struct *n2 = pick_next_task(rq, idle);
+
+            if (n2 != idle && n2->stack) {
+                idle->on_cpu = 0;
+                n2->on_cpu = 1;
+                next = n2;
+            }
+        }
+        spin_unlock(&rq->lock);
+    }
+
     if (next == prev) {
         local_irq_restore(flags);
         return;
     }
 
     sched_stat[cpu].nr_switches++;
-    /* IRQs stay off until context_switch restores next->daif. */
     context_switch(prev, next);
+    /*
+     * Incoming stack: `flags` is this task's DAIF from before it masked
+     * in schedule() (wait_event enables first). Restore here — not in
+     * context_switch — so finish_switch cannot take a nested IRQ that
+     * overlays the syscall pt_regs (finish_eret raises SP to the frame).
+     */
+    local_irq_restore(flags);
 }
 
