@@ -125,7 +125,11 @@ void handle_arch_tick(struct pt_regs *regs)
         serial_irq();
     }
 
-    if (current && current->pid != 0 && current->state == TASK_RUNNING) {
+    /*
+     * RR quantum: user TASK_RUNNING only. Idle and kthreads do not
+     * consume a slice; irq_exit() will schedule() on the next EL0 path.
+     */
+    if (current && current->is_user && current->state == TASK_RUNNING) {
         if (current->time_slice > 0)
             current->time_slice--;
 

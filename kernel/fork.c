@@ -343,7 +343,22 @@ long ksys_fork(struct pt_regs *regs)
 
 void ksys_sched_yield(void)
 {
+    unsigned int cpu;
+    unsigned int n;
+    unsigned long irqflags;
+
     if (!current || !current->is_user)
+        return;
+
+    /*
+     * Alone on this rq: RR has nobody to rotate to. schedule() would
+     * also pick prev and must not bump nr_switches; skip the call.
+     */
+    cpu = smp_processor_id();
+    spin_lock_irqsave(&cpu_data[cpu].rq.lock, irqflags);
+    n = cpu_data[cpu].rq.nr_running;
+    spin_unlock_irqrestore(&cpu_data[cpu].rq.lock, irqflags);
+    if (n <= 1)
         return;
 
     local_irq_enable();

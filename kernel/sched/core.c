@@ -643,6 +643,7 @@ void schedule(void)
     }
 
     if (next == prev) {
+        /* sched_yield / slice expire with nr_running == 1: not a switch. */
         local_irq_restore(flags);
         return;
     }
